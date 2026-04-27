@@ -58,6 +58,8 @@ candidates.
 | `pnpm release:provenance [--version] [--json]` | _(Sprint 65)_ Local-only stub that confirms the publish path is *configured* for provenance: workflow YAML grants `id-token: write` + references `--provenance`, and the publish command builder hardcodes `--provenance` for every tag. Safe to run anywhere. Deep attestation verification against Sigstore is reserved for a future sprint. |
 | `pnpm release:promote-latest --validate-only --version X.Y.Z [--registry URL]` | _(Sprint 68)_ Local-only validation for the dist-tag promote runner. No token, no confirm, no registry contact. Used by the workflow's preflight + by hand on the operator's machine. |
 | `pnpm release:promote-latest --version X.Y.Z --confirm "promote @plccopilot X.Y.Z to latest"` | _(Sprint 68)_ Real mode — moves the `latest` dist-tag to a version already on `next`. Refuses to start unless `NODE_AUTH_TOKEN` is set, the confirmation matches exactly, every package@next resolves to `<version>` first, and the runner's argv passes `assertNoPublishSurface`. Idempotent: packages already at `latest -> <version>` are skipped. **Only invoked by the GitHub Actions workflow.** |
+| `pnpm release:github --validate-only --version X.Y.Z [--tag vX.Y.Z]` | _(Sprint 69)_ Local-only validation for the GitHub Release runner. Asserts the workspace is at `<version>`, the tag equals `v<version>`, and `docs/releases/<version>.md` is in the post-promotion shape (no "pending", mentions every package and `latest`). No token, no confirm, no network. Used by the workflow's preflight + by hand on the operator's machine. |
+| `pnpm release:github --version X.Y.Z [--tag vX.Y.Z] --confirm "create GitHub release vX.Y.Z"` | _(Sprint 69)_ Real mode — shells out to `gh release create` with the canonical argv (tag `v<version>`, six tarballs + `manifest.json` from `.release-artifacts/tarballs/`, `--title "PLC Copilot v<version>"`, `--notes-file docs/releases/<version>.md`). Refuses to start if a release for the tag already exists. Never mutates npm — `assertNoNpmMutationSurface` rejects any argv with a publish / dist-tag / npm token. **Only invoked by the GitHub Actions workflow.** |
 
 `release:check`, `release:pack-dry-run`, and `release:publish-dry-run`
 are wired into [`pnpm run ci:contracts`](../package.json) (and the
@@ -273,6 +275,121 @@ to record the promotion (date + workflow URL) and tick §5 of
 | `PROMOTE_NPM_VIEW_NONZERO/PARSE_FAILED` | `npm view` exited non-zero or didn't return parseable JSON. |
 | `PROMOTE_DIST_TAG_NONZERO/SPAWN_FAILED` | The dist-tag add call itself failed; runner stops immediately and prints partial-state guidance. |
 
+## Creating the GitHub Release (Sprint 69)
+
+After a version has been published to npm under `next` (Sprint 67),
+promoted to `latest` (Sprint 68), and the post-promotion verification
+has passed, the matching git tag + GitHub Release are created via a
+separate manual workflow. This step does **not** mutate npm and never
+involves `NPM_TOKEN`.
+
+### What the workflow does
+
+[`.github/workflows/create-github-release.yml`](../.github/workflows/create-github-release.yml)
+is `workflow_dispatch`-only with two jobs:
+
+1. **`preflight`** (read-only): runs `release:github --validate-only`,
+   `release:npm-view --version <v> --tag latest`, `release:check`, and
+   `publish:audit --check`. Fails fast if the workspace, the registry,
+   or the release notes are out of shape — no GitHub-side state is
+   mutated here.
+2. **`create`** (`contents: write`): re-validates inputs, then runs
+   `pnpm build:packages-base` + `build:packages-vendor` + `cli:build`
+   from a fresh runner, packs the six tarballs via
+   `pnpm release:pack-artifacts --out .release-artifacts/tarballs --clean`,
+   and shells out to `pnpm release:github` with the operator-supplied
+   confirm. The runner builds the `gh release create` argv via
+   `buildGhReleaseCreateArgs` (frozen), calls
+   `assertNoNpmMutationSurface`, refuses if a release for the tag
+   already exists, then spawns `gh` with `GH_TOKEN` from
+   `secrets.GITHUB_TOKEN`.
+
+### Inputs
+
+| Input | Value |
+| --- | --- |
+| `version` | the npm version that's already on `latest` (e.g. `0.1.0`) |
+| `tag` | must equal `v<version>` (e.g. `v0.1.0`) |
+| `registry` | `https://registry.npmjs.org` (default) |
+| `confirm` | literal `create GitHub release v<version>` (byte-for-byte) |
+
+### Preflight (local, no GitHub)
+
+```sh
+pnpm release:github --validate-only --version 0.1.0 --tag v0.1.0
+pnpm release:npm-view --version 0.1.0 --tag latest
+```
+
+Both must exit 0 before triggering the workflow. The first checks the
+workspace + the live `docs/releases/0.1.0.md` against the GitHub-Release
+contract; the second confirms the version really is on `latest` on
+the registry.
+
+### Triggering
+
+1. _Actions → Create GitHub Release → Run workflow_.
+2. Inputs as above.
+3. Approve when the create job queues for environment review (only if
+   you've configured an environment on the workflow; the default
+   `contents: write` permission alone does not require approval, and
+   the workflow does not declare an environment for this release).
+4. After success, paste the release URL + tag URL into
+   `docs/releases/<version>.md` (replacing the `<paste …>` placeholders
+   in the GitHub Release section) and remove the **Status: pending**
+   line.
+
+### Tag-pointing decision
+
+The npm tarballs were published from the Sprint 67 commit, before the
+Sprint 68 + 69 closeout docs landed. `v0.1.0` is intentionally placed
+on the **release-closeout commit** (current `HEAD` when the workflow
+runs), not on the publish commit:
+
+- The npm tarballs are immutable. `git tag` placement does not change
+  what the registry serves.
+- The closeout commit is the complete release record — it includes the
+  filled postmortem, the promoted-to-latest doc, and the GitHub
+  Release tooling itself.
+- Future patches (`v0.1.1`) will get a new tag at their own publish
+  commit, so the historical separation is preserved per-version.
+
+If a future release needs strict source-tarball parity (e.g. for a
+reproducible-build attestation), it can pass `--target <sha>` to
+`gh release create` from a custom branch — but Sprint 69 does not.
+
+### Safety contract (encoded in tests)
+
+- Workflow trigger is `workflow_dispatch` only — no push, schedule,
+  or pull_request.
+- Top-level `permissions: contents: read`; only the `create` job
+  upgrades to `contents: write`.
+- The runner asserts every gh argv with `assertNoNpmMutationSurface`
+  before spawn — `publish` / `--publish` / `--no-dry-run` / `dist-tag`
+  / `npm` tokens are refused.
+- The parser also rejects `--publish` / `--dry-run` / `--no-dry-run`
+  / `--dist-tag` / `--yes` / `-y` at parse time.
+- Workflow YAML has **no** `npm publish` / `npm dist-tag` shell line —
+  only `gh release create` (via `pnpm release:github`).
+- `release:github --validate-only` rejects release notes that still
+  contain `planned first npm release — pending` or
+  `Do not promote to latest yet`, missing `latest` mention, or any
+  missing release-candidate package name.
+
+### Failure modes
+
+| Issue code | When it fires |
+| --- | --- |
+| `GITHUB_RELEASE_VERSION_REQUIRED/INVALID/MISMATCH` | `--version` is missing, not strict X.Y.Z, or doesn't match the workspace. |
+| `GITHUB_RELEASE_TAG_REQUIRED/MISMATCH` | `--tag` is missing or doesn't equal `v<version>`. |
+| `GITHUB_RELEASE_CONFIRM_REQUIRED/MISMATCH` | Real-mode confirm is missing or differs from `create GitHub release v<version>`. |
+| `GITHUB_RELEASE_NOTES_MISSING` | `docs/releases/<version>.md` does not exist or is empty. |
+| `GITHUB_RELEASE_NOTES_PENDING_STATUS` | Release notes still contain a historical "pending" / "do not promote" phrase. |
+| `GITHUB_RELEASE_NOTES_LATEST_MISSING` | Release notes do not mention the `latest` dist-tag. |
+| `GITHUB_RELEASE_NOTES_PACKAGE_MISSING` | Release notes do not list every release candidate. |
+| `GITHUB_RELEASE_NOTES_VERSION_MISSING` | Release notes do not mention the version string. |
+| `GITHUB_RELEASE_ASSET_MISSING` | Tarball / manifest count is wrong, a path is not `.tgz`, or a file is missing on disk. |
+| `GITHUB_RELEASE_ARG_UNKNOWN` | An argv flag hints at npm mutation (`--publish` / `--dist-tag` / etc.) and is rejected at parse time. |
+
 ## Manual npm publish workflow (Sprint 63)
 
 The repo ships a manual publish pipeline at
@@ -408,12 +525,16 @@ dry-run + real publish + partial-publish recovery, plus the new
 post-publish steps) lives in
 [`first-publish-checklist.md`](first-publish-checklist.md).
 
-## First-publish execution pack (Sprints 66 + 67 + 68)
+## First-publish execution pack (Sprints 66 + 67 + 68 + 69)
 
 Sprint 66 wrapped the very-first-publish run in three companion
 docs; Sprint 67 closed it out by actually executing the publish
 under the `next` dist-tag; **Sprint 68 closeout** promoted the
-release to `latest` after the human inspection period passed:
+release to `latest` after the human inspection period passed;
+**Sprint 69** added the GitHub Release tooling (workflow + helper +
+tests). The actual `git tag v0.1.0` + GitHub Release creation is
+operator-driven — see the "Creating the GitHub Release" section
+above for the dispatch checklist:
 
 - [`first-publish-checklist.md`](first-publish-checklist.md) —
   execution-sequence runbook with explicit **abort conditions**.
@@ -437,6 +558,13 @@ After Sprint 68 closeout, every `@plccopilot/<pkg>` resolves to
 `0.1.0` on **both** `next` and `latest`. `npm install @plccopilot/cli`
 with no explicit tag installs `0.1.0`.
 
+After Sprint 69 lands, the **tooling** for the GitHub Release exists
+(`pnpm release:github`, `.github/workflows/create-github-release.yml`,
+docs-contract tests). The actual `v0.1.0` git tag + GitHub Release
+page do **not** exist until the operator dispatches the workflow —
+the GitHub Release section in `releases/0.1.0.md` is intentionally
+left in **Status: pending** until that happens.
+
 ### Provenance stub scope (Sprint 65)
 
 `release:provenance` is a *stub* — it does NOT pull attestation
@@ -456,10 +584,13 @@ is reserved for a future sprint.
 
 ## Future work
 
-- First-real-publish rehearsal once `NPM_TOKEN` exists and the
-  `npm-publish` environment has reviewers.
-- Git tag + GitHub Release wiring driven from the same workflow.
+- First-real-publish rehearsal — done in Sprint 67.
+- Git tag + GitHub Release tooling — done in Sprint 69 (operator
+  dispatch of `Create GitHub Release` still pending).
 - Per-package patch mode for hotfixes.
 - Skip-existing / resume-after-partial-failure mode.
 - Changelog automation (commit-driven) once the project ships
   user-facing milestones.
+- Deep npm-provenance attestation verification (Sigstore Fulcio
+  chain walk + OIDC claim matching). Sprint 65 stub only checks the
+  publish path is configured for provenance.

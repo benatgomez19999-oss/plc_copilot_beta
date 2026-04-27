@@ -155,6 +155,42 @@ The full real-promotion flow (preflight, environment approval,
 post-mutation verification) lives in
 [`docs/release-process.md → Promoting next → latest`](docs/release-process.md#promoting-next--latest-sprint-68).
 
+### Create GitHub Release workflow (sprint 69)
+
+Creating the `v<version>` git tag + GitHub Release page is its own
+manual workflow ([`.github/workflows/create-github-release.yml`](.github/workflows/create-github-release.yml)).
+It runs **after** the npm publish + the `latest` promotion have
+landed and the post-promotion verification has passed.
+
+The runner (`pnpm release:github`) only ever shells out to `gh
+release create`. It refuses to spawn anything containing `publish`,
+`dist-tag`, or `npm` (`assertNoNpmMutationSurface`), and the parser
+rejects `--publish` / `--dry-run` / `--no-dry-run` / `--dist-tag` /
+`--yes` / `-y` at parse time. The release body comes verbatim from
+`docs/releases/<version>.md`; that file must be in the
+post-promotion shape (status flipped, every package + `latest`
+mentioned, no historical "pending" phrases) before the runner will
+proceed.
+
+What you _can_ run locally — and what you _should_ before
+dispatching the workflow — is the validate-only mode:
+
+```sh
+pnpm release:github --validate-only --version 0.1.0 --tag v0.1.0
+```
+
+That confirms the workspace, the tag, and the live release notes
+are all aligned. It does **not** require a GitHub token, does
+**not** require `--confirm`, does **not** call `gh`, and does
+**not** create anything.
+
+The full GitHub-Release flow (preflight, asset packing, gh release
+create, post-create verification) lives in
+[`docs/release-process.md → Creating the GitHub Release`](docs/release-process.md#creating-the-github-release-sprint-69).
+**Do not create the `v<version>` git tag manually unless recovering
+from a partial workflow failure** — the workflow places it on the
+release-closeout commit deliberately.
+
 ### Manual publish workflow (sprint 63)
 
 The repo's only path to a real `npm publish` is the manual

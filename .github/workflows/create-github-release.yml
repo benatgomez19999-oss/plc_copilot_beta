@@ -1,0 +1,166 @@
+name: Create GitHub Release
+
+# Sprint 69 — manual GitHub Release creation for an already-published
+# @plccopilot version.
+#
+# Triggered ONLY via workflow_dispatch. The runner that this workflow
+# invokes (`pnpm release:github`) only ever shells out to `gh`. It is
+# forbidden from spawning `npm` — `assertNoNpmMutationSurface` runs
+# against every gh argv before spawn, and the workflow YAML below has
+# no `npm publish` / `npm dist-tag` shell line. The whole job is
+# dist-tag / publish-free by construction.
+#
+# Two jobs:
+#
+#   1. preflight   — validate-only mode, asserts inputs match the
+#                    workspace, asserts the live release-notes file is
+#                    in the post-promotion shape, asserts the version
+#                    really resolves on the registry under `latest`.
+#                    No GitHub Release is created here.
+#   2. create      — re-validates inside the job, builds the six
+#                    tarballs from a fresh runner, and shells out to
+#                    `gh release create` with the validated argv.
+#                    `permissions: contents: write` is granted only
+#                    on this job; preflight is read-only.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (must already be on `latest` on npm)'
+        required: true
+        default: '0.1.0'
+      tag:
+        description: 'Git tag to create / use (must equal v<version>)'
+        required: true
+        default: 'v0.1.0'
+      registry:
+        description: 'npm registry (used by the verification step)'
+        required: true
+        default: 'https://registry.npmjs.org'
+      confirm:
+        description: 'Type exactly: create GitHub release v<version>'
+        required: true
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: create-github-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    name: preflight (validate inputs + verify npm + scan release notes)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate GitHub Release inputs (no token, no confirm needed)
+        # Sprint 69: fails fast if version is not strict semver,
+        # doesn't match the workspace, the tag is not v<version>, or
+        # docs/releases/<version>.md is missing / still in pending
+        # state. Real publish would have nothing to attach; this
+        # surfaces the problem before we touch GitHub.
+        run: pnpm release:github --validate-only --version "${{ inputs.version }}" --tag "${{ inputs.tag }}"
+
+      - name: Verify version is on the npm `latest` dist-tag
+        # Sprint 69 only creates GitHub Releases for versions that are
+        # already promoted to `latest`. A release on `next` only is
+        # not yet a "release" in the marketing sense.
+        run: pnpm release:npm-view --version "${{ inputs.version }}" --tag latest --registry "${{ inputs.registry }}"
+
+      - name: Release contract gate (release:check + publish-audit)
+        # Cheap consistency check — same gate the publish workflow
+        # runs at preflight. Catches an out-of-band package.json edit
+        # between the actual publish and the GitHub Release flow.
+        run: |
+          pnpm release:check
+          pnpm publish:audit --check
+
+  create:
+    name: create (gh release create, requires manual approval)
+    needs: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      # contents:write is the GitHub-side equivalent of npm publish:
+      # it lets the job push a tag + create a release. No npm scopes
+      # are needed and none are granted.
+      contents: write
+    env:
+      RELEASE_ARTIFACTS_DIR: '.release-artifacts/tarballs'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Full history so the tag points at a real commit and the
+          # GitHub Release UI can show the changelog diff.
+          fetch-depth: 0
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Re-validate GitHub Release inputs
+        run: pnpm release:github --validate-only --version "${{ inputs.version }}" --tag "${{ inputs.tag }}"
+
+      - name: Re-verify version is on npm `latest`
+        run: pnpm release:npm-view --version "${{ inputs.version }}" --tag latest --registry "${{ inputs.registry }}"
+
+      - name: Build packages (base + vendor + cli)
+        # Required so the pack step can produce real tarballs from the
+        # current commit. The npm tarballs uploaded to the GitHub
+        # Release should match the published artifacts byte-for-byte
+        # because the source is unchanged; the `npm pack` repackages
+        # them deterministically from the same `files[]` set.
+        run: |
+          pnpm build:packages-base
+          pnpm build:packages-vendor
+          pnpm cli:build
+
+      - name: Pack release tarballs (six .tgz + manifest.json)
+        run: pnpm release:pack-artifacts --out "$RELEASE_ARTIFACTS_DIR" --clean
+
+      - name: Create GitHub Release (gh release create)
+        # `pnpm release:github` shells out to `gh release create` with
+        # the canonical argv (tag, six tarball asset paths, manifest.json,
+        # --title, --notes-file). The runner asserts the argv has no
+        # npm-mutation surface (`assertNoNpmMutationSurface`) and
+        # refuses to start if the tag already has a release.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          pnpm release:github \
+            --version "${{ inputs.version }}" \
+            --tag "${{ inputs.tag }}" \
+            --confirm "${{ inputs.confirm }}"

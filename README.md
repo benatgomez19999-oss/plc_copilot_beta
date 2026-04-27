@@ -83,6 +83,8 @@ pnpm install
 | `pnpm release:provenance [--version X.Y.Z] [--json]` | _(Sprint 65)_ Local-only stub that confirms the publish workflow grants `id-token: write` + references `--provenance`, and that the publish command builder still hardcodes `--provenance` for every supported tag. Does not contact the registry; safe for `ci:contracts`-style invocation but kept manual today |
 | `pnpm release:promote-latest --validate-only --version X.Y.Z` | _(Sprint 68)_ Local-only validation for the dist-tag promote runner. No token, no confirm, no registry contact. Mirrors the workflow's preflight job |
 | `pnpm release:promote-latest --version X.Y.Z --confirm "promote @plccopilot X.Y.Z to latest"` | _(Sprint 68)_ Real mode — moves the `latest` dist-tag to the version that's already on `next`. Requires `NODE_AUTH_TOKEN`; never publishes a tarball; idempotent (skips packages whose `latest` already matches). **Only invoked by the GitHub Actions workflow.** |
+| `pnpm release:github --validate-only --version X.Y.Z [--tag vX.Y.Z]` | _(Sprint 69)_ Local-only validation for the GitHub Release runner. Asserts the workspace, the tag (`v<version>`), and `docs/releases/<version>.md` are in the post-promotion shape. No token, no confirm, no network |
+| `pnpm release:github --version X.Y.Z [--tag vX.Y.Z] --confirm "create GitHub release vX.Y.Z"` | _(Sprint 69)_ Real mode — shells out to `gh release create v<version>` with the canonical argv (six tarballs + manifest.json, `--title "PLC Copilot v<version>"`, `--notes-file docs/releases/<version>.md`). Never mutates npm — `assertNoNpmMutationSurface` rejects publish/dist-tag/npm tokens. **Only invoked by the GitHub Actions workflow.** |
 | `pnpm publish:audit` | Regenerate `docs/publishability-audit.md` from every `packages/*/package.json` (`--check` / `--json` / `--out` also supported) |
 | `pnpm run ci:contracts` | Base build + base smoke + vendor build + vendor smoke + CLI build + schema check + CLI smokes + consumer install smoke + release check + release pack dry-run + audit `--check` (the contract gate) |
 | `pnpm run ci` | `ci:contracts` + typecheck + test (what GitHub Actions runs) |
@@ -101,6 +103,13 @@ pnpm install
 > for the publish + promotion run record. The runbook at
 > [`docs/first-publish-checklist.md`](docs/first-publish-checklist.md)
 > is preserved verbatim for the next coordinated release.
+>
+> **GitHub Release status: pending.** Sprint 69 landed the tooling
+> (`pnpm release:github`,
+> [`.github/workflows/create-github-release.yml`](.github/workflows/create-github-release.yml),
+> tests) but the operator dispatch that creates the `v0.1.0` tag +
+> Release page on github.com has not yet been run. npm-side state
+> is unaffected.
 
 ### Contract and CLI smoke checks (sprints 53–65)
 
