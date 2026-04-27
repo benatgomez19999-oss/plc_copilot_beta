@@ -345,6 +345,109 @@ describe('analyzePackage', () => {
     // Bin missing on disk still blocks; we only assert no workspace blocker fires.
     expect(codes).not.toContain(FINDING_CODES.PUBLISH_WORKSPACE_DEP);
   });
+
+  // ---------- Sprint 67 hotfix: repository metadata ----------
+
+  const REPO_URL = 'https://github.com/benatgomez19999-oss/plc_copilot_beta';
+
+  function publishableTemplate(dir: string, overrides: any = {}): any {
+    return {
+      name: `@plccopilot/${dir}`,
+      version: '0.1.0',
+      type: 'module',
+      main: './dist/index.js',
+      types: './dist/index.d.ts',
+      exports: {
+        '.': { types: './dist/index.d.ts', default: './dist/index.js' },
+      },
+      files: ['dist'],
+      ...overrides,
+    };
+  }
+
+  it('flags PUBLISH_REPOSITORY_MISSING when expectedRepositoryUrl is set and repo is absent', () => {
+    const info = setup('cli', publishableTemplate('cli'));
+    const codes = analyzePackage(info, { expectedRepositoryUrl: REPO_URL }).findings.map(
+      (f: any) => f.code,
+    );
+    expect(codes).toContain(FINDING_CODES.PUBLISH_REPOSITORY_MISSING);
+  });
+
+  it('flags PUBLISH_REPOSITORY_URL_MISMATCH on the wrong URL', () => {
+    const info = setup(
+      'cli',
+      publishableTemplate('cli', {
+        repository: {
+          type: 'git',
+          url: 'https://github.com/wrong/place',
+          directory: 'packages/cli',
+        },
+      }),
+    );
+    const codes = analyzePackage(info, { expectedRepositoryUrl: REPO_URL }).findings.map(
+      (f: any) => f.code,
+    );
+    expect(codes).toContain(FINDING_CODES.PUBLISH_REPOSITORY_URL_MISMATCH);
+    // No false positives on the directory itself.
+    expect(codes).not.toContain(FINDING_CODES.PUBLISH_REPOSITORY_DIRECTORY_MISMATCH);
+  });
+
+  it('flags PUBLISH_REPOSITORY_URL_MISMATCH on the .git suffix variant', () => {
+    // npm provenance rejects the `.git` suffix even when the rest of the
+    // URL matches — this regression test pins that strict equality.
+    const info = setup(
+      'cli',
+      publishableTemplate('cli', {
+        repository: {
+          type: 'git',
+          url: `${REPO_URL}.git`,
+          directory: 'packages/cli',
+        },
+      }),
+    );
+    const codes = analyzePackage(info, { expectedRepositoryUrl: REPO_URL }).findings.map(
+      (f: any) => f.code,
+    );
+    expect(codes).toContain(FINDING_CODES.PUBLISH_REPOSITORY_URL_MISMATCH);
+  });
+
+  it('flags PUBLISH_REPOSITORY_DIRECTORY_MISMATCH on the wrong subpath', () => {
+    const info = setup(
+      'cli',
+      publishableTemplate('cli', {
+        repository: { type: 'git', url: REPO_URL, directory: 'packages/somewhere-else' },
+      }),
+    );
+    const codes = analyzePackage(info, { expectedRepositoryUrl: REPO_URL }).findings.map(
+      (f: any) => f.code,
+    );
+    expect(codes).toContain(FINDING_CODES.PUBLISH_REPOSITORY_DIRECTORY_MISMATCH);
+  });
+
+  it('does NOT flag any repository finding when url + directory match', () => {
+    const info = setup(
+      'cli',
+      publishableTemplate('cli', {
+        repository: { type: 'git', url: REPO_URL, directory: 'packages/cli' },
+      }),
+    );
+    const codes = analyzePackage(info, { expectedRepositoryUrl: REPO_URL }).findings.map(
+      (f: any) => f.code,
+    );
+    expect(codes).not.toContain(FINDING_CODES.PUBLISH_REPOSITORY_MISSING);
+    expect(codes).not.toContain(FINDING_CODES.PUBLISH_REPOSITORY_URL_MISMATCH);
+    expect(codes).not.toContain(FINDING_CODES.PUBLISH_REPOSITORY_DIRECTORY_MISMATCH);
+  });
+
+  it('skips the repository check entirely when expectedRepositoryUrl is omitted', () => {
+    // Sprint 67 hotfix is opt-in: synthetic workspaces (with no root
+    // package.json#repository) must keep passing without forging one.
+    const info = setup('cli', publishableTemplate('cli'));
+    const codes = analyzePackage(info).findings.map((f: any) => f.code);
+    expect(codes).not.toContain(FINDING_CODES.PUBLISH_REPOSITORY_MISSING);
+    expect(codes).not.toContain(FINDING_CODES.PUBLISH_REPOSITORY_URL_MISMATCH);
+    expect(codes).not.toContain(FINDING_CODES.PUBLISH_REPOSITORY_DIRECTORY_MISMATCH);
+  });
 });
 
 // =============================================================================
@@ -533,6 +636,17 @@ describe('auditWorkspace (live repo)', () => {
     expect(audit.publishBuildOrder[0]).toBe('@plccopilot/pir');
     expect(audit.publishBuildOrder.at(-1)).toBe('@plccopilot/cli');
     expect(audit.cycle).toBeNull();
+  });
+
+  it('Sprint 67: every publish candidate carries the expected repository metadata', () => {
+    const audit = auditWorkspace(REPO_ROOT);
+    const candidates = audit.packages.filter((p: any) => p.intent === 'publishable');
+    for (const a of candidates) {
+      const codes: string[] = a.findings.map((f: any) => f.code);
+      expect(codes).not.toContain(FINDING_CODES.PUBLISH_REPOSITORY_MISSING);
+      expect(codes).not.toContain(FINDING_CODES.PUBLISH_REPOSITORY_URL_MISMATCH);
+      expect(codes).not.toContain(FINDING_CODES.PUBLISH_REPOSITORY_DIRECTORY_MISMATCH);
+    }
   });
 
   it('classifies @plccopilot/web as app and integration-tests as internal', () => {

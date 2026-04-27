@@ -4,6 +4,10 @@
   "version": "0.0.0",
   "type": "module",
   "description": "PLC Copilot monorepo — vendor-neutral compiler + per-backend codegen packages.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/benatgomez19999-oss/plc_copilot_beta"
+  },
   "scripts": {
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",

@@ -57,6 +57,9 @@ export const FINDING_CODES = Object.freeze({
   PUBLISH_NO_TYPES: 'PUBLISH_NO_TYPES',
   PUBLISH_NO_VERSION: 'PUBLISH_NO_VERSION',
   PUBLISH_PRIVATE_FLAG: 'PUBLISH_PRIVATE_FLAG',
+  PUBLISH_REPOSITORY_DIRECTORY_MISMATCH: 'PUBLISH_REPOSITORY_DIRECTORY_MISMATCH',
+  PUBLISH_REPOSITORY_MISSING: 'PUBLISH_REPOSITORY_MISSING',
+  PUBLISH_REPOSITORY_URL_MISMATCH: 'PUBLISH_REPOSITORY_URL_MISMATCH',
   PUBLISH_TYPES_MISSING_FILE: 'PUBLISH_TYPES_MISSING_FILE',
   PUBLISH_WORKSPACE_DEP: 'PUBLISH_WORKSPACE_DEP',
 });
@@ -214,13 +217,27 @@ function schemaSubpathExports(exportsField) {
   return Object.keys(exportsField).filter((k) => k.startsWith('./schemas/'));
 }
 
-export function analyzePackage(info) {
+/**
+ * Sprint 67 hotfix — `options.expectedRepositoryUrl` (e.g. read from
+ * the workspace root's package.json#repository.url) lets the auditor
+ * also verify each publish candidate carries the matching
+ * `repository.url` + `repository.directory`. npm provenance rejects
+ * a publish where the candidate's repository.url is empty or differs
+ * from the GitHub origin, so this check is a real BLOCKER for real
+ * publish flows. The option is optional so synthetic tests still pass
+ * without having to forge a root manifest.
+ */
+export function analyzePackage(info, options = {}) {
   const { pkg, packageDir } = info;
   const dirName = info.dir;
   const intent = classifyPublishIntent(pkg, dirName);
   const findings = [];
   const wsDeps = collectWorkspaceDependencies(pkg);
   const internalDeps = wsDeps.map((d) => d.name).filter((n, i, a) => a.indexOf(n) === i);
+  const expectedRepositoryUrl =
+    typeof options?.expectedRepositoryUrl === 'string' && options.expectedRepositoryUrl.length > 0
+      ? options.expectedRepositoryUrl
+      : null;
 
   // -------- always-on info --------
 
@@ -324,6 +341,46 @@ export function analyzePackage(info) {
         'Remove "private" (or set to false) once the package is publish-ready.',
       ),
     );
+  }
+
+  // Sprint 67 hotfix — npm publish --provenance verifies that the
+  // tarball's package.json#repository matches the GitHub origin. If
+  // either side is missing or the URL differs by even a trailing
+  // slash or a `.git`, the registry rejects with HTTP 422.
+  if (expectedRepositoryUrl !== null) {
+    const repo = pkg.repository;
+    if (!repo || typeof repo !== 'object') {
+      findings.push(
+        makeFinding(
+          'blocker',
+          FINDING_CODES.PUBLISH_REPOSITORY_MISSING,
+          'package.json is missing the "repository" field.',
+          `Set "repository": { "type": "git", "url": "${expectedRepositoryUrl}", "directory": "packages/${dirName}" }.`,
+        ),
+      );
+    } else {
+      if (repo.url !== expectedRepositoryUrl) {
+        findings.push(
+          makeFinding(
+            'blocker',
+            FINDING_CODES.PUBLISH_REPOSITORY_URL_MISMATCH,
+            `repository.url is ${JSON.stringify(repo.url)}, expected ${JSON.stringify(expectedRepositoryUrl)}.`,
+            'Match the workspace root repository.url exactly (no trailing `.git`, no `git+` prefix).',
+          ),
+        );
+      }
+      const expectedDirectory = `packages/${dirName}`;
+      if (repo.directory !== expectedDirectory) {
+        findings.push(
+          makeFinding(
+            'blocker',
+            FINDING_CODES.PUBLISH_REPOSITORY_DIRECTORY_MISMATCH,
+            `repository.directory is ${JSON.stringify(repo.directory)}, expected ${JSON.stringify(expectedDirectory)}.`,
+            `Set repository.directory to "${expectedDirectory}" so the published tarball points at the right monorepo subpath.`,
+          ),
+        );
+      }
+    }
   }
   if (pkg.exports == null) {
     findings.push(
@@ -585,8 +642,25 @@ export function auditWorkspace(repoRoot) {
   const dirs = discoverPackages(packagesRoot);
   const packages = dirs.map((d) => readPackageInfo(d));
 
+  // Sprint 67 hotfix — pull the repository.url from the workspace root
+  // package.json so every publish candidate can be checked against it.
+  // If the root has no repository.url, the auditor stays quiet (the
+  // check is opt-in, no false positives on synthetic workspaces).
+  let expectedRepositoryUrl = null;
+  const rootPackageJson = join(repoRoot, 'package.json');
+  if (existsSync(rootPackageJson)) {
+    try {
+      const root = JSON.parse(readFileSync(rootPackageJson, 'utf-8'));
+      if (root && typeof root.repository === 'object' && typeof root.repository.url === 'string') {
+        expectedRepositoryUrl = root.repository.url;
+      }
+    } catch {
+      // Ignore — auditor stays opt-in if root manifest is unreadable.
+    }
+  }
+
   const analyses = packages.map((info) => {
-    const a = analyzePackage(info);
+    const a = analyzePackage(info, { expectedRepositoryUrl });
     return {
       info,
       intent: a.intent,
