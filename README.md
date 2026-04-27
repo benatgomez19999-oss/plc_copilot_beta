@@ -104,12 +104,16 @@ pnpm install
 > [`docs/first-publish-checklist.md`](docs/first-publish-checklist.md)
 > is preserved verbatim for the next coordinated release.
 >
-> **GitHub Release status: pending.** Sprint 69 landed the tooling
-> (`pnpm release:github`,
-> [`.github/workflows/create-github-release.yml`](.github/workflows/create-github-release.yml),
-> tests) but the operator dispatch that creates the `v0.1.0` tag +
-> Release page on github.com has not yet been run. npm-side state
-> is unaffected.
+> **GitHub Release `v0.1.0` is published.** Sprint 69 closeout
+> dispatched the
+> [`Create GitHub Release`](.github/workflows/create-github-release.yml)
+> workflow on 2026-04-28; the runner created the `v0.1.0` git tag,
+> opened the matching Release page, and uploaded the six release
+> tarballs + `manifest.json` as assets. npm-side state is unchanged
+> — no tarballs were republished, no dist-tags were touched. See the
+> "GitHub Release (Sprint 69)" section of
+> [`docs/releases/0.1.0.md`](docs/releases/0.1.0.md) for the URLs +
+> the postmortem record.
 
 ### Contract and CLI smoke checks (sprints 53–65)
 

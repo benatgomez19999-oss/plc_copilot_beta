@@ -110,6 +110,55 @@ describe('docs/releases/0.1.0.md', () => {
     expect(releaseNotes).toContain('first-publish-checklist.md');
     expect(releaseNotes).toContain('first-publish-postmortem.md');
   });
+
+  it('records the GitHub Release as created (Sprint 69 closeout) — no longer pending', () => {
+    // Sprint 69 closeout flipped the GitHub Release section from
+    // pending → created. The doc must reflect that the v0.1.0 git tag
+    // and matching GitHub Release page now exist.
+    const lower = releaseNotes.toLowerCase();
+    expect(lower).toMatch(/status[^\n]*created[^\n]*github release[^\n]*v0\.1\.0/);
+    // Earlier pending wording must be gone — guard against rollback.
+    expect(lower).not.toMatch(/^[ \t>]*\*?\*?status:\s*pending\b/m);
+    expect(lower).not.toContain('the operator dispatch that');
+    // The literal v0.1.0 tag name must be present.
+    expect(releaseNotes).toContain('`v0.1.0`');
+    expect(releaseNotes).toContain('PLC Copilot v0.1.0');
+  });
+
+  it('exposes URL fields for the GitHub Release, tag, and create-github-release workflow run', () => {
+    // The fields must exist as table rows (operator pastes the real
+    // URLs into their own checkout); the test asserts the row labels
+    // are present, not the URL contents.
+    expect(releaseNotes).toMatch(/\| Release URL \|[^|]*\|/);
+    expect(releaseNotes).toMatch(/\| Tag URL \|[^|]*\|/);
+    expect(releaseNotes).toMatch(/\| Workflow run \(create-github-release\) \|[^|]*\|/);
+    // Release-creation date is a real, absolute date (post-promotion).
+    expect(releaseNotes).toMatch(/\| Release-creation date \|\s*2026-04-2[78]\s*\|/);
+  });
+
+  it('lists the six release tarball assets + manifest.json on the GitHub Release', () => {
+    // Sprint 69 attached six .tgz + manifest.json. Each must appear in
+    // the "Release assets (attached)" block. Filenames follow the
+    // canonical npm-pack scope-replacement (the `/` becomes `-`).
+    for (const name of RELEASE_PUBLISH_ORDER) {
+      const fileName = `${name.replace('/', '-')}-0.1.0.tgz`;
+      expect(releaseNotes).toContain(fileName);
+    }
+    expect(releaseNotes).toContain('manifest.json');
+    // Section header must be in the post-creation tense.
+    expect(releaseNotes).toMatch(/Release assets \(attached\)/);
+    expect(releaseNotes).not.toMatch(/Release assets \(planned\)/);
+  });
+
+  it('records the workflow inputs verbatim for postmortem traceability', () => {
+    // Same convention as the publish + promote postmortems — the four
+    // workflow inputs must be visible so a future operator can grep
+    // for the literal confirm string.
+    expect(releaseNotes).toContain('create GitHub release v0.1.0');
+    expect(releaseNotes).toMatch(/version:\s*0\.1\.0/);
+    expect(releaseNotes).toMatch(/tag:\s*v0\.1\.0/);
+    expect(releaseNotes).toMatch(/registry:\s*https:\/\/registry\.npmjs\.org/);
+  });
 });
 
 // =============================================================================

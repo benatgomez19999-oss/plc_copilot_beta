@@ -558,12 +558,16 @@ After Sprint 68 closeout, every `@plccopilot/<pkg>` resolves to
 `0.1.0` on **both** `next` and `latest`. `npm install @plccopilot/cli`
 with no explicit tag installs `0.1.0`.
 
-After Sprint 69 lands, the **tooling** for the GitHub Release exists
-(`pnpm release:github`, `.github/workflows/create-github-release.yml`,
-docs-contract tests). The actual `v0.1.0` git tag + GitHub Release
-page do **not** exist until the operator dispatches the workflow —
-the GitHub Release section in `releases/0.1.0.md` is intentionally
-left in **Status: pending** until that happens.
+**Sprint 69 closeout** dispatched the `Create GitHub Release`
+workflow on 2026-04-28. The git tag `v0.1.0` and the matching
+GitHub Release page now exist; the six release tarballs +
+`manifest.json` are attached as Release assets. The
+"GitHub Release (Sprint 69)" section of
+[`releases/0.1.0.md`](releases/0.1.0.md) records the workflow inputs
+verbatim (including the literal `create GitHub release v0.1.0`
+confirm string) for postmortem traceability. npm-side state is
+unchanged — no tarballs were republished, no dist-tags were
+touched.
 
 ### Provenance stub scope (Sprint 65)
 
@@ -585,8 +589,8 @@ is reserved for a future sprint.
 ## Future work
 
 - First-real-publish rehearsal — done in Sprint 67.
-- Git tag + GitHub Release tooling — done in Sprint 69 (operator
-  dispatch of `Create GitHub Release` still pending).
+- Git tag + GitHub Release tooling + execution — done in Sprint 69
+  (`v0.1.0` tag + Release page created on 2026-04-28).
 - Per-package patch mode for hotfixes.
 - Skip-existing / resume-after-partial-failure mode.
 - Changelog automation (commit-driven) once the project ships
