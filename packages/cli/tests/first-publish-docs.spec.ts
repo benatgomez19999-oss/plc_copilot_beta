@@ -1,7 +1,14 @@
-// Sprint 66 — docs-contract tests for the first-publish execution
-// pack. The publish itself is a manual GitHub Actions run; these
-// tests guard the safety-critical phrases in the three companion
-// docs against silent edits.
+// Sprint 66 / 67 — docs-contract tests for the first-publish
+// execution pack. The publish itself is a manual GitHub Actions run;
+// these tests guard the safety-critical phrases in the three
+// companion docs against silent edits.
+//
+// Sprint 67 closeout flipped the docs from "pending" → "released
+// under next" once the real publish succeeded. The assertions below
+// pin the post-publish state: status flipped, six npm package URLs
+// listed, postmortem marked complete, and `latest` promotion
+// explicitly deferred (we never want a future operator to flip it
+// without a workflow run).
 //
 // (Single-line comments — JSDoc blocks would close on `*/` inside an
 // `@plccopilot/...` package path.)
@@ -40,10 +47,12 @@ describe('docs/releases/0.1.0.md', () => {
     expect(existsSync(DOC_RELEASE_NOTES)).toBe(true);
   });
 
-  it('declares status as pending / planned (not "released")', () => {
-    // The first publish has not happened — release notes must say so.
-    expect(releaseNotes.toLowerCase()).toMatch(/status[^\n]*planned first npm release/);
-    expect(releaseNotes.toLowerCase()).toContain('pending');
+  it('declares status as released under next (no longer pending)', () => {
+    // Sprint 67 closeout: the publish succeeded, the doc must reflect that.
+    expect(releaseNotes.toLowerCase()).toMatch(/status[^\n]*released under npm dist-tag/);
+    expect(releaseNotes.toLowerCase()).toContain('next');
+    // The pre-publish phrase is gone — guard against accidental rollback.
+    expect(releaseNotes.toLowerCase()).not.toContain('planned first npm release — pending');
   });
 
   it('lists every release candidate with version 0.1.0', () => {
@@ -54,17 +63,40 @@ describe('docs/releases/0.1.0.md', () => {
 
   it('declares the first dist-tag as `next`, not `latest`', () => {
     expect(releaseNotes).toMatch(/dist-tag[\s\S]*?`next`/i);
-    // Explicit "do not promote to latest yet" guidance present.
+    // Explicit "do not promote to latest yet" guidance still present
+    // post-release — promotion is intentionally deferred.
     expect(releaseNotes.toLowerCase()).toContain('do not promote to latest yet');
   });
 
-  it('includes the post-publish verification commands', () => {
+  it('includes the six npm package URLs', () => {
+    for (const name of RELEASE_PUBLISH_ORDER) {
+      const expected = `https://www.npmjs.com/package/${name}/v/0.1.0`;
+      expect(releaseNotes).toContain(expected);
+    }
+  });
+
+  it('records that all three post-publish checks passed', () => {
+    // The post-publish commands are still listed (for re-runs) AND
+    // the verification table marks each as passed.
     expect(releaseNotes).toContain('pnpm release:provenance');
     expect(releaseNotes).toContain('pnpm release:npm-view');
     expect(releaseNotes).toContain('pnpm release:registry-smoke');
+    // Sprint 67 closeout populates a results table with passing checks.
+    const passedMarks = releaseNotes.match(/✅\s*passed/g) ?? [];
+    expect(passedMarks.length).toBeGreaterThanOrEqual(3);
   });
 
-  it('links the operational runbook + postmortem template', () => {
+  it('does NOT claim deep provenance attestation verification', () => {
+    // Sprint 65 stub only verifies the publish path is *configured* for
+    // provenance. The Sigstore Fulcio chain walk is future work and the
+    // release notes must keep that distinction visible. The "not"
+    // appears bold (`**not**`) in the rendered doc, hence the regex.
+    expect(releaseNotes.toLowerCase()).toMatch(
+      /\*?\*?not\*?\*?\s+implemented yet/,
+    );
+  });
+
+  it('links the operational runbook + postmortem', () => {
     expect(releaseNotes).toContain('first-publish-checklist.md');
     expect(releaseNotes).toContain('first-publish-postmortem.md');
   });
@@ -75,15 +107,20 @@ describe('docs/releases/0.1.0.md', () => {
 // =============================================================================
 
 describe('docs/first-publish-postmortem.md', () => {
-  it('exists and is a draft template', () => {
+  it('exists and reports the run as complete + successful', () => {
     expect(existsSync(DOC_POSTMORTEM)).toBe(true);
-    expect(postmortem.toLowerCase()).toContain('status: draft');
+    // Sprint 67 closeout flipped the status block from `draft` to
+    // `complete — first publish successful`.
+    expect(postmortem.toLowerCase()).toContain('status: complete');
+    expect(postmortem.toLowerCase()).toContain('first publish successful');
+    expect(postmortem.toLowerCase()).not.toContain('status: draft');
   });
 
-  it('includes the publish-workflow inputs the operator must enter', () => {
+  it('records the real publish workflow inputs verbatim', () => {
     expect(postmortem).toContain('`dry_run`');
     expect(postmortem).toContain('`false`');
-    // The exact confirmation string is the safety gate against typos.
+    // The confirmation string is the safety gate against typos and
+    // it must appear exactly as the operator typed it.
     expect(postmortem).toContain('publish @plccopilot 0.1.0');
   });
 
@@ -98,25 +135,52 @@ describe('docs/first-publish-postmortem.md', () => {
     }
   });
 
-  it('has a partial-publish recovery section', () => {
-    expect(postmortem.toLowerCase()).toContain('partial publish');
-    // Explicit warning to avoid blind retries.
-    expect(postmortem.toLowerCase()).toMatch(
-      /do not rerun[^\n]*same\s+`?version`?/i,
-    );
+  it('reports all 6 packages published with no partial publish', () => {
+    expect(postmortem.toLowerCase()).toMatch(/all 6 packages published/);
+    // The "Partial publish" outcome bullet must NOT be ticked.
+    expect(postmortem).not.toMatch(/-\s+\[x\]\s+Partial publish/i);
+  });
+
+  it('lists the six published npm package URLs', () => {
+    for (const name of RELEASE_PUBLISH_ORDER) {
+      const expected = `https://www.npmjs.com/package/${name}/v/0.1.0`;
+      expect(postmortem).toContain(expected);
+    }
+  });
+
+  it('records each post-publish check as passed (provenance / npm-view / registry-smoke)', () => {
+    expect(postmortem).toContain('release:provenance');
+    expect(postmortem).toContain('release:npm-view');
+    expect(postmortem).toContain('release:registry-smoke');
+    // Each results bullet must be ticked.
+    expect(postmortem).toMatch(/-\s+\[x\][^\n]*release:provenance/);
+    expect(postmortem).toMatch(/-\s+\[x\][^\n]*release:npm-view/);
+    expect(postmortem).toMatch(/-\s+\[x\][^\n]*release:registry-smoke/);
   });
 
   it('records latest-promotion as a deferred decision', () => {
-    expect(postmortem.toLowerCase()).toMatch(/promote to `?latest`?/i);
-    // Six explicit `npm dist-tag add` lines, one per candidate, are
-    // available for the operator to copy if they tick "yes".
+    // §5: "No — keep on next" ticked, "Yes" not ticked.
+    expect(postmortem).toMatch(/-\s+\[x\][^\n]*No[^\n]*keep on `next`/i);
+    expect(postmortem).toMatch(/-\s+\[ \][^\n]*Yes\b/i);
+    // Six explicit `npm dist-tag add` lines remain available for when
+    // the decision flips.
     for (const name of RELEASE_PUBLISH_ORDER) {
       expect(postmortem).toContain(`npm dist-tag add ${name}@0.1.0`);
     }
   });
 
-  it('mentions filling release notes + git tag as after-action items', () => {
-    expect(postmortem.toLowerCase()).toContain('docs/releases/0.1.0.md');
+  it('documents the four issues encountered before final success', () => {
+    // Each subsection in §4 captures one of the iterations the operator
+    // hit before the final successful publish.
+    const lower = postmortem.toLowerCase();
+    expect(lower).toMatch(/private repo|repository[^\n]*public/i);
+    expect(lower).toMatch(/confirm[\s-]string mismatch/i);
+    expect(lower).toMatch(/repository\.url[\s\S]*provenance/i);
+    expect(lower).toMatch(/(publish-audit|declaration|TS2554)/i);
+  });
+
+  it('mentions release notes + git tag as after-action items', () => {
+    expect(postmortem.toLowerCase()).toContain('releases/0.1.0.md');
     expect(postmortem.toLowerCase()).toContain('git tag');
   });
 });

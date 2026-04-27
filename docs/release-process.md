@@ -317,28 +317,31 @@ dry-run + real publish + partial-publish recovery, plus the new
 post-publish steps) lives in
 [`first-publish-checklist.md`](first-publish-checklist.md).
 
-## First-publish execution pack (Sprint 66)
+## First-publish execution pack (Sprints 66 + 67)
 
-Sprint 66 wraps the very-first-publish run in three companion docs.
-The tooling is already in place — these documents are the human
-control surface around it:
+Sprint 66 wrapped the very-first-publish run in three companion docs;
+Sprint 67 closed it out by actually executing the publish under the
+`next` dist-tag and flipping the docs to "released":
 
 - [`first-publish-checklist.md`](first-publish-checklist.md) —
-  execution-sequence runbook with explicit **abort conditions** for
-  the first real publish.
+  execution-sequence runbook with explicit **abort conditions**.
+  Preserved verbatim for the next coordinated release.
 - [`first-publish-postmortem.md`](first-publish-postmortem.md) —
-  fill-in-after-run template covering preflight, real-publish,
-  post-publish verification, partial-publish recovery, and the
-  `latest`-promotion decision.
-- [`releases/0.1.0.md`](releases/0.1.0.md) — first-release notes
-  scaffold; status starts as
-  `planned first npm release — pending` and is flipped only after the
-  postmortem is signed off.
+  filled record of the Sprint 67 run: preflight ticks, real-publish
+  inputs (`dry_run: false`, `confirm: publish @plccopilot 0.1.0`),
+  six published package URLs, post-publish verification results,
+  the four issues that surfaced before the final successful run, and
+  the `latest`-promotion decision (deferred).
+- [`releases/0.1.0.md`](releases/0.1.0.md) — release notes for
+  `0.1.0`. Status flipped from
+  `planned first npm release — pending` →
+  `released under npm dist-tag next` once the postmortem was signed
+  off.
 
-The first publish ships under the `next` dist-tag, **not** `latest`.
-Promotion to `latest` is recorded as a deferred decision in §5 of the
-postmortem template; sprint 67 will move that promotion behind the
-same `workflow_dispatch` gate.
+The first publish shipped under the `next` dist-tag, **not** `latest`.
+Promotion is recorded as a deferred decision in §5 of the postmortem;
+a future sprint will move it behind the same `workflow_dispatch`
+gate.
 
 ### Provenance stub scope (Sprint 65)
 

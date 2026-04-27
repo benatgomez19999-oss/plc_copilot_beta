@@ -11,11 +11,21 @@ mainly so the very first run is not winging it.
 
 ## Companion documents
 
-- [`releases/0.1.0.md`](releases/0.1.0.md) — release notes scaffold
-  for the very first publish. Status starts as
-  `planned first npm release — pending`; flip after sign-off.
-- [`first-publish-postmortem.md`](first-publish-postmortem.md) —
-  fill-in template for the operator + reviewer to capture the run.
+- [`releases/0.1.0.md`](releases/0.1.0.md) — release notes for the
+  first publish. Sprint 67 closeout flipped the status to
+  `released under npm dist-tag next` once the workflow + post-publish
+  verification both passed.
+- [`first-publish-postmortem.md`](first-publish-postmortem.md) — the
+  filled record of the Sprint 67 run, including the four iterations
+  that hit (private repo + provenance, confirm-string mismatch,
+  `repository.url` provenance 422, publish-audit declaration drift)
+  before the final successful publish.
+
+> **Status: first publish complete.** The runbook below is preserved
+> for the next coordinated release. The four issues that surfaced on
+> the first attempt are now mitigated upstream — see the postmortem's
+> §4 for details and the audit's `PUBLISH_REPOSITORY_*` codes for the
+> regression guard.
 
 ## Execution sequence (TL;DR)
 
