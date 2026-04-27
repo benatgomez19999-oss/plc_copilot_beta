@@ -1,0 +1,23 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": "dist",
+    "rootDir": "src",
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "module": "ESNext",
+    "moduleResolution": "node",
+    "noImplicitAny": false,
+    "paths": {
+      "@plccopilot/codegen-codesys": ["./src/types/external-shims.d.ts"],
+      "@plccopilot/codegen-core": ["./src/types/external-shims.d.ts"],
+      "@plccopilot/codegen-rockwell": ["./src/types/external-shims.d.ts"],
+      "@plccopilot/codegen-siemens": ["./src/types/external-shims.d.ts"],
+      "@plccopilot/pir": ["./src/types/external-shims.d.ts"]
+    }
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist", "tests"]
+}

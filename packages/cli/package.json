@@ -1,0 +1,40 @@
+{
+  "name": "@plccopilot/cli",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./schemas/cli-result.schema.json": "./schemas/cli-result.schema.json",
+    "./schemas/serialized-compiler-error.schema.json": "./schemas/serialized-compiler-error.schema.json",
+    "./schemas/generate-summary.schema.json": "./schemas/generate-summary.schema.json",
+    "./schemas/web-zip-summary.schema.json": "./schemas/web-zip-summary.schema.json"
+  },
+  "bin": {
+    "plccopilot": "./dist/index.js"
+  },
+  "files": ["dist", "schemas"],
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "build": "tsc -p tsconfig.build.json",
+    "smoke": "node scripts/smoke-cli-dist.mjs"
+  },
+  "dependencies": {
+    "@plccopilot/codegen-codesys": "0.1.0",
+    "@plccopilot/codegen-core": "0.1.0",
+    "@plccopilot/codegen-rockwell": "0.1.0",
+    "@plccopilot/codegen-siemens": "0.1.0",
+    "@plccopilot/pir": "0.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "typescript": "^5.4.0",
+    "vitest": "^1.6.0"
+  }
+}

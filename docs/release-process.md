@@ -1,0 +1,368 @@
+# PLC Copilot Release Process
+
+This document covers the release-tooling scaffold landed in **Sprint 61**.
+It does **not** push anything to a registry — that is intentional. Sprint 61
+is plan-only.
+
+## Publish candidates
+
+The repo today has six publish candidates (in publish order):
+
+1. `@plccopilot/pir`
+2. `@plccopilot/codegen-core`
+3. `@plccopilot/codegen-codesys`
+4. `@plccopilot/codegen-rockwell`
+5. `@plccopilot/codegen-siemens`
+6. `@plccopilot/cli`
+
+The list is hard-coded in
+[`packages/cli/scripts/release-plan-lib.mjs`](../packages/cli/scripts/release-plan-lib.mjs)
+(`RELEASE_PACKAGE_DIRS`) so a future package can't accidentally enter the
+publish set without an intentional edit. The remaining workspace packages
+(`web`, `codegen-integration-tests`) stay private — they are not release
+candidates.
+
+## Versioning policy (Sprint 61)
+
+- Strict `MAJOR.MINOR.PATCH`. Pre-release identifiers (`-alpha`) and build
+  metadata (`+sha`) are explicitly rejected for now.
+- Every publish candidate must share the same version. The release tool
+  treats this as the canonical "release version" and bumps all six packages
+  together.
+- Internal runtime dependency ranges (`dependencies` / `peerDependencies` /
+  `optionalDependencies`) must be **exact** strict semver matching the
+  shared version (currently `"0.1.0"`). No `^`/`~`/`workspace:*`.
+- `.npmrc` must keep `link-workspace-packages=true` so pnpm still links
+  sibling packages locally despite the explicit semver ranges.
+
+## Tooling
+
+| Command | Purpose |
+| --- | --- |
+| `pnpm release:check` | Validate consistency: names, versions, dist-pointing exports, dep ranges, `.npmrc`. Exit 1 with a clear list of issues if anything drifts. |
+| `pnpm release:plan` | Print a Markdown plan for a patch bump (current → current+patch). |
+| `pnpm release:plan --bump minor` | Same, minor bump. |
+| `pnpm release:plan --bump major` | Same, major bump. |
+| `pnpm release:plan --version X.Y.Z` | Plan with an exact target. Refuses non-strict semver and non-incrementing targets. |
+| `pnpm release:plan --json` | Stable JSON plan (for agents / CI consumers). |
+| `pnpm release:plan --out FILE.md` | Write the Markdown plan to a file. |
+| `pnpm release:plan --bump <kind> --write` | Apply the plan to every candidate's `package.json` (version + every internal dep range). Does **not** run `pnpm install`, does **not** publish. |
+| `pnpm release:pack-dry-run` | Run `release:check`, then `npm pack --dry-run --json` for every candidate. Asserts required entries, forbidden prefixes (src/tests/scripts/node_modules), `tsbuildinfo`/`tsconfig*.json`/`vitest.config.ts`, and reports a single line on success. |
+| `pnpm release:publish-dry-run` | _(Sprint 62)_ Run `npm publish --dry-run --json` for every candidate. The script hardcodes `--dry-run`; there is no flag or env var that can produce a real publish. Verifies `name`/`version` match and `files[]` is non-empty. |
+| `pnpm release:notes` | _(Sprint 62)_ Render deterministic Markdown release notes for the next bump. `--bump <kind>` / `--version X.Y.Z` / `--json` / `--out FILE.md` supported. The generated `Highlights` section is `TODO:` placeholders by design — edit before publishing. |
+| `pnpm release:pack-artifacts --out <dir>` | _(Sprint 62)_ Pack every candidate into `<dir>` and write `<dir>/manifest.json`. CI uses this to upload the six tarballs as the `plccopilot-release-tarballs` artifact. `--clean` empties prior `*.tgz` + `manifest.json` first. |
+| `pnpm release:publish-real --validate-only --version X.Y.Z --tag <next\|latest\|beta>` | _(Sprint 63)_ Validate publish inputs against the live workspace. **Never publishes** in `--validate-only` mode. Token-less. Used by the manual publish workflow's preflight job. |
+| `pnpm release:publish-real --version X.Y.Z --tag <tag> --confirm "publish @plccopilot X.Y.Z"` | _(Sprint 63)_ Real publish runner. Refuses to run unless `NODE_AUTH_TOKEN` is set, the confirmation matches exactly, every package's `package.json#version` equals the input, and the tag is in the allow-list. Always emits `npm publish --provenance --access public --tag <tag>`. **Only invoked by the GitHub Actions workflow** under the protected `npm-publish` environment. |
+| `pnpm release:registry-smoke [--version X.Y.Z] [--registry URL]` | _(Sprint 64, manual only)_ `npm install @plccopilot/cli@<version>` from a real registry into a fresh temp project, run `help` / `schema` / `inspect` / `validate` / `generate --backend siemens`. Detects "package not yet published" 404s and prints a friendly "expected before first publish" message. **Not in `ci:contracts`.** |
+| `pnpm release:npm-view [--version] [--tag] [--registry] [--json]` | _(Sprint 65, manual only)_ `npm view` every release candidate, validate name / version / dist.tarball / dist.integrity, optionally check that the dist-tag resolves to the same version. **Not in `ci:contracts`.** |
+| `pnpm release:provenance [--version] [--json]` | _(Sprint 65)_ Local-only stub that confirms the publish path is *configured* for provenance: workflow YAML grants `id-token: write` + references `--provenance`, and the publish command builder hardcodes `--provenance` for every tag. Safe to run anywhere. Deep attestation verification against Sigstore is reserved for a future sprint. |
+
+`release:check`, `release:pack-dry-run`, and `release:publish-dry-run`
+are wired into [`pnpm run ci:contracts`](../package.json) (and the
+GitHub Actions [`ci.yml`](../.github/workflows/ci.yml) workflow), so a
+missed coordinated bump or a regressed manifest fails CI rather than the
+registry. CI additionally runs `release:pack-artifacts` and uploads the
+six tarballs + `manifest.json` as the `plccopilot-release-tarballs`
+artifact (14-day retention) for reviewer inspection.
+
+## Release flow
+
+The current flow is **manual** — Sprint 61 deliberately stops short of
+`npm publish`. When you're ready to ship a release:
+
+```sh
+# 0. Workspace must be clean and on the right branch.
+
+# 1. Verify the contract end-to-end.
+pnpm run ci
+
+# 2. Generate the plan and review it.
+pnpm release:plan --bump patch        # or --bump minor / --version X.Y.Z
+
+# 3. Apply the plan in place.
+pnpm release:plan --bump patch --write
+
+# 4. Re-install so the lockfile picks up the new versions.
+pnpm install
+
+# 5. Re-run all gates against the new version.
+pnpm run ci
+
+# 6. Final manifest sanity (optional, redundant with ci:contracts).
+pnpm release:check
+pnpm release:pack-dry-run
+pnpm release:publish-dry-run     # Sprint 62 — npm publish --dry-run
+
+# 7. Generate (and edit!) the release notes scaffold.
+pnpm release:notes --bump patch > docs/releases/0.1.1.md
+# Replace every TODO: in Highlights with the real change summary.
+
+# 8. (Optional but useful) Build the actual six tarballs locally to
+#    inspect what CI would upload as the release artifact.
+pnpm release:pack-artifacts --out .release-artifacts/tarballs --clean
+
+# 9. (Out of scope for sprints 61–62) Run the actual publish:
+#    npm publish packages/pir
+#    npm publish packages/codegen-core
+#    npm publish packages/codegen-codesys
+#    npm publish packages/codegen-rockwell
+#    npm publish packages/codegen-siemens
+#    npm publish packages/cli
+#
+#    Strictly in this order — each later package depends on the previous.
+#    A future sprint will add `--dry-run` publish smoke + provenance.
+```
+
+## What the tool does NOT do
+
+- Does not run `npm publish` for real. `release:publish-dry-run`
+  hardcodes `--dry-run` and refuses any forwarded arg that would
+  remove it (`--no-dry-run` / `--publish` / `--yes` / `-y`).
+- Does not configure registry auth.
+- Does not create git tags or GitHub releases.
+- Does not sign or generate provenance.
+- Does not commit a `CHANGELOG.md` or any specific
+  `docs/releases/X.Y.Z.md` — `release:notes` is on-demand only.
+- Does not bump versions automatically — `release:plan --write` only
+  runs when explicitly passed.
+
+These are intentional next-sprint items. Sprints 61–62 leave the
+boundary right before the registry: every release-set check, the pack +
+publish dry-run, the changelog scaffold, and the artifact upload are
+green, but no real publish has been performed.
+
+## Failure modes the tool catches
+
+`release:check` will fail with one or more of:
+
+| Issue code | When it fires |
+| --- | --- |
+| `PACKAGE_DIR_MISSING` | A directory listed in `RELEASE_PACKAGE_DIRS` is gone. |
+| `PACKAGE_JSON_UNREADABLE` | `package.json` cannot be parsed. |
+| `PACKAGE_NAME_MISMATCH` | The on-disk name disagrees with `EXPECTED_PACKAGE_NAMES`. |
+| `PACKAGE_PRIVATE` | A candidate was marked `private: true`. |
+| `VERSION_INVALID` | Version is not strict `X.Y.Z`. |
+| `VERSION_MISMATCH` | Candidates disagree on a single shared version. |
+| `MAIN_NOT_DIST` / `TYPES_NOT_DIST` | `main`/`types` does not point at compiled dist. |
+| `EXPORTS_DEFAULT_NOT_DIST` / `EXPORTS_TYPES_NOT_DIST` | `exports["."]` regression to source. |
+| `FILES_MISSING_DIST` / `FILES_MISSING_SCHEMAS` | Pack would lose required directories. |
+| `CLI_BIN_MISSING` / `CLI_SCHEMA_EXPORT_MISSING` | CLI metadata regression. |
+| `DEP_WORKSPACE_PROTOCOL` | A runtime dep still uses `workspace:*`. |
+| `DEP_RANGE_INVALID` / `DEP_RANGE_MISMATCH` | A range is non-strict-semver or doesn't match the shared version. |
+| `NPMRC_LINK_MISSING` | Root `.npmrc` lost `link-workspace-packages=true`. |
+
+`release:plan` adds:
+
+| Issue code | When it fires |
+| --- | --- |
+| `TARGET_VERSION_INVALID` | `--version` is not strict semver, or `--bump` was requested but candidates disagree on a current version. |
+| `TARGET_NOT_INCREMENT` | `--version` is not strictly greater than the current shared version. |
+
+`release:pack-dry-run` adds (one per candidate):
+
+| Issue code | When it fires |
+| --- | --- |
+| `PACK_NAME_MISMATCH` / `PACK_VERSION_MISMATCH` | npm reports something unexpected for the candidate. |
+| `PACK_REQUIRED_MISSING` | A required entry (`package.json`, `dist/index.js`, `dist/index.d.ts`, CLI schemas) is not in the manifest. |
+| `PACK_FORBIDDEN_PREFIX` / `PACK_FORBIDDEN_EXACT` / `PACK_FORBIDDEN_SUFFIX` | Source / test / config files leaked into the pack. |
+
+## Failure modes the new tools catch
+
+`release:publish-dry-run` adds:
+
+| Issue code | When it fires |
+| --- | --- |
+| `PUBLISH_DRY_RUN_SPAWN_FAILED` | `npm` is not on PATH or the spawn errored. |
+| `PUBLISH_DRY_RUN_NONZERO` | `npm publish --dry-run` exited non-zero (e.g., npm rejected the tarball before even contacting the registry). |
+| `PUBLISH_DRY_RUN_NO_JSON` | stdout could not be parsed as a JSON object — usually paired with a non-zero exit. |
+| `PUBLISH_DRY_RUN_NAME_MISMATCH` / `PUBLISH_DRY_RUN_VERSION_MISMATCH` | npm reports a different name / version than the source `package.json`. |
+| `PUBLISH_DRY_RUN_NO_FILES` | npm reported an empty `files[]` — pack would publish nothing. |
+
+`release:pack-artifacts` does not have its own issue codes; it reuses
+the consistency check and fails fast if the resulting directory does
+not contain exactly the six expected tarballs.
+
+## Manual npm publish workflow (Sprint 63)
+
+The repo ships a manual publish pipeline at
+[`.github/workflows/publish.yml`](../.github/workflows/publish.yml). It
+is the **only** path that can land a real `npm publish` — there is no
+codepath in normal CI, no scheduled trigger, and no `npm publish` shell
+command anywhere outside the runner.
+
+### Triggering a dry-run
+
+1. Open _Actions → Publish packages_.
+2. Click _Run workflow_.
+3. Inputs:
+   - `version`: must match every `packages/*/package.json#version`
+     (today: `0.1.0`).
+   - `npm_tag`: one of `next` / `latest` / `beta`.
+   - `dry_run`: **leave true (default)**.
+   - `confirm`: empty.
+4. Submit. Only the `preflight` job runs:
+   - `pnpm release:publish-real --validate-only --version $version --tag $npm_tag`
+   - `pnpm run ci` (full contract gate, including `release:publish-dry-run`)
+   - `pnpm release:pack-artifacts ...` and an artifact upload
+     (`plccopilot-publish-preflight-tarballs`, 14-day retention).
+
+A dry-run never contacts the registry for a real publish, never
+requires `NPM_TOKEN`, and never enters the protected environment.
+
+### Triggering a real publish
+
+Pre-conditions:
+
+- A successful dry-run for the same `version` + `npm_tag`.
+- Tarballs in the dry-run artifact reviewed by a second pair of eyes.
+- `NPM_TOKEN` exists as a GitHub Actions secret.
+- The `npm-publish` environment is configured with at least one
+  required reviewer (manual-approval gate).
+
+Steps:
+
+1. _Actions → Publish packages → Run workflow_.
+2. Inputs:
+   - `version`: same as in the dry-run.
+   - `npm_tag`: same.
+   - `dry_run`: `false`.
+   - `confirm`: the literal string `publish @plccopilot <version>`
+     (e.g., `publish @plccopilot 0.1.0`). The runner refuses to start
+     if the string differs by even one character.
+3. Submit. The `preflight` job runs; if it passes, the `publish` job
+   queues for environment approval. Approve only after re-checking
+   the inputs.
+4. The `publish` job:
+   - re-runs `release:publish-real --validate-only` inside the
+     protected environment,
+   - exports `NODE_AUTH_TOKEN` from `secrets.NPM_TOKEN`,
+   - calls
+     ```sh
+     pnpm release:publish-real \
+       --version <version> --tag <npm_tag> --confirm "publish @plccopilot <version>"
+     ```
+   - the runner spawns `npm publish --provenance --access public --tag <npm_tag>`
+     for every candidate in this order:
+     ```
+     @plccopilot/pir
+     @plccopilot/codegen-core
+     @plccopilot/codegen-codesys
+     @plccopilot/codegen-rockwell
+     @plccopilot/codegen-siemens
+     @plccopilot/cli
+     ```
+   - it stops on the first non-zero exit and prints a partial-publish
+     warning.
+
+### Partial publish recovery
+
+`npm publish` is not transactional across packages. If
+`@plccopilot/codegen-core` publishes and `@plccopilot/codegen-codesys`
+fails, the registry already holds `core@<version>` and the workflow
+exits 1.
+
+Recovery path:
+
+1. **Do not rerun the workflow with the same `version`.** npm rejects
+   re-publishing an existing version.
+2. Diagnose the failure (registry error, network, tarball regression).
+3. If the cause is a tarball regression, **bump the version** with
+   `pnpm release:plan --bump patch --write`, re-run the dry-run,
+   review, and start a new real publish.
+4. If the cause is registry-side and a single failed package can be
+   retried as the same version, do it manually from a trusted shell —
+   never resurrect the workflow input to "skip" already-published
+   packages, that's a Sprint 64+ feature.
+
+### What the workflow still does NOT do
+
+- Does not create a git tag for the released version.
+- Does not open a GitHub Release with notes.
+- Does not commit the release-notes file under `docs/releases/`.
+- Does not retry / skip-existing on partial publish.
+- Does not verify provenance attestations after the fact (the
+  registry smoke loads the package end-to-end, but does not assert
+  the provenance bundle; that is a future sprint).
+- Does not support per-package patch publishes.
+
+These are intentional next-sprint items.
+
+## Post-publish verification (Sprints 64–65)
+
+After a successful real publish, run the three layered checks from the
+`Post-publish verify` workflow (or locally, in the same order):
+
+```sh
+# 1. Local-only stub — no registry contact.
+pnpm release:provenance --version 0.1.0
+
+# 2. Registry metadata for every candidate. Optional tag check resolves
+#    @plccopilot/<pkg>@<tag> back to the same version.
+pnpm release:npm-view --version 0.1.0 --tag next
+
+# 3. Full install + bin smoke from a real registry into os.tmpdir().
+pnpm release:registry-smoke --version 0.1.0
+```
+
+GitHub: _Actions → Post-publish verify → Run workflow_. Inputs:
+`version`, `registry` (default `https://registry.npmjs.org`),
+`npm_tag` (default `next`), `check_tag` (default `true`). The workflow
+runs `provenance` → `npm-view` → `registry-smoke` in that order so a
+broken publish workflow surfaces *before* hitting the network.
+
+All three checks are manual-only — they 404 before the first real
+publish, and `pnpm run ci` deliberately does not depend on them. The
+full first-publish runbook (npm token creation, environment reviewers,
+dry-run + real publish + partial-publish recovery, plus the new
+post-publish steps) lives in
+[`first-publish-checklist.md`](first-publish-checklist.md).
+
+## First-publish execution pack (Sprint 66)
+
+Sprint 66 wraps the very-first-publish run in three companion docs.
+The tooling is already in place — these documents are the human
+control surface around it:
+
+- [`first-publish-checklist.md`](first-publish-checklist.md) —
+  execution-sequence runbook with explicit **abort conditions** for
+  the first real publish.
+- [`first-publish-postmortem.md`](first-publish-postmortem.md) —
+  fill-in-after-run template covering preflight, real-publish,
+  post-publish verification, partial-publish recovery, and the
+  `latest`-promotion decision.
+- [`releases/0.1.0.md`](releases/0.1.0.md) — first-release notes
+  scaffold; status starts as
+  `planned first npm release — pending` and is flipped only after the
+  postmortem is signed off.
+
+The first publish ships under the `next` dist-tag, **not** `latest`.
+Promotion to `latest` is recorded as a deferred decision in §5 of the
+postmortem template; sprint 67 will move that promotion behind the
+same `workflow_dispatch` gate.
+
+### Provenance stub scope (Sprint 65)
+
+`release:provenance` is a *stub* — it does NOT pull attestation
+bundles from the npm registry. It guards two things, locally:
+
+1. **Publish workflow** (`.github/workflows/publish.yml`) grants
+   `id-token: write` to the publish job AND references `--provenance`
+   somewhere in its run lines.
+2. **Publish command builder**
+   (`packages/cli/scripts/release-publish-real-lib.mjs#buildNpmPublishCommand`)
+   still emits `--provenance` for every supported tag, AND never
+   emits `--dry-run`.
+
+Real attestation-bundle verification (downloading the npm provenance
+bundle, walking the certificate chain against Sigstore Fulcio, etc.)
+is reserved for a future sprint.
+
+## Future work
+
+- First-real-publish rehearsal once `NPM_TOKEN` exists and the
+  `npm-publish` environment has reviewers.
+- Git tag + GitHub Release wiring driven from the same workflow.
+- Per-package patch mode for hotfixes.
+- Skip-existing / resume-after-partial-failure mode.
+- Changelog automation (commit-driven) once the project ships
+  user-facing milestones.

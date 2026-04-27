@@ -1,0 +1,159 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Cancel in-progress runs on the same ref to keep PR feedback fast.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: contracts + typecheck + test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      # Node 24 is required: the CLI's compiled `dist/index.js` imports
+      # workspace packages whose `main` points at `src/index.ts`. Native
+      # TypeScript stripping is enabled by default from Node 23 onward;
+      # bumping to 24 keeps CI in sync with local dev.
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        # Prefer the reproducible install when a lockfile is present.
+        # Fallback to a regular install for the bootstrap commit that adds it.
+        run: |
+          if [ -f pnpm-lock.yaml ]; then
+            pnpm install --frozen-lockfile
+          else
+            pnpm install
+          fi
+
+      - name: Build base packages (pir + codegen-core)
+        # Sprint 57: emits packages/pir/dist and packages/codegen-core/dist
+        # so a publishable consumer can resolve typed JS imports — and so
+        # the smoke immediately after this step has artifacts to inspect.
+        run: pnpm build:packages-base
+
+      - name: Smoke test base package dist
+        # Sprint 57: validates required dist files, forbids tests/specs
+        # leaking into dist, and dynamically imports each package to
+        # confirm the public runtime API works under Node.
+        run: node packages/cli/scripts/smoke-base-dist.mjs
+
+      - name: Build vendor packages (codesys + rockwell + siemens)
+        # Sprint 58: emits dist for each vendor backend in topological
+        # order so siemens (which re-exports from codesys + rockwell)
+        # builds against committed sibling dist artefacts.
+        run: pnpm build:packages-vendor
+
+      - name: Smoke test vendor package dist
+        # Sprint 58: validates required dist files, forbids tests/specs
+        # leaking into dist, scans for sibling-source path leaks in
+        # emitted .js, and runs each vendor's `generate*Project` façade
+        # against the weldline fixture to confirm runtime artefacts
+        # come out under the expected backend prefix.
+        run: node packages/cli/scripts/smoke-vendor-dist.mjs
+
+      - name: Build CLI (produces packages/cli/dist)
+        run: pnpm cli:build
+
+      - name: Schema contract check
+        # Sprint 52: fails if the committed schemas drift from the
+        # generators in @plccopilot/cli/src/json-schema.ts.
+        run: node packages/cli/dist/index.js schema --check packages/cli/schemas
+
+      - name: CLI dist smoke
+        # Sprint 53: exercises the compiled bin (help, schema, error
+        # envelope, inspect --json) on a clean Node process.
+        run: node packages/cli/scripts/smoke-cli-dist.mjs
+
+      - name: CLI pack smoke
+        # Sprint 54: validates `npm pack --dry-run --json` for the CLI
+        # — required entries present, forbidden entries absent, schema
+        # set exact, package.json metadata correct.
+        run: node packages/cli/scripts/smoke-cli-pack.mjs
+
+      - name: CLI tarball smoke
+        # Sprint 55: builds a real .tgz, extracts it with system tar,
+        # checks the contents byte-for-byte against the committed
+        # schemas, and runs help / schema --name / schema --check /
+        # totally-unknown --json against the extracted bin. Requires
+        # `tar` on PATH (every ubuntu-latest runner has it).
+        run: node packages/cli/scripts/smoke-cli-tarball.mjs
+
+      - name: Consumer install smoke
+        # Sprint 60: packs all 6 publish candidates, npm-installs them
+        # together into a fresh consumer project under os.tmpdir() (no
+        # workspace symlinks involved), and runs the installed bin
+        # through help / schema / inspect / validate / generate. This
+        # is the canonical "would-this-actually-publish" gate.
+        run: node packages/cli/scripts/smoke-consumer-install.mjs
+
+      - name: Release metadata check
+        # Sprint 61: validates that every publish candidate has a
+        # consistent name / version / dist-pointing exports / explicit
+        # internal dep ranges. Catches a missed coordinated bump
+        # before the next release.
+        run: node packages/cli/scripts/release-plan.mjs --check
+
+      - name: Release pack dry-run
+        # Sprint 61: re-runs `npm pack --dry-run --json` for every
+        # candidate from the release-tooling perspective and verifies
+        # required entries / forbidden source leakage / version match.
+        # Overlaps with the CLI pack/tarball smokes by design — the
+        # other smokes only cover the CLI package, this one covers the
+        # whole release set.
+        run: node packages/cli/scripts/release-plan.mjs --pack-dry-run
+
+      - name: Release publish dry-run
+        # Sprint 62: runs `npm publish --dry-run --json` for every
+        # candidate. The script hardcodes --dry-run; there is no flag
+        # or env var that can produce a real publish.
+        run: node packages/cli/scripts/release-publish-dry-run.mjs
+
+      - name: Build release tarball artifacts
+        # Sprint 62: packs every candidate into .release-artifacts/tarballs
+        # alongside a manifest.json so reviewers can download the exact
+        # tarballs a publish would push.
+        run: pnpm release:pack-artifacts --out .release-artifacts/tarballs --clean
+
+      - name: Upload release tarballs
+        uses: actions/upload-artifact@v4
+        with:
+          name: plccopilot-release-tarballs
+          path: |
+            .release-artifacts/tarballs/*.tgz
+            .release-artifacts/tarballs/manifest.json
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Check publishability audit
+        # Sprint 56: regenerates docs/publishability-audit.md in memory
+        # and fails if it drifts from the committed file. CI does NOT
+        # require zero blockers — only that the report mirrors current
+        # workspace state, so package.json / build-script changes are
+        # forced to ship the matching audit update.
+        run: node packages/cli/scripts/publish-audit.mjs --check
+
+      - name: Typecheck (all packages)
+        run: pnpm -r typecheck
+
+      - name: Test (all packages)
+        run: pnpm -r test

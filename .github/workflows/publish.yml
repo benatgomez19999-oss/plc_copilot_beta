@@ -1,0 +1,149 @@
+name: Publish packages
+
+# Sprint 63 — manual npm publish workflow.
+#
+# Triggered ONLY via workflow_dispatch. Default mode is dry-run; the
+# real publish job is gated by `inputs.dry_run == false`, the
+# protected `npm-publish` environment (manual approval), an exact
+# confirmation string, and `secrets.NPM_TOKEN`. Real publish always
+# runs `npm publish --provenance --access public --tag <tag>` via
+# `pnpm release:publish-real`; the script hardcodes those flags and
+# refuses any path that would inject `--dry-run`, drop the
+# confirmation, or skip the workspace version check.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (must match every package.json)'
+        required: true
+        default: '0.1.0'
+      npm_tag:
+        description: 'npm dist-tag'
+        required: true
+        default: 'next'
+        type: choice
+        options:
+          - next
+          - latest
+          - beta
+      dry_run:
+        description: 'Run npm publish --dry-run only (default: true)'
+        required: true
+        default: true
+        type: boolean
+      confirm:
+        description: 'Required when dry_run=false: literal "publish @plccopilot <version>"'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    name: preflight (build + dry-run + validate)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate publish inputs (no token, no confirm needed)
+        # Sprint 63: fails fast if `inputs.version` does not match the
+        # workspace version OR if `inputs.npm_tag` is not in
+        # next|latest|beta. Real publish would fail anyway, but this
+        # surfaces the problem before the protected environment.
+        run: pnpm release:publish-real --validate-only --version "${{ inputs.version }}" --tag "${{ inputs.npm_tag }}"
+
+      - name: Run full contract gate
+        # Sprints 53–62 in lockstep — every smoke/audit/release check.
+        # Includes pnpm release:publish-dry-run, so the registry is
+        # contacted in dry-run mode (no auth, no tarball uploaded).
+        run: pnpm run ci
+
+      - name: Build release tarball artifacts
+        run: pnpm release:pack-artifacts --out .release-artifacts/tarballs --clean
+
+      - name: Upload release tarballs
+        uses: actions/upload-artifact@v4
+        with:
+          name: plccopilot-publish-preflight-tarballs
+          path: |
+            .release-artifacts/tarballs/*.tgz
+            .release-artifacts/tarballs/manifest.json
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: publish (real, requires manual approval)
+    needs: preflight
+    if: ${{ inputs.dry_run == false }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment: npm-publish
+    permissions:
+      contents: read
+      id-token: write # required by `npm publish --provenance`
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          # `setup-node` writes ~/.npmrc with the registry + auth shim
+          # so `npm publish` picks up NODE_AUTH_TOKEN automatically.
+          registry-url: 'https://registry.npmjs.org'
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build release artefacts
+        run: |
+          pnpm build:packages-base
+          pnpm build:packages-vendor
+          pnpm cli:build
+
+      - name: Re-validate inputs against the protected environment
+        run: pnpm release:publish-real --validate-only --version "${{ inputs.version }}" --tag "${{ inputs.npm_tag }}"
+
+      - name: Real publish (npm publish --provenance --access public)
+        # `pnpm release:publish-real` builds the argv. The runner
+        # rejects --no-dry-run / --publish / --yes etc, requires the
+        # exact confirmation string, and refuses to run without
+        # NODE_AUTH_TOKEN.
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          pnpm release:publish-real \
+            --version "${{ inputs.version }}" \
+            --tag "${{ inputs.npm_tag }}" \
+            --confirm "${{ inputs.confirm }}"

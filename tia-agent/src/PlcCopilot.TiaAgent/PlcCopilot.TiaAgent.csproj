@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <RootNamespace>PlcCopilot.TiaAgent</RootNamespace>
+    <AssemblyName>plccopilot-tia-agent</AssemblyName>
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+    <UseWindowsForms>false</UseWindowsForms>
+    <UseWpf>false</UseWpf>
+
+    <!--
+      Openness DLL location. Override via MSBuild property or environment variable:
+          dotnet build -p:TiaOpennessDll="D:\Siemens\...\Siemens.Engineering.dll"
+      or set TiaOpennessDll in the shell before invoking dotnet build.
+    -->
+    <TiaOpennessDll Condition="'$(TiaOpennessDll)' == ''">$(ProgramFiles)\Siemens\Automation\Portal V19\PublicAPI\V19\Siemens.Engineering.dll</TiaOpennessDll>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PlcCopilot.TiaAgent.Core\PlcCopilot.TiaAgent.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup Condition="Exists('$(TiaOpennessDll)')">
+    <Reference Include="Siemens.Engineering">
+      <HintPath>$(TiaOpennessDll)</HintPath>
+      <Private>false</Private>
+      <SpecificVersion>false</SpecificVersion>
+    </Reference>
+  </ItemGroup>
+
+  <Target Name="WarnOnMissingOpenness" BeforeTargets="CoreCompile" Condition="!Exists('$(TiaOpennessDll)')">
+    <Warning Text="Siemens.Engineering.dll not found at '$(TiaOpennessDll)'. Build will fail unless you set the TiaOpennessDll MSBuild property to a valid V19 DLL." />
+  </Target>
+</Project>

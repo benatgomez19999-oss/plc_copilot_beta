@@ -1,0 +1,39 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build artifacts (none today; reserved if a tsc emit step is added later)
+dist/
+build/
+*.tsbuildinfo
+
+# Test outputs
+coverage/
+.nyc_output/
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# pnpm / npm logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Sprint 55 — temp dir for the CLI tarball smoke. Always cleaned up on
+# success; ignored here so a crashed run cannot leak into git status.
+packages/cli/.tarball-smoke-tmp/
+
+# Sprint 62 — release tarball artifacts produced by `pnpm release:pack-artifacts`
+# (uploaded by CI as `plccopilot-release-tarballs`). Local runs leave them
+# under .release-artifacts/ for manual inspection; never commit them.
+.release-artifacts/

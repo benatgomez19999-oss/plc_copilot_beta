@@ -1,0 +1,448 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://plccopilot.dev/schemas/cli-result.schema.json",
+  "title": "PLC Copilot CLI JSON Result",
+  "description": "Wire shape emitted to stdout by 'plccopilot generate|validate|inspect --json'.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/CliGenerateJsonResult"
+    },
+    {
+      "$ref": "#/$defs/CliValidateJsonResult"
+    },
+    {
+      "$ref": "#/$defs/CliInspectJsonResult"
+    },
+    {
+      "$ref": "#/$defs/CliJsonErrorResult"
+    }
+  ],
+  "$defs": {
+    "BackendId": {
+      "type": "string",
+      "enum": [
+        "siemens",
+        "codesys",
+        "rockwell"
+      ]
+    },
+    "BackendIdOrAll": {
+      "type": "string",
+      "enum": [
+        "siemens",
+        "codesys",
+        "rockwell",
+        "all"
+      ]
+    },
+    "CommandName": {
+      "type": "string",
+      "enum": [
+        "generate",
+        "validate",
+        "inspect",
+        "unknown"
+      ]
+    },
+    "DiagnosticsCounts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "errors",
+        "warnings",
+        "info"
+      ],
+      "properties": {
+        "errors": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "warnings": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "info": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "SerializedCompilerError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "message"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "code": {
+          "type": "string",
+          "minLength": 1
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "stationId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "symbol": {
+          "type": "string",
+          "minLength": 1
+        },
+        "hint": {
+          "type": "string",
+          "minLength": 1
+        },
+        "cause": {
+          "type": "string",
+          "minLength": 1
+        },
+        "stack": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "ValidationIssue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "severity",
+        "rule",
+        "message"
+      ],
+      "properties": {
+        "severity": {
+          "type": "string",
+          "enum": [
+            "error",
+            "warning",
+            "info"
+          ]
+        },
+        "rule": {
+          "type": "string",
+          "minLength": 1
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "GenerateRunSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "backend",
+        "artifact_count",
+        "diagnostics"
+      ],
+      "properties": {
+        "backend": {
+          "$ref": "#/$defs/BackendId"
+        },
+        "artifact_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "diagnostics": {
+          "$ref": "#/$defs/DiagnosticsCounts"
+        }
+      }
+    },
+    "MachineInspectSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "stations",
+        "equipment",
+        "io",
+        "alarms",
+        "parameters",
+        "recipes"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "stations": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "equipment": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "io": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "alarms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "parameters": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "recipes": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "CliGenerateJsonResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ok",
+        "command",
+        "generated_at",
+        "backend",
+        "out_dir",
+        "artifact_count",
+        "written_files",
+        "diagnostics",
+        "summary_path"
+      ],
+      "properties": {
+        "ok": {
+          "type": "boolean",
+          "const": true
+        },
+        "command": {
+          "type": "string",
+          "const": "generate"
+        },
+        "generated_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "backend": {
+          "$ref": "#/$defs/BackendIdOrAll"
+        },
+        "out_dir": {
+          "type": "string",
+          "minLength": 1
+        },
+        "artifact_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "written_files": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "diagnostics": {
+          "$ref": "#/$defs/DiagnosticsCounts"
+        },
+        "runs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/GenerateRunSummary"
+          }
+        },
+        "summary_path": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "CliValidateJsonResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ok",
+        "command",
+        "generated_at",
+        "issues",
+        "counts"
+      ],
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        },
+        "command": {
+          "type": "string",
+          "const": "validate"
+        },
+        "generated_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "project_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "project_name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "issues": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ValidationIssue"
+          }
+        },
+        "counts": {
+          "$ref": "#/$defs/DiagnosticsCounts"
+        }
+      }
+    },
+    "CliInspectJsonResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ok",
+        "command",
+        "generated_at",
+        "project",
+        "counts",
+        "machines",
+        "supported_backends"
+      ],
+      "properties": {
+        "ok": {
+          "type": "boolean",
+          "const": true
+        },
+        "command": {
+          "type": "string",
+          "const": "inspect"
+        },
+        "generated_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "project": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "name",
+            "pir_version"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "pir_version": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "counts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "machines",
+            "stations",
+            "equipment",
+            "io",
+            "alarms",
+            "parameters",
+            "recipes"
+          ],
+          "properties": {
+            "machines": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "stations": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "equipment": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "io": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "alarms": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "parameters": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "recipes": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "machines": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/MachineInspectSummary"
+          }
+        },
+        "supported_backends": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/BackendIdOrAll"
+          }
+        }
+      }
+    },
+    "CliJsonErrorResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ok",
+        "command",
+        "generated_at",
+        "error"
+      ],
+      "properties": {
+        "ok": {
+          "type": "boolean",
+          "const": false
+        },
+        "command": {
+          "$ref": "#/$defs/CommandName"
+        },
+        "generated_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "error": {
+          "$ref": "#/$defs/SerializedCompilerError"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://plccopilot.dev/schemas/web-zip-summary.schema.json",
+  "title": "PLC Copilot Web ZIP Summary",
+  "description": "Shape written as summary.json inside the Web MVP artifacts ZIP.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "backend",
+    "artifactCount",
+    "errors",
+    "warnings",
+    "info",
+    "generated_at"
+  ],
+  "properties": {
+    "backend": {
+      "type": "string",
+      "enum": [
+        "siemens",
+        "codesys",
+        "rockwell",
+        "all"
+      ]
+    },
+    "artifactCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "errors": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "warnings": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "info": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

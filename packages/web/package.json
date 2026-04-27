@@ -1,0 +1,35 @@
+{
+  "name": "@plccopilot/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@plccopilot/codegen-codesys": "workspace:*",
+    "@plccopilot/codegen-core": "workspace:*",
+    "@plccopilot/codegen-rockwell": "workspace:*",
+    "@plccopilot/codegen-siemens": "workspace:*",
+    "@monaco-editor/react": "^4.6.0",
+    "@plccopilot/pir": "workspace:*",
+    "jszip": "^3.10.1",
+    "monaco-editor": "^0.49.0",
+    "react": "^18.3.0",
+    "react-dom": "^18.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.0",
+    "typescript": "^5.4.0",
+    "vite": "^5.4.0",
+    "vitest": "^1.6.0"
+  }
+}

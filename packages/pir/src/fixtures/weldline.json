@@ -1,0 +1,266 @@
+{
+  "pir_version": "0.1.0",
+  "id": "prj_weldline",
+  "name": "Weldline Demo Project",
+  "description": "Two-station pneumatic + welding line used as PIR v0.1 reference fixture.",
+  "machines": [
+    {
+      "id": "mch_weldline",
+      "name": "Weldline Machine",
+      "stations": [
+        {
+          "id": "st_load",
+          "name": "Load Station",
+          "equipment": [
+            {
+              "id": "cyl01",
+              "name": "Loading cylinder",
+              "type": "pneumatic_cylinder_2pos",
+              "code_symbol": "Cyl01",
+              "io_bindings": {
+                "solenoid_out": "io_cyl01_sol",
+                "sensor_extended": "io_cyl01_ext",
+                "sensor_retracted": "io_cyl01_ret"
+              },
+              "timing": {
+                "extend_timeout_ms": 5000,
+                "retract_timeout_ms": 5000
+              }
+            },
+            {
+              "id": "sen_part",
+              "name": "Part-present sensor",
+              "type": "sensor_discrete",
+              "code_symbol": "SenPart",
+              "io_bindings": {
+                "signal_in": "io_part_sensor"
+              },
+              "timing": {
+                "debounce_ms": 20
+              }
+            }
+          ],
+          "sequence": {
+            "states": [
+              { "id": "st_idle", "name": "Idle", "kind": "initial" },
+              { "id": "st_extending", "name": "Extending", "kind": "normal" },
+              { "id": "st_holding", "name": "Holding", "kind": "normal" },
+              { "id": "st_retracting", "name": "Retracting", "kind": "normal" },
+              { "id": "st_fault", "name": "Fault", "kind": "terminal" }
+            ],
+            "transitions": [
+              {
+                "id": "t_start",
+                "from": "st_idle",
+                "to": "st_extending",
+                "trigger": "rising(sen_part)",
+                "priority": 1
+              },
+              {
+                "id": "t_extended",
+                "from": "st_extending",
+                "to": "st_holding",
+                "trigger": "cyl01.sensor_extended",
+                "priority": 1,
+                "timeout": { "ms": 5000, "alarm_id": "al_cyl_ext_timeout" }
+              },
+              {
+                "id": "t_hold_done",
+                "from": "st_holding",
+                "to": "st_retracting",
+                "trigger": "timer_expired(hold_timer)",
+                "priority": 1
+              },
+              {
+                "id": "t_retracted",
+                "from": "st_retracting",
+                "to": "st_idle",
+                "trigger": "cyl01.sensor_retracted",
+                "priority": 1,
+                "timeout": { "ms": 5000, "alarm_id": "al_cyl_ret_timeout" }
+              },
+              {
+                "id": "t_estop",
+                "from": "*",
+                "to": "st_fault",
+                "trigger": "estop_active",
+                "priority": 100
+              }
+            ]
+          }
+        },
+        {
+          "id": "st_weld",
+          "name": "Weld Station",
+          "equipment": [
+            {
+              "id": "mot01",
+              "name": "Weld motor",
+              "type": "motor_simple",
+              "code_symbol": "Mot01",
+              "io_bindings": {
+                "run_out": "io_mot01_run",
+                "running_fb": "io_mot01_fb"
+              },
+              "timing": {
+                "start_timeout_ms": 3000
+              }
+            }
+          ],
+          "sequence": {
+            "states": [
+              { "id": "st_idle", "name": "Idle", "kind": "initial" },
+              { "id": "st_running", "name": "Running", "kind": "normal" }
+            ],
+            "transitions": [
+              {
+                "id": "t_start_weld",
+                "from": "st_idle",
+                "to": "st_running",
+                "trigger": "rising(start_button)",
+                "priority": 1
+              }
+            ]
+          }
+        }
+      ],
+      "io": [
+        {
+          "id": "io_cyl01_sol",
+          "name": "Cyl01 solenoid",
+          "direction": "out",
+          "data_type": "bool",
+          "address": { "memory_area": "Q", "byte": 0, "bit": 0 }
+        },
+        {
+          "id": "io_cyl01_ext",
+          "name": "Cyl01 extended sensor",
+          "direction": "in",
+          "data_type": "bool",
+          "address": { "memory_area": "I", "byte": 0, "bit": 0 }
+        },
+        {
+          "id": "io_cyl01_ret",
+          "name": "Cyl01 retracted sensor",
+          "direction": "in",
+          "data_type": "bool",
+          "address": { "memory_area": "I", "byte": 0, "bit": 1 }
+        },
+        {
+          "id": "io_part_sensor",
+          "name": "Part-present sensor",
+          "direction": "in",
+          "data_type": "bool",
+          "address": { "memory_area": "I", "byte": 0, "bit": 2 }
+        },
+        {
+          "id": "io_mot01_run",
+          "name": "Mot01 run coil",
+          "direction": "out",
+          "data_type": "bool",
+          "address": { "memory_area": "Q", "byte": 0, "bit": 1 }
+        },
+        {
+          "id": "io_mot01_fb",
+          "name": "Mot01 running feedback",
+          "direction": "in",
+          "data_type": "bool",
+          "address": { "memory_area": "I", "byte": 0, "bit": 3 }
+        },
+        {
+          "id": "io_estop",
+          "name": "E-stop contactor",
+          "direction": "in",
+          "data_type": "bool",
+          "address": { "memory_area": "I", "byte": 0, "bit": 4 }
+        },
+        {
+          "id": "io_weld_time_sp",
+          "name": "Weld time setpoint",
+          "direction": "in",
+          "data_type": "dint",
+          "address": { "memory_area": "DB", "byte": 0, "db_number": 100 }
+        },
+        {
+          "id": "io_weld_current_sp",
+          "name": "Weld current setpoint",
+          "direction": "in",
+          "data_type": "real",
+          "address": { "memory_area": "DB", "byte": 4, "db_number": 100 }
+        }
+      ],
+      "alarms": [
+        {
+          "id": "al_cyl_ext_timeout",
+          "severity": "warn",
+          "text_i18n": { "en": "Cylinder Cyl01 did not reach the extended position in time." },
+          "ack_required": true,
+          "category": "timeout"
+        },
+        {
+          "id": "al_cyl_ret_timeout",
+          "severity": "warn",
+          "text_i18n": { "en": "Cylinder Cyl01 did not reach the retracted position in time." },
+          "ack_required": true,
+          "category": "timeout"
+        },
+        {
+          "id": "al_estop_active",
+          "severity": "critical",
+          "text_i18n": { "en": "Emergency stop has been pressed." },
+          "ack_required": true,
+          "category": "safety"
+        }
+      ],
+      "interlocks": [
+        {
+          "id": "il_cyl01_no_extend_on_fault",
+          "inhibits": "cyl01.extend",
+          "when": "estop_active"
+        }
+      ],
+      "parameters": [
+        {
+          "id": "p_weld_time",
+          "name": "Weld time",
+          "data_type": "dint",
+          "default": 3000,
+          "min": 100,
+          "max": 10000,
+          "unit": "ms"
+        },
+        {
+          "id": "p_weld_current",
+          "name": "Weld current",
+          "data_type": "real",
+          "default": 150.0,
+          "min": 50.0,
+          "max": 300.0,
+          "unit": "A"
+        }
+      ],
+      "recipes": [
+        {
+          "id": "r_default",
+          "name": "Default recipe",
+          "values": {
+            "p_weld_time": 3000,
+            "p_weld_current": 150.0
+          }
+        }
+      ],
+      "safety_groups": [
+        {
+          "id": "sg_estop",
+          "name": "Emergency stop",
+          "trigger": "estop_active",
+          "affects": [
+            { "kind": "station", "station_id": "st_load" },
+            { "kind": "station", "station_id": "st_weld" }
+          ],
+          "category": "emergency_stop"
+        }
+      ]
+    }
+  ]
+}

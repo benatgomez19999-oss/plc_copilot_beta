@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://plccopilot.dev/schemas/generate-summary.schema.json",
+  "title": "PLC Copilot Generate Summary",
+  "description": "Shape written to <out>/summary.json by 'plccopilot generate'.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/SingleBackendSummary"
+    },
+    {
+      "$ref": "#/$defs/AllBackendsSummary"
+    }
+  ],
+  "$defs": {
+    "BackendId": {
+      "type": "string",
+      "enum": [
+        "siemens",
+        "codesys",
+        "rockwell"
+      ]
+    },
+    "DiagnosticsCounts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "errors",
+        "warnings",
+        "info"
+      ],
+      "properties": {
+        "errors": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "warnings": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "info": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "SingleBackendSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "backend",
+        "artifact_count",
+        "diagnostics",
+        "artifacts"
+      ],
+      "properties": {
+        "backend": {
+          "$ref": "#/$defs/BackendId"
+        },
+        "artifact_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "diagnostics": {
+          "$ref": "#/$defs/DiagnosticsCounts"
+        },
+        "artifacts": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "AllBackendsSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "backend",
+        "runs"
+      ],
+      "properties": {
+        "backend": {
+          "type": "string",
+          "const": "all"
+        },
+        "runs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SingleBackendSummary"
+          }
+        }
+      }
+    }
+  }
+}

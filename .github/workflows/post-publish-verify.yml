@@ -1,0 +1,99 @@
+name: Post-publish verify
+
+# Sprints 64–65 — manual-only registry verification.
+#
+# Run AFTER the publish workflow has completed for a given version.
+# Three layered checks:
+#
+#   1. `release:provenance`     — local stub (sprint 65). Confirms the
+#                                  publish workflow is configured for
+#                                  provenance and the command builder
+#                                  still hardcodes --provenance. Does
+#                                  not contact the registry.
+#   2. `release:npm-view`       — sprint 65. Queries `npm view` for
+#                                  every release candidate, verifies
+#                                  name / version / dist.tarball /
+#                                  dist.integrity. Optionally
+#                                  verifies the dist-tag points at
+#                                  the expected version.
+#   3. `release:registry-smoke` — sprint 64. `npm install`s
+#                                  @plccopilot/cli@<version> in a
+#                                  temp project and exercises the
+#                                  installed bin end-to-end.
+#
+# The workflow is intentionally NOT triggered on push / pull_request /
+# schedule — checks (2) and (3) would 404 until the package actually
+# exists on the registry. There is no codepath here that can publish.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to verify from npm registry (must already be published)'
+        required: true
+        default: '0.1.0'
+      registry:
+        description: 'Registry URL'
+        required: true
+        default: 'https://registry.npmjs.org'
+      npm_tag:
+        description: 'dist-tag to verify (each candidate must resolve this tag to the same version)'
+        required: true
+        default: 'next'
+        type: choice
+        options:
+          - next
+          - latest
+          - beta
+      check_tag:
+        description: 'Whether to verify the dist-tag resolution (default: true)'
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: post-publish-verify-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: post-publish audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Provenance stub (local-only)
+        # Sprint 65: confirms the publish path is *configured* for
+        # provenance. Independent of the registry; runs first so a
+        # broken publish workflow surfaces before we hit the network.
+        run: pnpm release:provenance --version "${{ inputs.version }}"
+
+      - name: npm view verification (with tag)
+        if: ${{ inputs.check_tag == true }}
+        run: pnpm release:npm-view --version "${{ inputs.version }}" --registry "${{ inputs.registry }}" --tag "${{ inputs.npm_tag }}"
+
+      - name: npm view verification (no tag)
+        if: ${{ inputs.check_tag == false }}
+        run: pnpm release:npm-view --version "${{ inputs.version }}" --registry "${{ inputs.registry }}"
+
+      - name: Registry install smoke
+        run: pnpm release:registry-smoke --version "${{ inputs.version }}" --registry "${{ inputs.registry }}"
