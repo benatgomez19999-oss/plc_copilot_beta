@@ -92,7 +92,21 @@ export function readPackageInfo(packageDir: string): PackageInfo;
 
 export function discoverPackages(packagesRoot: string): string[];
 
-export function analyzePackage(info: PackageInfo): {
+export interface AnalyzePackageOptions {
+  /**
+   * Sprint 67 hotfix — when set, the auditor verifies that each
+   * publish candidate's `repository.url` equals this string and that
+   * `repository.directory` equals `packages/<dir>`. Typically the
+   * workspace root's `package.json#repository.url`. Leave undefined
+   * to skip the repository check entirely.
+   */
+  expectedRepositoryUrl?: string;
+}
+
+export function analyzePackage(
+  info: PackageInfo,
+  options?: AnalyzePackageOptions,
+): {
   intent: PublishIntent;
   internalDeps: string[];
   findings: AuditFinding[];
