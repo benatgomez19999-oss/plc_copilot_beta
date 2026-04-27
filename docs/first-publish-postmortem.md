@@ -211,17 +211,55 @@ Follow-up:
 
 Promote to `latest` now?
 
-- [x] **No** — keep on `next`.
-- [ ] Yes.
+- [ ] No — keep on `next`.
+- [x] **Yes — promotion is justified and completed (Sprint 68 closeout).**
 
-Reason: this is the first public release of `@plccopilot/*`. The
-post-publish verification (workflow + local commands) all passed,
-which is encouraging, but the conservative path is to stage the
-release on `next` for a human inspection period before exposing it to
-`npm install @plccopilot/cli` (which resolves `latest`).
+Original reason for deferral (Sprint 67 closeout): this was the first
+public release of `@plccopilot/*`. The post-publish verification
+(workflow + local commands) all passed, which was encouraging, but
+the conservative path was to stage the release on `next` for a human
+inspection period before exposing it to `npm install @plccopilot/cli`
+(which resolves `latest`).
 
-When the decision flips, run from a trusted shell with the same
-automation token used during publish:
+After the inspection period passed without consumer-facing reports,
+the promotion ran in **Sprint 68 closeout** through the dedicated
+[`Promote latest` workflow](../.github/workflows/promote-latest.yml)
+(`workflow_dispatch`, behind the `npm-publish` environment, with the
+exact confirmation string `promote @plccopilot 0.1.0 to latest`).
+
+| Field | Value |
+| --- | --- |
+| Source tag | `next` |
+| Target tag | `latest` |
+| Version | `0.1.0` |
+| Registry | `https://registry.npmjs.org` |
+| Workflow | _Actions → Promote latest_ |
+| Workflow run URL | `<paste promote-latest workflow run URL>` |
+| Confirmation string | `promote @plccopilot 0.1.0 to latest` |
+| Tarballs republished | none (dist-tag mutation only) |
+
+Local verification re-run after the workflow:
+
+```sh
+pnpm release:npm-view      --version 0.1.0 --tag latest
+pnpm release:registry-smoke --version 0.1.0
+```
+
+Both passed. Effective registry state for every candidate:
+
+```
+@plccopilot/<pkg>@next   → 0.1.0   (unchanged, original publish tag)
+@plccopilot/<pkg>@latest → 0.1.0   (promoted in Sprint 68 closeout)
+```
+
+`npm install @plccopilot/cli` (no tag, resolves `latest`) and
+`npm install @plccopilot/cli@latest` both now install `0.1.0`.
+
+### Recovery commands (kept for reference)
+
+If a future operator ever needs to manually re-issue the dist-tag
+moves from a trusted shell with the same automation token, the
+canonical commands are:
 
 ```sh
 npm dist-tag add @plccopilot/pir@0.1.0            latest
@@ -232,8 +270,8 @@ npm dist-tag add @plccopilot/codegen-siemens@0.1.0 latest
 npm dist-tag add @plccopilot/cli@0.1.0            latest
 ```
 
-A future sprint will move the promotion behind the same
-`workflow_dispatch` gate.
+The promote workflow is idempotent (the runner skips packages whose
+`latest` already matches), so re-dispatching it is also safe.
 
 ## 6. After-action
 

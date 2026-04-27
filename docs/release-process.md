@@ -408,31 +408,34 @@ dry-run + real publish + partial-publish recovery, plus the new
 post-publish steps) lives in
 [`first-publish-checklist.md`](first-publish-checklist.md).
 
-## First-publish execution pack (Sprints 66 + 67)
+## First-publish execution pack (Sprints 66 + 67 + 68)
 
-Sprint 66 wrapped the very-first-publish run in three companion docs;
-Sprint 67 closed it out by actually executing the publish under the
-`next` dist-tag and flipping the docs to "released":
+Sprint 66 wrapped the very-first-publish run in three companion
+docs; Sprint 67 closed it out by actually executing the publish
+under the `next` dist-tag; **Sprint 68 closeout** promoted the
+release to `latest` after the human inspection period passed:
 
 - [`first-publish-checklist.md`](first-publish-checklist.md) —
   execution-sequence runbook with explicit **abort conditions**.
   Preserved verbatim for the next coordinated release.
 - [`first-publish-postmortem.md`](first-publish-postmortem.md) —
-  filled record of the Sprint 67 run: preflight ticks, real-publish
-  inputs (`dry_run: false`, `confirm: publish @plccopilot 0.1.0`),
-  six published package URLs, post-publish verification results,
-  the four issues that surfaced before the final successful run, and
-  the `latest`-promotion decision (deferred).
+  filled record of the Sprint 67 publish (preflight ticks, real-publish
+  inputs, six published package URLs, post-publish verification, the
+  four iterations needed to mitigate npm-provenance corner cases) and
+  the Sprint 68 closeout promotion decision: `[x] Yes — promotion
+  is justified and completed`, with the `Promote latest` workflow URL
+  + post-promotion verification commands.
 - [`releases/0.1.0.md`](releases/0.1.0.md) — release notes for
-  `0.1.0`. Status flipped from
-  `planned first npm release — pending` →
-  `released under npm dist-tag next` once the postmortem was signed
-  off.
+  `0.1.0`. Status flipped twice:
+  1. Sprint 67 closeout: `planned first npm release — pending` →
+     `released under npm dist-tag next`.
+  2. Sprint 68 closeout: → `released and promoted to npm dist-tag
+     latest`. The doc preserves both phases of the timeline so a
+     future reader can reconstruct the run.
 
-The first publish shipped under the `next` dist-tag, **not** `latest`.
-Promotion is recorded as a deferred decision in §5 of the postmortem;
-a future sprint will move it behind the same `workflow_dispatch`
-gate.
+After Sprint 68 closeout, every `@plccopilot/<pkg>` resolves to
+`0.1.0` on **both** `next` and `latest`. `npm install @plccopilot/cli`
+with no explicit tag installs `0.1.0`.
 
 ### Provenance stub scope (Sprint 65)
 

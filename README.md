@@ -91,13 +91,14 @@ pnpm install
 > Use `pnpm run ci` (not `pnpm ci`) — pnpm reserves the bare `ci` verb for an
 > npm-compatible install command that is currently unimplemented.
 
-> **First publish complete: `0.1.0` released on npm under the `next`
-> dist-tag (Sprint 67).** Six packages on the registry, post-publish
-> verification green, `latest` promotion intentionally deferred. See
+> **`@plccopilot/*` 0.1.0 is on npm under both `next` and `latest`.**
+> Sprint 67 published the six packages under `next`; Sprint 68
+> closeout promoted the same artefacts to `latest` after the human
+> inspection period passed. `npm install @plccopilot/cli` (no tag,
+> resolves `latest`) installs `0.1.0`. See
 > [`docs/releases/0.1.0.md`](docs/releases/0.1.0.md) for the release
 > notes and [`docs/first-publish-postmortem.md`](docs/first-publish-postmortem.md)
-> for the run record (including the four iterations needed to
-> mitigate npm-provenance corner cases). The runbook at
+> for the publish + promotion run record. The runbook at
 > [`docs/first-publish-checklist.md`](docs/first-publish-checklist.md)
 > is preserved verbatim for the next coordinated release.
 

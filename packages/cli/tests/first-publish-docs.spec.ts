@@ -1,14 +1,16 @@
-// Sprint 66 / 67 — docs-contract tests for the first-publish
+// Sprint 66 / 67 / 68 — docs-contract tests for the first-publish
 // execution pack. The publish itself is a manual GitHub Actions run;
 // these tests guard the safety-critical phrases in the three
 // companion docs against silent edits.
 //
 // Sprint 67 closeout flipped the docs from "pending" → "released
-// under next" once the real publish succeeded. The assertions below
-// pin the post-publish state: status flipped, six npm package URLs
-// listed, postmortem marked complete, and `latest` promotion
-// explicitly deferred (we never want a future operator to flip it
-// without a workflow run).
+// under next" once the real publish succeeded.
+// Sprint 68 closeout flipped them again from "released under next"
+// → "released and promoted to latest" once the promote-latest
+// workflow ran and `npm view --tag latest` confirmed every candidate
+// resolves to the same version. The assertions below pin the
+// post-promotion state and explicitly forbid a regression to either
+// "pending" or "do not promote to latest yet" wording.
 //
 // (Single-line comments — JSDoc blocks would close on `*/` inside an
 // `@plccopilot/...` package path.)
@@ -47,12 +49,13 @@ describe('docs/releases/0.1.0.md', () => {
     expect(existsSync(DOC_RELEASE_NOTES)).toBe(true);
   });
 
-  it('declares status as released under next (no longer pending)', () => {
-    // Sprint 67 closeout: the publish succeeded, the doc must reflect that.
-    expect(releaseNotes.toLowerCase()).toMatch(/status[^\n]*released under npm dist-tag/);
-    expect(releaseNotes.toLowerCase()).toContain('next');
-    // The pre-publish phrase is gone — guard against accidental rollback.
+  it('declares status as released and promoted to latest (no longer pending or next-only)', () => {
+    // Sprint 68 closeout: the promotion ran, the doc must reflect that.
+    expect(releaseNotes.toLowerCase()).toMatch(/status[^\n]*released and promoted to npm dist-tag/);
+    expect(releaseNotes.toLowerCase()).toContain('latest');
+    // The earlier states must be gone — guard against accidental rollback.
     expect(releaseNotes.toLowerCase()).not.toContain('planned first npm release — pending');
+    expect(releaseNotes.toLowerCase()).not.toContain('do not promote to latest yet');
   });
 
   it('lists every release candidate with version 0.1.0', () => {
@@ -61,11 +64,14 @@ describe('docs/releases/0.1.0.md', () => {
     }
   });
 
-  it('declares the first dist-tag as `next`, not `latest`', () => {
-    expect(releaseNotes).toMatch(/dist-tag[\s\S]*?`next`/i);
-    // Explicit "do not promote to latest yet" guidance still present
-    // post-release — promotion is intentionally deferred.
-    expect(releaseNotes.toLowerCase()).toContain('do not promote to latest yet');
+  it('records both dist-tags resolve to 0.1.0 (initial under next, promoted to latest)', () => {
+    // Both phases of the release should be visible in the release
+    // notes so a future reader can reconstruct the timeline:
+    //   1. Sprint 67 staged 0.1.0 under `next`
+    //   2. Sprint 68 promoted to `latest`.
+    const lower = releaseNotes.toLowerCase();
+    expect(lower).toMatch(/initial release[^\n]*next|under the `next` dist-tag|under `next`/);
+    expect(lower).toMatch(/promot(ed|ion) to[^\n]*`?latest`?/);
   });
 
   it('includes the six npm package URLs', () => {
@@ -75,15 +81,19 @@ describe('docs/releases/0.1.0.md', () => {
     }
   });
 
-  it('records that all three post-publish checks passed', () => {
-    // The post-publish commands are still listed (for re-runs) AND
-    // the verification table marks each as passed.
+  it('records that all three post-publish checks passed (Sprint 67) AND the post-promotion checks passed (Sprint 68)', () => {
+    // Post-publish (sprint 67) commands listed.
     expect(releaseNotes).toContain('pnpm release:provenance');
     expect(releaseNotes).toContain('pnpm release:npm-view');
     expect(releaseNotes).toContain('pnpm release:registry-smoke');
-    // Sprint 67 closeout populates a results table with passing checks.
+    // Sprint 68 adds a second results table for the latest-tag
+    // verification — there should now be ≥5 ✅ passed marks across
+    // the two tables.
     const passedMarks = releaseNotes.match(/✅\s*passed/g) ?? [];
-    expect(passedMarks.length).toBeGreaterThanOrEqual(3);
+    expect(passedMarks.length).toBeGreaterThanOrEqual(5);
+    // Explicit reference to the post-promotion verification with
+    // `--tag latest`.
+    expect(releaseNotes).toMatch(/release:npm-view[\s\S]*?--tag\s+latest/);
   });
 
   it('does NOT claim deep provenance attestation verification', () => {
@@ -158,12 +168,19 @@ describe('docs/first-publish-postmortem.md', () => {
     expect(postmortem).toMatch(/-\s+\[x\][^\n]*release:registry-smoke/);
   });
 
-  it('records latest-promotion as a deferred decision', () => {
-    // §5: "No — keep on next" ticked, "Yes" not ticked.
-    expect(postmortem).toMatch(/-\s+\[x\][^\n]*No[^\n]*keep on `next`/i);
-    expect(postmortem).toMatch(/-\s+\[ \][^\n]*Yes\b/i);
-    // Six explicit `npm dist-tag add` lines remain available for when
-    // the decision flips.
+  it('records latest-promotion as completed (Sprint 68 closeout)', () => {
+    // §5: the "Yes" tickbox is now ticked; the "No" tickbox is empty.
+    expect(postmortem).toMatch(/-\s+\[x\][^\n]*Yes[^\n]*promotion is justified and completed/i);
+    expect(postmortem).toMatch(/-\s+\[ \][^\n]*No[^\n]*keep on `next`/i);
+    // Section explicitly mentions Sprint 68 closeout + the workflow.
+    expect(postmortem).toContain('Sprint 68 closeout');
+    expect(postmortem).toMatch(/Promote latest/i);
+    // The exact promote-latest confirmation string is recorded so a
+    // future operator can grep for the literal value.
+    expect(postmortem).toContain('promote @plccopilot 0.1.0 to latest');
+    // Six explicit `npm dist-tag add` recovery commands remain
+    // available even after the promotion (kept for future operators
+    // who might need to re-issue moves manually).
     for (const name of RELEASE_PUBLISH_ORDER) {
       expect(postmortem).toContain(`npm dist-tag add ${name}@0.1.0`);
     }
