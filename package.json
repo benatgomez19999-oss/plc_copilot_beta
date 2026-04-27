@@ -32,6 +32,7 @@
     "release:npm-view": "node packages/cli/scripts/verify-npm-view.mjs",
     "release:provenance": "node packages/cli/scripts/verify-provenance.mjs",
     "release:promote-latest": "node packages/cli/scripts/release-promote-latest.mjs",
+    "release:github": "node packages/cli/scripts/github-release.mjs",
     "release:notes": "node packages/cli/scripts/release-notes.mjs",
     "release:pack-artifacts": "node packages/cli/scripts/release-pack-artifacts.mjs",
     "ci:contracts": "pnpm build:packages-base && node packages/cli/scripts/smoke-base-dist.mjs && pnpm build:packages-vendor && node packages/cli/scripts/smoke-vendor-dist.mjs && pnpm cli:build && node packages/cli/dist/index.js schema --check packages/cli/schemas && node packages/cli/scripts/smoke-cli-dist.mjs && node packages/cli/scripts/smoke-cli-pack.mjs && node packages/cli/scripts/smoke-cli-tarball.mjs && node packages/cli/scripts/smoke-consumer-install.mjs && node packages/cli/scripts/release-plan.mjs --check && node packages/cli/scripts/release-plan.mjs --pack-dry-run && node packages/cli/scripts/release-publish-dry-run.mjs && node packages/cli/scripts/publish-audit.mjs --check",
