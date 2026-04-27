@@ -56,6 +56,8 @@ candidates.
 | `pnpm release:registry-smoke [--version X.Y.Z] [--registry URL]` | _(Sprint 64, manual only)_ `npm install @plccopilot/cli@<version>` from a real registry into a fresh temp project, run `help` / `schema` / `inspect` / `validate` / `generate --backend siemens`. Detects "package not yet published" 404s and prints a friendly "expected before first publish" message. **Not in `ci:contracts`.** |
 | `pnpm release:npm-view [--version] [--tag] [--registry] [--json]` | _(Sprint 65, manual only)_ `npm view` every release candidate, validate name / version / dist.tarball / dist.integrity, optionally check that the dist-tag resolves to the same version. **Not in `ci:contracts`.** |
 | `pnpm release:provenance [--version] [--json]` | _(Sprint 65)_ Local-only stub that confirms the publish path is *configured* for provenance: workflow YAML grants `id-token: write` + references `--provenance`, and the publish command builder hardcodes `--provenance` for every tag. Safe to run anywhere. Deep attestation verification against Sigstore is reserved for a future sprint. |
+| `pnpm release:promote-latest --validate-only --version X.Y.Z [--registry URL]` | _(Sprint 68)_ Local-only validation for the dist-tag promote runner. No token, no confirm, no registry contact. Used by the workflow's preflight + by hand on the operator's machine. |
+| `pnpm release:promote-latest --version X.Y.Z --confirm "promote @plccopilot X.Y.Z to latest"` | _(Sprint 68)_ Real mode — moves the `latest` dist-tag to a version already on `next`. Refuses to start unless `NODE_AUTH_TOKEN` is set, the confirmation matches exactly, every package@next resolves to `<version>` first, and the runner's argv passes `assertNoPublishSurface`. Idempotent: packages already at `latest -> <version>` are skipped. **Only invoked by the GitHub Actions workflow.** |
 
 `release:check`, `release:pack-dry-run`, and `release:publish-dry-run`
 are wired into [`pnpm run ci:contracts`](../package.json) (and the
@@ -181,6 +183,95 @@ green, but no real publish has been performed.
 `release:pack-artifacts` does not have its own issue codes; it reuses
 the consistency check and fails fast if the resulting directory does
 not contain exactly the six expected tarballs.
+
+## Promoting `next` → `latest` (Sprint 68)
+
+After a release has soaked under `next` long enough for human
+inspection, the dist-tag promotion to `latest` is run manually
+through the same protected `npm-publish` GitHub Actions environment.
+The workflow only mutates dist-tags — it never republishes a tarball.
+
+### Preflight (local)
+
+```sh
+# 1. Confirm the version matches every package.json + the npm-view
+#    contract holds for the source tag.
+pnpm release:check
+pnpm release:npm-view --version 0.1.0 --tag next
+pnpm release:promote-latest --validate-only --version 0.1.0
+```
+
+All three must exit 0 before triggering the workflow.
+
+### Triggering the promote
+
+1. _Actions → Promote latest → Run workflow_.
+2. Inputs:
+   - `version`: `0.1.0` (the version already on `next`).
+   - `registry`: `https://registry.npmjs.org` (default).
+   - `confirm`: literal `promote @plccopilot 0.1.0 to latest` (must
+     match the runner's `expectedPromoteConfirmation` byte-for-byte).
+3. The `preflight` job runs first (validate + read-only `npm view
+   @<pkg>@next`). If green, the `promote` job queues for
+   environment approval. Approve only after re-reading the inputs.
+4. The `promote` job:
+   - Re-validates inputs inside the protected `npm-publish`
+     environment.
+   - Exports `NODE_AUTH_TOKEN` from `secrets.NPM_TOKEN`.
+   - Calls `pnpm release:promote-latest --version <v> --registry <r>
+     --confirm "<confirm>"`.
+   - The runner queries `npm view @<pkg>@next` per candidate and
+     aborts unless every one resolves to `<version>`.
+   - For each candidate it queries `npm view @<pkg>@latest` and only
+     calls `npm dist-tag add` when the tag doesn't already point at
+     `<version>`. Re-runs after success are no-ops.
+   - Final phase verifies every `@<pkg>@latest` resolves to
+     `<version>`.
+
+### Post-promotion verification
+
+```sh
+pnpm release:npm-view      --version 0.1.0 --tag latest
+pnpm release:registry-smoke --version 0.1.0
+```
+
+Both must pass. Then update [`releases/0.1.0.md`](releases/0.1.0.md)
+to record the promotion (date + workflow URL) and tick §5 of
+[`first-publish-postmortem.md`](first-publish-postmortem.md) from
+"deferred" to "completed".
+
+### Safety contract (encoded in tests)
+
+- Workflow trigger is `workflow_dispatch` only — no push, schedule,
+  or pull_request.
+- `confirm` input is required and must equal the runner's expected
+  string exactly.
+- Promote job uses the protected `npm-publish` environment with at
+  least one required reviewer.
+- The workflow YAML has **no** shell line that runs `npm publish`
+  or `npm dist-tag add` directly — only `pnpm release:promote-latest`
+  is invoked. The runner's `assertNoPublishSurface` check rejects any
+  argv that would inject `publish` / `--publish` / `--no-dry-run`.
+- The runner's parser also rejects `--dry-run` / `--no-dry-run` /
+  `--publish` / `--yes` / `-y` at parse time (the runner is
+  promotion-only; dry-run for npm publish lives in
+  `release:publish-dry-run`).
+- Idempotent: packages whose `latest` already matches `<version>` are
+  skipped, so a re-run after a successful promotion is a no-op.
+
+### Failure modes
+
+| Issue code | When it fires |
+| --- | --- |
+| `PROMOTE_INPUT_VERSION_REQUIRED/INVALID/MISMATCH` | Operator passed a version that's not strict X.Y.Z, doesn't match the workspace, or is missing. |
+| `PROMOTE_INPUT_REGISTRY_INVALID` | `--registry` is empty / not http(s). |
+| `PROMOTE_INPUT_CONFIRM_REQUIRED/MISMATCH` | Real-mode confirm is missing or differs from `promote @plccopilot <version> to latest`. |
+| `PROMOTE_ENV_VAR_MISSING` | `NODE_AUTH_TOKEN` not present (real mode only). |
+| `PROMOTE_TAG_SOURCE_MISMATCH` | Pre-flight: `@<pkg>@next` does not resolve to `<version>`. **Aborts before any dist-tag mutation.** |
+| `PROMOTE_TAG_TARGET_MISMATCH` | Post-flight: `@<pkg>@latest` doesn't resolve to `<version>` after the run. |
+| `PROMOTE_PACKAGE_NOT_FOUND` | `@<pkg>@next` returned 404 (package or tag missing). |
+| `PROMOTE_NPM_VIEW_NONZERO/PARSE_FAILED` | `npm view` exited non-zero or didn't return parseable JSON. |
+| `PROMOTE_DIST_TAG_NONZERO/SPAWN_FAILED` | The dist-tag add call itself failed; runner stops immediately and prints partial-state guidance. |
 
 ## Manual npm publish workflow (Sprint 63)
 

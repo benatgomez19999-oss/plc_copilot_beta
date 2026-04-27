@@ -81,6 +81,8 @@ pnpm install
 | `pnpm release:registry-smoke [--version X.Y.Z] [--registry URL]` | _(Sprint 64, manual)_ `npm install @plccopilot/cli@<version>` from a real registry into a fresh temp project, then run the installed bin end-to-end. **Not in `pnpm run ci`** — it 404s before the first publish |
 | `pnpm release:npm-view [--version X.Y.Z] [--tag <next\|latest\|beta>] [--registry URL] [--json]` | _(Sprint 65, manual)_ `npm view` every release candidate, validate name / version / dist.tarball / dist.integrity, optionally check that a dist-tag resolves to the same version. Not in `pnpm run ci` |
 | `pnpm release:provenance [--version X.Y.Z] [--json]` | _(Sprint 65)_ Local-only stub that confirms the publish workflow grants `id-token: write` + references `--provenance`, and that the publish command builder still hardcodes `--provenance` for every supported tag. Does not contact the registry; safe for `ci:contracts`-style invocation but kept manual today |
+| `pnpm release:promote-latest --validate-only --version X.Y.Z` | _(Sprint 68)_ Local-only validation for the dist-tag promote runner. No token, no confirm, no registry contact. Mirrors the workflow's preflight job |
+| `pnpm release:promote-latest --version X.Y.Z --confirm "promote @plccopilot X.Y.Z to latest"` | _(Sprint 68)_ Real mode — moves the `latest` dist-tag to the version that's already on `next`. Requires `NODE_AUTH_TOKEN`; never publishes a tarball; idempotent (skips packages whose `latest` already matches). **Only invoked by the GitHub Actions workflow.** |
 | `pnpm publish:audit` | Regenerate `docs/publishability-audit.md` from every `packages/*/package.json` (`--check` / `--json` / `--out` also supported) |
 | `pnpm run ci:contracts` | Base build + base smoke + vendor build + vendor smoke + CLI build + schema check + CLI smokes + consumer install smoke + release check + release pack dry-run + audit `--check` (the contract gate) |
 | `pnpm run ci` | `ci:contracts` + typecheck + test (what GitHub Actions runs) |
@@ -89,12 +91,15 @@ pnpm install
 > Use `pnpm run ci` (not `pnpm ci`) — pnpm reserves the bare `ci` verb for an
 > npm-compatible install command that is currently unimplemented.
 
-> **First publish is staged but not executed.** The operator runbook
-> lives in [`docs/first-publish-checklist.md`](docs/first-publish-checklist.md);
-> the fill-in postmortem template is at
-> [`docs/first-publish-postmortem.md`](docs/first-publish-postmortem.md);
-> first-release notes are at [`docs/releases/0.1.0.md`](docs/releases/0.1.0.md)
-> with status `planned first npm release — pending`.
+> **First publish complete: `0.1.0` released on npm under the `next`
+> dist-tag (Sprint 67).** Six packages on the registry, post-publish
+> verification green, `latest` promotion intentionally deferred. See
+> [`docs/releases/0.1.0.md`](docs/releases/0.1.0.md) for the release
+> notes and [`docs/first-publish-postmortem.md`](docs/first-publish-postmortem.md)
+> for the run record (including the four iterations needed to
+> mitigate npm-provenance corner cases). The runbook at
+> [`docs/first-publish-checklist.md`](docs/first-publish-checklist.md)
+> is preserved verbatim for the next coordinated release.
 
 ### Contract and CLI smoke checks (sprints 53–65)
 

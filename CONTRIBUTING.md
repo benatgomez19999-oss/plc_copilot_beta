@@ -130,6 +130,31 @@ fully green and the postmortem template's checklists are ticked. The
 first publish ships under the `next` dist-tag — promotion to `latest`
 is intentionally deferred and recorded in §5 of the postmortem.
 
+### Promote-to-`latest` workflow (sprint 68)
+
+Promoting `next` → `latest` is its own manual workflow
+(`.github/workflows/promote-latest.yml`). It mutates only npm
+dist-tags; it never republishes tarballs. The runner
+(`pnpm release:promote-latest`) refuses to spawn anything containing
+`publish` (`assertNoPublishSurface`), and the parser rejects
+`--dry-run` / `--no-dry-run` / `--publish` / `--yes` / `-y` at parse
+time.
+
+What you _can_ run locally — and what you _should_ before opening a
+promote PR / dispatching the workflow — is the validate-only mode:
+
+```sh
+pnpm release:promote-latest --validate-only --version 0.1.0
+```
+
+That confirms the workspace is consistent and the inputs are
+well-formed. It does **not** require `NODE_AUTH_TOKEN`, does **not**
+require `--confirm`, and does **not** contact the registry.
+
+The full real-promotion flow (preflight, environment approval,
+post-mutation verification) lives in
+[`docs/release-process.md → Promoting next → latest`](docs/release-process.md#promoting-next--latest-sprint-68).
+
 ### Manual publish workflow (sprint 63)
 
 The repo's only path to a real `npm publish` is the manual

@@ -1,0 +1,125 @@
+name: Promote latest
+
+# Sprint 68 — manual dist-tag promotion `next` → `latest`.
+#
+# Triggered ONLY via workflow_dispatch. The runner that this workflow
+# invokes (`pnpm release:promote-latest`) only mutates npm dist-tags;
+# it never publishes a tarball. The publish surface is asserted shut
+# both in the runner (`assertNoPublishSurface`) and in the docs spec
+# YAML scan below.
+#
+# Two jobs:
+#
+#   1. preflight   — validate-only mode + read-only npm view of
+#                    @<pkg>@next for every candidate. No environment,
+#                    no token, never mutates the registry.
+#   2. promote     — real mode behind the protected `npm-publish`
+#                    environment with `secrets.NPM_TOKEN`. Runs only
+#                    after preflight succeeds AND a human approves
+#                    the environment.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to promote (must already be on the registry under `next`)'
+        required: true
+        default: '0.1.0'
+      registry:
+        description: 'npm registry'
+        required: true
+        default: 'https://registry.npmjs.org'
+      confirm:
+        description: 'Type exactly: promote @plccopilot <version> to latest'
+        required: true
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: promote-latest-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    name: preflight (validate + npm view next)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate promote inputs (no token, no confirm needed)
+        # Sprint 68: fails fast if version is not strict semver, doesn't
+        # match the workspace, or registry URL is malformed. Real
+        # publish would fail anyway; this surfaces the problem before
+        # the protected environment.
+        run: pnpm release:promote-latest --validate-only --version "${{ inputs.version }}" --registry "${{ inputs.registry }}"
+
+      - name: Verify next dist-tag points at the requested version
+        # Read-only npm view per candidate. If any package@next does
+        # not equal <version>, the promotion is unsafe and the
+        # operator must investigate before re-running.
+        run: pnpm release:npm-view --version "${{ inputs.version }}" --tag next --registry "${{ inputs.registry }}"
+
+  promote:
+    name: promote (real, requires manual approval)
+    needs: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: npm-publish
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          # `setup-node` writes ~/.npmrc with the registry + auth shim
+          # so `npm dist-tag add` picks up NODE_AUTH_TOKEN automatically.
+          registry-url: 'https://registry.npmjs.org'
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Re-validate inputs against the protected environment
+        run: pnpm release:promote-latest --validate-only --version "${{ inputs.version }}" --registry "${{ inputs.registry }}"
+
+      - name: Promote next -> latest (npm dist-tag add per candidate)
+        # `pnpm release:promote-latest` builds every npm argv. The
+        # runner refuses to spawn anything containing `publish` (see
+        # assertNoPublishSurface) and rejects --no-dry-run / --publish
+        # / --yes / -y / --dry-run at parse time.
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          pnpm release:promote-latest \
+            --version "${{ inputs.version }}" \
+            --registry "${{ inputs.registry }}" \
+            --confirm "${{ inputs.confirm }}"
