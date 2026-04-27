@@ -89,6 +89,18 @@ jobs:
         # not yet a "release" in the marketing sense.
         run: pnpm release:npm-view --version "${{ inputs.version }}" --tag latest --registry "${{ inputs.registry }}"
 
+      - name: Build dist artifacts (required for publish-audit)
+        # `pnpm publish:audit --check` regenerates docs/publishability-audit.md
+        # from the on-disk package state and diffs against the committed
+        # version. The audit reads each candidate's compiled `dist/`
+        # to record the published shape; on a fresh runner those folders
+        # don't exist yet, so the audit drifts and `--check` fails. Build
+        # the dist before running the contract gate.
+        run: |
+          pnpm build:packages-base
+          pnpm build:packages-vendor
+          pnpm cli:build
+
       - name: Release contract gate (release:check + publish-audit)
         # Cheap consistency check — same gate the publish workflow
         # runs at preflight. Catches an out-of-band package.json edit
