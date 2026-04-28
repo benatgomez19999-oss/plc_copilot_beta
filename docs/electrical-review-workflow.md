@@ -197,6 +197,70 @@ and the dev server.
 Operator workflow + sample inputs:
 [`docs/web-electrical-ingestion-workflow.md`](web-electrical-ingestion-workflow.md).
 
+## Sprint 78B — local persistence + downloadable artefacts
+
+The web workspace now autosaves the active review session to the
+browser's `localStorage` and offers per-artefact downloads + a
+review-bundle ZIP. The persistence model is intentionally narrow:
+
+- **Local only.** No backend, no upload, no auth, no user
+  attribution. The notice in the UI reads:
+  *"Saved locally in this browser only. No upload."*
+- **Evidence + decisions, not raw source.** The snapshot carries
+  the extracted candidate, the review state, the ingestion + build
+  diagnostics, and (when present) the build summary. The raw
+  CSV/XML body is **not** persisted — electrical drawings can be
+  confidential and v0's default is to keep what's necessary to
+  restore the review, nothing more.
+- **Defensive on restore.** The validator rejects malformed shape,
+  wrong `schemaVersion`, missing fields, or unsupported `inputKind`.
+  Bad entries are cleared on read so a known-bad value cannot
+  survive across reads.
+- **Build is not replayed.** Restoring loads the candidate +
+  decisions back into the workspace, but the PIR preview must be
+  rebuilt explicitly. PIR / sourceMap on disk may be stale relative
+  to the current code; codegen remains never automatic.
+
+### Audit-trail status (honest copy)
+
+Sprint 78B v0 is **not** an audit-compliance feature. There is no:
+
+- user identity field,
+- cryptographic chain-of-custody,
+- server-side log,
+- per-decision history (only current state).
+
+What's *recorded* is the snapshot's `createdAt` + `updatedAt`
+timestamps and the `decisionCounts` projection over the current
+state. That's enough to answer "what did the operator decide and
+when did the session last advance?" — it is **not** enough to
+answer "who decided this and what was the prior decision?".
+
+### Format reference
+
+The persisted snapshot is documented in
+[`docs/electrical-review-session-format.md`](electrical-review-session-format.md).
+The contract is pinned by tests:
+[`packages/web/tests/electrical-review-session.spec.ts`](../packages/web/tests/electrical-review-session.spec.ts).
+
+### Export artefacts
+
+After ingestion (and optionally after Build PIR preview), an
+**Export artefacts** panel exposes JSON + ZIP downloads for:
+
+- review session snapshot,
+- ingestion diagnostics,
+- PIR preview JSON (only when valid),
+- source map (only when non-empty),
+- build diagnostics (after any build attempt — including refusals),
+- a review bundle ZIP that combines all available artefacts plus
+  a `summary.json` index.
+
+For sources whose addresses cannot map to PIR (e.g. structured
+TcECAD exports), the builder refuses honestly. PIR / source-map
+downloads stay disabled — but the operator can still download the
+review session + diagnostics + bundle to hand off to a colleague.
+
 ## Why this is NOT final PIR generation
 
 | Sprint | Boundary |

@@ -16,6 +16,10 @@ export { SourceMapPreview } from './SourceMapPreview.js';
 export { BuildDiagnosticsPanel } from './BuildDiagnosticsPanel.js';
 export { ElectricalIngestionWorkspace } from './ElectricalIngestionWorkspace.js';
 
+// Sprint 78B — review-session persistence + export.
+export { ReviewSessionPanel } from './ReviewSessionPanel.js';
+export { ExportArtifactsPanel } from './ExportArtifactsPanel.js';
+
 export type { ConfidenceBadgeProps } from './ConfidenceBadge.js';
 export type { SourceRefPanelProps } from './SourceRefPanel.js';
 export type { ReviewDecisionControlsProps } from './ReviewDecisionControls.js';
@@ -28,3 +32,5 @@ export type { PirBuildPanelProps } from './PirBuildPanel.js';
 export type { PirJsonPreviewProps } from './PirJsonPreview.js';
 export type { SourceMapPreviewProps } from './SourceMapPreview.js';
 export type { BuildDiagnosticsPanelProps } from './BuildDiagnosticsPanel.js';
+export type { ReviewSessionPanelProps } from './ReviewSessionPanel.js';
+export type { ExportArtifactsPanelProps } from './ExportArtifactsPanel.js';

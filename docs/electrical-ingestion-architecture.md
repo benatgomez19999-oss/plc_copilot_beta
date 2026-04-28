@@ -1,18 +1,19 @@
 # Electrical-plan ingestion architecture
 
-> **Status: real-world ingestion hardening (Sprint 78A).** Sprint
-> 72 scaffolded the architecture. Sprint 73 added the CSV
-> ingestor. Sprint 74 added the EPLAN structured XML ingestor v0.
-> Sprint 75 added the Review UI v0. Sprint 76 added the PIR
-> builder v0. Sprint 77 wired the full path in `@plccopilot/web`.
-> **Sprint 78A** adds the Beckhoff/TwinCAT ECAD Import XML
-> recognizer (a real-world structured ECAD format observed during
-> Sprint 77 manual testing) + fixes the empty-candidate UX bug
-> where the UI flipped to "READY TO BUILD" with zero extracted
-> items. The web flow now routes XML through the default registry
-> so TcECAD claims its own input before the EPLAN catch-all fires.
-> Still no PDF/OCR, no EDZ/EPDZ archive extraction, no XML
-> namespace handling, no automatic codegen.
+> **Status: operator workflow hardening (Sprint 78B).** Sprint 72
+> scaffolded the architecture. Sprint 73 added the CSV ingestor.
+> Sprint 74 added the EPLAN structured XML ingestor v0. Sprint 75
+> added the Review UI v0. Sprint 76 added the PIR builder v0.
+> Sprint 77 wired the full path in `@plccopilot/web`. Sprint 78A
+> added the Beckhoff/TwinCAT ECAD Import XML recognizer + the
+> empty-candidate UX fix. **Sprint 78B** layers local review-session
+> persistence + per-artefact downloads + a review-bundle ZIP onto
+> the web workspace, so an operator can refresh the page without
+> losing decisions and can hand off the evidence + diagnostics
+> + (when produced) PIR preview as portable JSON. Still no
+> PDF/OCR, no EDZ/EPDZ archive extraction, no XML namespace
+> handling, no backend, no auth, no automatic codegen — and **raw
+> source content is not persisted by default** (privacy).
 
 ## Why this matters
 
@@ -519,6 +520,51 @@ containers, not vendor schemas. The package is named
 among several, and the architecture explicitly supports CSV,
 structured XML, manual entry, and a future PDF fallback.
 
+## Sprint 78B — operator workflow on top of the same review model
+
+Sprint 78B is purely a `@plccopilot/web` change. It does **not**
+touch the domain ingestion model — every guarantee from Sprint
+72 onwards (sourceRefs everywhere, structured diagnostics, no
+silent drops, review-first promotion) is preserved verbatim.
+
+What 78B adds, layered on top:
+
+1. **Snapshot type** (`electrical-review-session.v1`) that pins the
+   exact pieces of state needed to restore a review session: source
+   metadata, the full `PirDraftCandidate`, the `ElectricalReviewState`,
+   the registry-side ingestion diagnostics, and (when present) a
+   build summary. See
+   [`docs/electrical-review-session-format.md`](electrical-review-session-format.md).
+2. **Storage** layer over `localStorage` (single-slot v0) with
+   defensive restore: malformed entries are cleared on read,
+   storage-disabled environments fall through gracefully.
+3. **Export** layer that serialises the snapshot + each downstream
+   artefact (PIR JSON, sourceMap, build diagnostics, ingestion
+   diagnostics) and bundles them into a `JSZip` review bundle. The
+   availability projection (`computeExportAvailability`) is the
+   single source of truth for which downloads are enabled.
+4. **UX:** `ReviewSessionPanel` (save now / load last / clear /
+   download / import) and `ExportArtifactsPanel` (per-artefact
+   download buttons + bundle).
+
+The downstream contracts that PDF ingestion (Sprint 79) will
+inherit from 78B:
+
+- **The same review model.** A future `PdfDocument` ingestor will
+  emit a `PirDraftCandidate` with page/bbox `SourceRef`s; the same
+  review UI + the same persistence layer + the same export bundle
+  apply unchanged.
+- **The same gate semantics.** Empty/pending/error refuses;
+  accepted-only build; structured-honest addresses.
+- **The same privacy default.** Raw source content (PDF bytes)
+  must not be persisted in the snapshot; `contentHash` is fine
+  for local identity.
+
+This keeps both branches of the strategic requirement — structured
+ECAD exports today and PDF documents tomorrow — funnelling through
+the same review/persist/export model. A weak prompt cannot
+override that model: it has no surface area in any of these layers.
+
 ## Industrial safety
 
 Generated PIR candidates are **never** automatically promoted to
@@ -543,9 +589,11 @@ encodes this by:
 | 75 | Review UI v0 in `@plccopilot/web` — pure helpers + thin React components, 59 new web tests. |
 | 76 | PIR builder v0 in `@plccopilot/electrical-ingest`. Hard gate, role remap, sourceMap sidecar, validation against `@plccopilot/pir`. 67 new tests. |
 | 77 | Web end-to-end wiring in `@plccopilot/web`. 43 new web tests. |
-| **78A** (this sprint) | Beckhoff/TwinCAT ECAD Import XML recognizer + empty-candidate UX fix. New diagnostics: 10 `TCECAD_XML_*` codes. Domain + web gates aligned: empty candidate is no longer "ready". `runElectricalIngestion` routes through the default registry so TcECAD claims XML first; EPLAN unchanged. 41 new electrical-ingest tests + 2 new web tests. |
-| 78B+ | One of: (a) further real-world hardening (XML namespaces, EDZ/EPDZ extraction, additional schema variants); (b) web review persistence + PIR download + audit trail; (c) controlled codegen preview. Decision deferred until more real-world samples land. |
-| later | EDZ archive extraction (real EPLAN containers), PDF fallback (only as last resort, OCR clearly flagged), Siemens TIA hardware-config import as an alternative source. |
+| 78A | Beckhoff/TwinCAT ECAD Import XML recognizer + empty-candidate UX fix. New diagnostics: 10 `TCECAD_XML_*` codes. Domain + web gates aligned: empty candidate is no longer "ready". `runElectricalIngestion` routes through the default registry so TcECAD claims XML first; EPLAN unchanged. 41 new electrical-ingest tests + 2 new web tests. |
+| **78B** (this sprint) | Web review-session persistence + downloadable artefacts. New web utils: `electrical-review-session`, `electrical-review-storage`, `electrical-review-export`. New components: `ReviewSessionPanel`, `ExportArtifactsPanel`. Snapshot schema `electrical-review-session.v1` (raw source content NOT persisted by default). Single-slot localStorage; defensive restore; per-artefact JSON downloads + ZIP bundle. **No backend, no auth, no upload, no codegen.** 85 new web tests. |
+| 79 (planned) | PDF ingestion architecture v0 — `PdfDocument`/`PdfPage`/`PdfTextBlock` with page/bbox `SourceRef`, text-layer extraction (no OCR by default), structured diagnostics, no direct PIR/codegen, review-first integration. |
+| 79A (alt) | More real-world structured-source hardening — XML namespaces, EDZ/EPDZ archive extraction, additional TcECAD/EPLAN schema variants. |
+| later | OCR fallback (only as a flagged last resort), Siemens TIA hardware-config import, controlled codegen preview gated on accepted PIR. |
 
 Each future sprint stays narrow: a single concrete source format
 or a single review-UX feature, never a "magically understand the
@@ -568,11 +616,16 @@ Sprint 72 added 81 new tests. Sprint 73 added 46 more (CSV).
 Sprint 74 added 66 more (XML utils + EPLAN-XML). Sprint 75 added
 59 web-side tests inside `@plccopilot/web`. Sprint 76 added 67
 more in `electrical-ingest` (`pir-builder.spec.ts`). Sprint 77
-added 43 web-side tests. **Sprint 78A adds 41 electrical-ingest
-tests** (`twincat-ecad-xml.spec.ts`) + 2 new web tests
-(empty-candidate UX). `electrical-ingest`: 260 → 301. Web: 683 →
-685. Repo total: 2824 → 2867 (+43). Existing codegen tests are
-unchanged.
+added 43 web-side tests. Sprint 78A added 41 electrical-ingest
+tests (`twincat-ecad-xml.spec.ts`) + 2 web tests (empty-candidate
+UX). **Sprint 78B adds 85 web tests** across
+`electrical-review-session.spec.ts` (37),
+`electrical-review-export.spec.ts` (29),
+`electrical-review-storage.spec.ts` (13), and
+`electrical-review-session-workflow.spec.ts` (6).
+`electrical-ingest`: 301 → 301 (no domain changes). Web: 685 →
+770 (+85). Repo total: 2867 → 2952 (+85). Existing codegen tests
+are unchanged.
 
 The review workflow + PIR-builder gate semantics live in
 [`docs/electrical-review-workflow.md`](electrical-review-workflow.md);

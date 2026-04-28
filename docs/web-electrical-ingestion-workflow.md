@@ -1,10 +1,11 @@
-# Web electrical-ingestion workflow — Sprint 77
+# Web electrical-ingestion workflow — Sprint 77 → 78B
 
 > **Status: end-to-end pipeline live in `@plccopilot/web`
-> (Sprint 77).** CSV / EPLAN XML → review → PIR preview, all
+> (Sprint 77 → 78A → 78B).** CSV / EPLAN XML / TcECAD XML → review →
+> PIR preview → **local persistence + downloadable artefacts**, all
 > inside the existing dev-mode app. **No automatic PLC codegen.**
 > Codegen still requires explicit operator action and is not
-> wired into this flow.
+> wired into this flow. **No backend, no auth, no upload.**
 
 ## Run the dev server
 
@@ -208,11 +209,122 @@ sample during manual testing.
 Full format reference + diagnostic table:
 [`docs/twincat-ecad-xml-format.md`](twincat-ecad-xml-format.md).
 
-## Known limitations (Sprint 77)
+## Sprint 78B — Local persistence + downloadable artefacts
 
-- **No persistence.** Refreshing the browser resets the workspace.
+The workspace now autosaves the active review session to your
+browser's `localStorage` after every ingestion + every decision
++ every build attempt. Refreshing the page no longer wipes the
+review.
+
+### Review session panel
+
+A **Review session** card sits above the review tables. It shows:
+
+- **Saved locally** / **Not saved yet** / **No session** badge.
+- File name, detected source kind, source id, last update / last
+  save timestamps, and the lightweight content hash (FNV-1a 32-bit
+  hex — non-cryptographic, used for local identity only).
+- Buttons: **Save now**, **Load last**, **Clear saved**,
+  **Download review session**, **Import session**.
+
+### What gets persisted
+
+The persisted snapshot follows
+[`docs/electrical-review-session-format.md`](electrical-review-session-format.md):
+
+- `schemaVersion: 'electrical-review-session.v1'`
+- `createdAt` / `updatedAt` (ISO 8601)
+- Source metadata (`sourceId`, `fileName`, `inputKind`,
+  `sourceKind`, `contentHash`)
+- The full `PirDraftCandidate` (IO, equipment, assumptions,
+  diagnostics)
+- The full `ElectricalReviewState` (your accept/reject decisions)
+- The ingestion-side diagnostics (`ElectricalDiagnostic[]`)
+- (Optional) the most recent `build` summary — pir, sourceMap,
+  diagnostics, accepted/skipped counts
+
+**What is NOT persisted by default:** the raw CSV / XML body. The
+default policy is to keep the extracted *evidence* (which is
+already structured and de-identified) but **drop the source text**,
+because electrical drawings can carry confidential customer /
+project / site identifiers. If you need to re-ingest from the
+exact same input later, hold on to the source file separately —
+it's not in `localStorage`.
+
+### Downloads (Export artefacts panel)
+
+Below the build output, an **Export artefacts** panel exposes:
+
+- `plccopilot-{base}-review-session.json` — the snapshot above.
+- `plccopilot-{base}-ingestion-diagnostics.json` — registry/ingestor diagnostics.
+- `plccopilot-{base}-pir-preview.json` — only enabled when the
+  builder produced a schema-valid PIR.
+- `plccopilot-{base}-source-map.json` — the per-PIR-id sourceRef
+  sidecar (only enabled when non-empty).
+- `plccopilot-{base}-build-diagnostics.json` — enabled after any
+  build attempt, including refusals.
+- `plccopilot-{base}-review-bundle.zip` — every available artefact
+  above, plus a `summary.json` index. Uses the existing JSZip
+  dependency.
+
+`{base}` is derived from your input file name (sanitised: ASCII
+letters/digits/`._-` only, capped at 64 chars). When no file name
+is set, `plccopilot-{suffix}` is used.
+
+### Privacy note
+
+Persistence is **local-only**. The workspace never uploads, syncs,
+or attributes a user. The notice in the panel reads:
+
+> Saved locally in this browser only. **No upload.** Raw source
+> content (CSV / XML body) is **not persisted by default** —
+> only the extracted candidate, your review decisions, and
+> diagnostics. No PLC codegen is run.
+
+### Restore semantics
+
+- **Load last** reads the most recent saved snapshot. Decisions are
+  restored exactly. The build result is *not* replayed — pir /
+  sourceMap on disk may be stale relative to the current code, so
+  you must press **Build PIR preview** again if you want a live
+  preview after a restore.
+- **Import session** lets you pick a `*.review-session.json` file.
+  The same defensive validator runs (schemaVersion, source shape,
+  candidate / reviewState shape, build shape) and any malformed
+  field surfaces a non-fatal notice in the panel.
+- **Clear saved** removes the slot. The in-memory session is
+  preserved.
+
+### TcECAD case (refused build) — what's still useful
+
+For the TcECAD path observed in Sprint 78A manual testing
+(structured `tcecad:<boxNo>:<channel>` addresses, builder refuses
+honestly because they don't map to PIR `IoAddress`):
+
+- **PIR preview download** is **disabled** (no valid PIR was
+  produced).
+- **Source map download** is **disabled** (build did not produce
+  one).
+- **Build diagnostics download** is **enabled** and useful — it
+  carries the refusal reasons (`PIR_BUILD_ACCEPTED_IO_INVALID_ADDRESS`,
+  `PIR_BUILD_ACCEPTED_EQUIPMENT_INVALID`, `PIR_BUILD_EMPTY_ACCEPTED_INPUT`).
+- **Ingestion diagnostics + review session + bundle download** are
+  enabled — operators can hand the bundle to a colleague who
+  resolves the Box → Siemens address mapping out-of-band before
+  re-ingesting.
+
+## Known limitations (Sprint 78B)
+
+- **Single-slot v0.** Only one session is persisted at a time. Per-
+  source slots are reserved (`plccopilot:electricalReview:session:<id>`)
+  but not yet exposed.
+- **No raw source persistence.** By design (privacy). Re-ingestion
+  requires re-uploading the source file.
 - **No auth / user attribution.** Anyone with access to the page
-  can ingest, accept, reject.
+  can ingest, accept, reject. The session JSON carries no user
+  identity field.
+- **Build result not replayed on restore.** The operator must press
+  Build PIR preview again — codegen is still never automatic.
 - **No automatic codegen.** A future sprint may add a controlled,
   manual codegen-preview step gated on accepted PIR; Sprint 77
   does NOT.
