@@ -19,6 +19,9 @@ const aliases = {
   '@plccopilot/codegen-siemens': fileURLToPath(
     new URL('../codegen-siemens/src/index.ts', import.meta.url),
   ),
+  '@plccopilot/electrical-ingest': fileURLToPath(
+    new URL('../electrical-ingest/src/index.ts', import.meta.url),
+  ),
   '@plccopilot/pir': fileURLToPath(
     new URL('../pir/src/index.ts', import.meta.url),
   ),

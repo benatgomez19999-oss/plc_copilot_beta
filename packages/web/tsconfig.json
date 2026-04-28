@@ -18,6 +18,7 @@
       "@plccopilot/codegen-core": ["../codegen-core/src/index.ts"],
       "@plccopilot/codegen-rockwell": ["../codegen-rockwell/src/index.ts"],
       "@plccopilot/codegen-siemens": ["../codegen-siemens/src/index.ts"],
+      "@plccopilot/electrical-ingest": ["../electrical-ingest/src/index.ts"],
       "@plccopilot/pir": ["../pir/src/index.ts"]
     }
   },

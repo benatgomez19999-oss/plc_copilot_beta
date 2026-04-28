@@ -188,6 +188,9 @@ importers:
       '@plccopilot/codegen-siemens':
         specifier: workspace:*
         version: link:../codegen-siemens
+      '@plccopilot/electrical-ingest':
+        specifier: workspace:*
+        version: link:../electrical-ingest
       '@plccopilot/pir':
         specifier: workspace:*
         version: link:../pir

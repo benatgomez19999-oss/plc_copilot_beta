@@ -1,15 +1,17 @@
 # Electrical-plan ingestion architecture
 
-> **Status: structured XML ingestion v0 live (Sprint 74).** Sprint
-> 72 scaffolded the architecture + canonical model + helpers + an
-> honest unsupported-EPLAN stub. Sprint 73 added the CSV ingestor
-> + 12 new diagnostic codes. **Sprint 74** adds a hand-rolled
-> minimal XML parser + the EPLAN structured-export ingestor v0 with
-> 12 more diagnostic codes; the default registry now routes
-> `kind: 'csv'` → CSV ingestor, `kind: 'xml'` → EPLAN XML ingestor
-> (which surfaces unknown roots honestly), and the unsupported stub
-> is the catch-all for `edz` / `epdz` / `pdf` / `unknown`. Still no
-> PDF/OCR, no EDZ archive extraction, no final PIR builder.
+> **Status: review UI v0 live (Sprint 75).** Sprint 72 scaffolded
+> the architecture + canonical model + helpers + an honest
+> unsupported-EPLAN stub. Sprint 73 added the CSV ingestor + 12
+> new diagnostic codes. Sprint 74 added a hand-rolled minimal XML
+> parser + the EPLAN structured-export ingestor v0 with 12 more
+> diagnostic codes. **Sprint 75** adds the Review UI v0 in
+> `@plccopilot/web`: pure review-state / confidence-classification /
+> source-ref helpers + thin React components for IO / equipment /
+> assumptions / diagnostics. The review workflow is the
+> deterministic gate between ingestion and PIR generation. Still
+> no PDF/OCR, no EDZ archive extraction, no final PIR builder
+> (Sprint 76 scope), no codegen changes.
 
 ## Why this matters
 
@@ -536,9 +538,9 @@ encodes this by:
 | --- | --- |
 | 72 | Architecture + canonical model + helpers + unsupported EPLAN stub + tests + this doc. |
 | 73 | CSV terminal/device list → ElectricalGraph; 12 new diagnostic codes; default registry routes CSV → CSV ingestor → EPLAN stub fall-through. |
-| **74** (this sprint) | EPLAN structured XML ingestor v0 + minimal hand-rolled XML parser; 12 more diagnostic codes; XML routing owned by the EPLAN XML ingestor (unknown roots emit `EPLAN_XML_UNKNOWN_ROOT`, never fall through silently). |
-| 75 | Review UI: confidence panel, source-ref drilldown, accept/reject assumptions. |
-| 76 | PIR draft → PIR builder; integrate with the existing codegen pipeline. |
+| 74 | EPLAN structured XML ingestor v0 + minimal hand-rolled XML parser; 12 more diagnostic codes; XML routing owned by the EPLAN XML ingestor. |
+| **75** (this sprint) | Review UI v0 in `@plccopilot/web` — pure helpers (`createInitialReviewState`, `setReviewDecision`, `summarizeReviewState`, `classifyConfidence`, `summarizeSourceRef`) + thin React components (`ConfidenceBadge`, `SourceRefPanel`, `ReviewDecisionControls`, `IoCandidateReviewTable`, `EquipmentCandidateReviewTable`, `AssumptionsPanel`, `ElectricalDiagnosticsList`, `ElectricalReviewPanel`). 59 new web tests. |
+| 76 | PIR draft → PIR builder; consume only `accepted` review decisions; integrate with the existing codegen pipeline. |
 | later | EDZ archive extraction (real EPLAN containers), PDF fallback (only as last resort, OCR clearly flagged), Siemens TIA hardware-config import as an alternative source. |
 
 Each future sprint stays narrow: a single concrete source format
@@ -560,7 +562,14 @@ pnpm run ci
 
 Sprint 72 added 81 new tests (graph + confidence + diagnostics +
 sources + trace + pir-candidate). Sprint 73 added 46 more (CSV).
-**Sprint 74 adds 66 more** (XML utils + EPLAN-XML detection +
-parser + mapping + diagnostics + registry routing + PIR candidate
-integration + golden fixtures) for a package-local total of 193.
-Existing codegen tests are unchanged.
+Sprint 74 added 66 more (XML utils + EPLAN-XML). **Sprint 75 adds
+59 web-side tests** (review-state + review-confidence +
+review-source-refs + review-fixtures) inside
+`@plccopilot/web`; the `electrical-ingest` package is unchanged
+at 193. Web grows from 581 → 640 tests. Existing codegen tests
+are unchanged.
+
+The review workflow itself — pending / accepted / rejected
+semantics, confidence thresholds, source-ref drilldown,
+"ready for PIR builder" gate — lives in
+[`docs/electrical-review-workflow.md`](electrical-review-workflow.md).

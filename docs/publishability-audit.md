@@ -36,7 +36,7 @@ any drift fails CI via `pnpm publish:audit --check`.
 | `@plccopilot/codegen-siemens` | publishable | no | yes | yes | yes | yes | 4 | 0 | 0 |
 | `@plccopilot/electrical-ingest` | internal | yes | no | no | no | no | 0 | 0 | 0 |
 | `@plccopilot/pir` | publishable | no | yes | yes | yes | yes | 0 | 0 | 0 |
-| `@plccopilot/web` | app | yes | no | no | no | no | 5 | 0 | 0 |
+| `@plccopilot/web` | app | yes | no | no | no | no | 6 | 0 | 0 |
 
 ## Findings by package
 
@@ -112,11 +112,11 @@ Intent: **publishable**.
 ### `@plccopilot/web` (`packages/web`)
 
 Intent: **app**.
-Internal deps: `@plccopilot/codegen-codesys`, `@plccopilot/codegen-core`, `@plccopilot/codegen-rockwell`, `@plccopilot/codegen-siemens`, `@plccopilot/pir`.
+Internal deps: `@plccopilot/codegen-codesys`, `@plccopilot/codegen-core`, `@plccopilot/codegen-rockwell`, `@plccopilot/codegen-siemens`, `@plccopilot/electrical-ingest`, `@plccopilot/pir`.
 
 #### Infos
 
-- **INTERNAL_DEP** — depends on internal packages: @plccopilot/codegen-codesys, @plccopilot/codegen-core, @plccopilot/codegen-rockwell, @plccopilot/codegen-siemens, @plccopilot/pir
+- **INTERNAL_DEP** — depends on internal packages: @plccopilot/codegen-codesys, @plccopilot/codegen-core, @plccopilot/codegen-rockwell, @plccopilot/codegen-siemens, @plccopilot/electrical-ingest, @plccopilot/pir
 - **APP_PRIVATE** — Vite app — built and served, not published as an npm package.
 
 ## Interpretation

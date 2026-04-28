@@ -16,6 +16,7 @@
     "@plccopilot/codegen-core": "workspace:*",
     "@plccopilot/codegen-rockwell": "workspace:*",
     "@plccopilot/codegen-siemens": "workspace:*",
+    "@plccopilot/electrical-ingest": "workspace:*",
     "@monaco-editor/react": "^4.6.0",
     "@plccopilot/pir": "workspace:*",
     "jszip": "^3.10.1",
