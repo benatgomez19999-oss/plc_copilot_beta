@@ -78,6 +78,7 @@ import {
 import { setJsonPathValue } from './utils/json-patch.js';
 import { projectToPrettyJson } from './utils/project-json.js';
 import { getDraftProjectState } from './utils/draft-project-state.js';
+import { ElectricalIngestionWorkspace } from './components/electrical-review/ElectricalIngestionWorkspace.js';
 import { preserveOrClearSelection } from './utils/structure-selection.js';
 import { diffPirValues, type PirDiffEntry } from './utils/pir-diff.js';
 import {
@@ -1475,6 +1476,21 @@ export default function App(): JSX.Element {
           </section>
         </>
       ) : null}
+
+      {/* Sprint 77 — opt-in electrical ingestion workspace. Lives
+          in its own card so the existing PIR-JSON workflow above is
+          unchanged. The card is collapsed by default; clicking the
+          summary expands it. */}
+      <details className="card electrical-ingestion-card">
+        <summary>
+          <strong>Electrical ingestion (preview)</strong>
+          <span className="muted">
+            {' '}
+            CSV / EPLAN XML → review → PIR preview · Sprint 77 · no automatic codegen
+          </span>
+        </summary>
+        <ElectricalIngestionWorkspace />
+      </details>
     </div>
   );
 }

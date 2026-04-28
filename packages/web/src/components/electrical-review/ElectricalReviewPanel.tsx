@@ -26,24 +26,44 @@ export interface ElectricalReviewPanelProps {
   /**
    * Optional initial state; if omitted, every item starts pending.
    * Useful for tests or for restoring an in-progress review.
+   * Ignored when `state` (controlled mode) is provided.
    */
   initialState?: ElectricalReviewState;
+  /**
+   * Sprint 77 — optional controlled mode. When `state` +
+   * `onStateChange` are provided, the panel becomes a pure
+   * presentational view of the parent's state. When omitted, the
+   * panel manages its own state via `useState` (Sprint 75 default).
+   */
+  state?: ElectricalReviewState;
+  onStateChange?: (next: ElectricalReviewState) => void;
 }
 
 export function ElectricalReviewPanel({
   candidate,
   initialState,
+  state: controlledState,
+  onStateChange,
 }: ElectricalReviewPanelProps): JSX.Element {
-  const [state, setState] = useState<ElectricalReviewState>(
-    () => initialState ?? createInitialReviewState(candidate),
+  const isControlled = controlledState !== undefined && onStateChange !== undefined;
+  const [internalState, setInternalState] = useState<ElectricalReviewState>(
+    () => controlledState ?? initialState ?? createInitialReviewState(candidate),
   );
+  const state: ElectricalReviewState = isControlled
+    ? (controlledState as ElectricalReviewState)
+    : internalState;
 
   function handleDecide(
     itemType: ReviewItemType,
     itemId: string,
     decision: ReviewDecision,
   ): void {
-    setState((prev) => setReviewDecision(prev, itemType, itemId, decision));
+    if (isControlled) {
+      const next = setReviewDecision(state, itemType, itemId, decision);
+      onStateChange!(next);
+      return;
+    }
+    setInternalState((prev) => setReviewDecision(prev, itemType, itemId, decision));
   }
 
   const summary = useMemo(

@@ -152,6 +152,51 @@ What the builder refuses:
 
 Full reference: [`docs/pir-builder-v0.md`](pir-builder-v0.md).
 
+## Sprint 77 — web end-to-end wiring
+
+The full pipeline now runs inside the web app:
+
+```
+file/text input
+  → detectInputKind (csv / xml / unknown)
+  → ingestElectricalInput  (real CSV / EPLAN-XML / unsupported-stub ingestor)
+  → ElectricalIngestionResult
+  → buildPirDraftCandidate (Sprint 72)
+  → ElectricalReviewPanel  (Sprint 75 — controlled mode in Sprint 77)
+  → buildPirPreview        (Sprint 76 builder + UX-friendly readiness)
+  → PirJsonPreview / SourceMapPreview / BuildDiagnosticsPanel
+```
+
+Key UX invariants (every one is pinned by tests):
+
+- **Build PIR button is disabled while the gate is false.** Tooltip
+  + a per-reason list explain why ("N IO candidates pending",
+  "N error-severity ingestion diagnostics blocking", etc.).
+- **Domain builder is the source of truth.** Even if the UI
+  forgot to disable the button, `buildPirFromReviewedCandidate`
+  refuses pending / error / null inputs. The Sprint 76 gate
+  cannot be bypassed from the UI.
+- **No automatic codegen.** The button label is "Build PIR
+  preview"; the disclaimer under it makes this explicit. No PLC
+  codegen runs; that remains a manual operator-approved step.
+- **Placeholder sequence visible.** The `PIR_BUILD_PLACEHOLDER_SEQUENCE_USED`
+  info diagnostic is surfaced as a note above the JSON, never
+  hidden.
+- **Source refs preserved end-to-end.** The `SourceMapPreview`
+  renders `result.sourceMap[<pirId>] → SourceRef[]` with the EPLAN
+  XML locator (`SourceRef.symbol`) visible alongside the CSV
+  refs.
+
+The web vitest config still runs in `node` mode (no DOM tests).
+Sprint 77 follows the existing pattern: pure helpers
+(`electrical-ingestion-flow.ts`, `pir-build-preview.ts`,
+`review-state-adapter.ts`) are exhaustively tested; the React
+components are thin presentational shells verified by typecheck
+and the dev server.
+
+Operator workflow + sample inputs:
+[`docs/web-electrical-ingestion-workflow.md`](web-electrical-ingestion-workflow.md).
+
 ## Why this is NOT final PIR generation
 
 | Sprint | Boundary |
