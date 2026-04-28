@@ -129,7 +129,20 @@ export type ElectricalDiagnosticCode =
   | 'SOURCE_REF_MISSING'
   | 'UNSUPPORTED_SOURCE_FEATURE'
   | 'INCOMPLETE_WIRING_CHAIN'
-  | 'UNKNOWN_DEVICE_ROLE';
+  | 'UNKNOWN_DEVICE_ROLE'
+  // ---- Sprint 73: CSV ingestor ----
+  | 'CSV_EMPTY_INPUT'
+  | 'CSV_MISSING_HEADER'
+  | 'CSV_DUPLICATE_HEADER'
+  | 'CSV_ROW_WIDTH_MISMATCH'
+  | 'CSV_UNCLOSED_QUOTE'
+  | 'CSV_UNSUPPORTED_DELIMITER'
+  | 'CSV_UNKNOWN_KIND'
+  | 'CSV_MISSING_TAG'
+  | 'CSV_INVALID_ADDRESS'
+  | 'CSV_DUPLICATE_TAG'
+  | 'CSV_DUPLICATE_ADDRESS'
+  | 'CSV_DIRECTION_ADDRESS_CONFLICT';
 
 export interface ElectricalDiagnostic {
   code: ElectricalDiagnosticCode;
@@ -270,3 +283,22 @@ export interface EplanIngestor {
   canIngest(input: EplanIngestionInput): boolean;
   ingest(input: EplanIngestionInput): Promise<EplanIngestionResult>;
 }
+
+// ---------------------------------------------------------------------------
+// Sprint 73 — generic source-ingestor types.
+// ---------------------------------------------------------------------------
+//
+// The Sprint 72 EPLAN interfaces above are file-list shaped, which
+// happens to be the right model for *every* structured source we'll
+// support (EPLAN XML, EPLAN EDZ, CSV, manual JSON). Sprint 73
+// promotes them to generic names while keeping the original Eplan*
+// names as type aliases so existing call sites keep compiling.
+//
+// New ingestors (CSV today, EPLAN XML next sprint, etc.) implement
+// the generic shape; the source registry consumes whichever name.
+
+export type ElectricalIngestionInput = EplanIngestionInput;
+export type ElectricalIngestionOptions = EplanIngestionOptions;
+export type ElectricalSourceFile = EplanSourceFile;
+export type ElectricalIngestionResult = EplanIngestionResult;
+export type ElectricalSourceIngestor = EplanIngestor;

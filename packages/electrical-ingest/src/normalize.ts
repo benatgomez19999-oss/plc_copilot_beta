@@ -7,12 +7,17 @@
  * Canonicalise a node id. Trims, collapses whitespace, replaces
  * forbidden characters with `_`. Does NOT lowercase — many
  * electrical tag systems (EPLAN, IEC 61346) are case-sensitive.
+ *
+ * Allowed characters: letters, digits, and `_./+-=:%` — which
+ * covers IEC 61346 structure aspects (`=`/`+`/`-`), terminal
+ * addresses (`X1:1`), and Siemens-style PLC addresses (`%I0.0`).
+ * Sprint 73 added `%` so `plc_channel:%I0.0` ids stay literal.
  */
 export function normalizeNodeId(raw: string): string {
   if (typeof raw !== 'string') return '';
   let s = raw.trim();
   s = s.replace(/\s+/g, '_');
-  s = s.replace(/[^A-Za-z0-9_./+\-=:]/g, '_');
+  s = s.replace(/[^A-Za-z0-9_./+\-=:%]/g, '_');
   return s;
 }
 

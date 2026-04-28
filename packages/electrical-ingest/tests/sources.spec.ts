@@ -119,14 +119,23 @@ describe('createSourceRegistry', () => {
 });
 
 describe('createDefaultSourceRegistry', () => {
-  it('comes pre-loaded with the unsupported EPLAN stub', () => {
+  it('comes pre-loaded with the CSV ingestor + EPLAN unsupported stub (Sprint 73)', () => {
     const reg = createDefaultSourceRegistry();
-    expect(reg.list().length).toBe(1);
+    // Sprint 72 had 1 ingestor (the unsupported stub). Sprint 73
+    // adds the CSV ingestor in front.
+    expect(reg.list().length).toBe(2);
+    // EPLAN-style XML still resolves (falls through to the stub).
     const resolved = reg.resolve({
       sourceId: 's',
       files: [{ path: 'a.xml', kind: 'xml' }],
     });
     expect(resolved).not.toBeNull();
+    // CSV input resolves to the CSV ingestor (not the stub).
+    const resolvedCsv = reg.resolve({
+      sourceId: 's',
+      files: [{ path: 'a.csv', kind: 'csv', content: 'tag,kind\nB1,sensor\n' }],
+    });
+    expect(resolvedCsv).not.toBeNull();
   });
 });
 

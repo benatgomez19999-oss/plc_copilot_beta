@@ -1,9 +1,11 @@
 # Electrical-plan ingestion architecture
 
-> **Status: scaffold (Sprint 72).** Architecture, types, helpers, and
-> an honest unsupported-EPLAN stub are in place. No real EPLAN
-> parser, no PDF/OCR, no final PIR builder. Subsequent sprints will
-> layer concrete ingestors on top.
+> **Status: first concrete ingestor live (Sprint 73).** Architecture
+> + canonical model + helpers + an honest unsupported-EPLAN stub
+> shipped in Sprint 72; Sprint 73 added the CSV ingestor + 12 new
+> diagnostic codes covering parser dialect, header aliasing, row
+> mapping, and address/direction conflicts. Still no EPLAN-XML
+> parser, no PDF/OCR, no final PIR builder.
 
 ## Why this matters
 
@@ -151,33 +153,158 @@ Diagnostics are immutable plain objects. `sortElectricalDiagnostics`
 returns a stable order; `dedupeElectricalDiagnostics` collapses
 structural duplicates while preserving first-seen order.
 
-## Source ingestion (Sprint 72: stub only)
+## Source ingestion
 
-`EplanIngestor` is the single interface every concrete source
-implements:
+`ElectricalSourceIngestor` (alias: `EplanIngestor`) is the single
+interface every concrete source implements:
 
 ```ts
-interface EplanIngestor {
-  canIngest(input: EplanIngestionInput): boolean;
-  ingest(input: EplanIngestionInput): Promise<EplanIngestionResult>;
+interface ElectricalSourceIngestor {
+  canIngest(input: ElectricalIngestionInput): boolean;
+  ingest(input: ElectricalIngestionInput): Promise<ElectricalIngestionResult>;
 }
 ```
 
-`createUnsupportedEplanIngestor()` returns a stub that:
+The `SourceRegistry` accepts ingestors and dispatches based on
+`canIngest` (first match wins, registration order). Sprint 73's
+`createDefaultSourceRegistry()` ships pre-loaded with:
 
-- Reports `canIngest === true` for known file kinds (`xml` / `edz` /
-  `pdf` / `csv` / `unknown`).
-- Reports `canIngest === false` for empty / malformed input.
-- On `ingest`, returns an empty graph + an `UNSUPPORTED_SOURCE_FEATURE`
-  diagnostic (one global, plus one per file at info severity, with
-  the file path attached as a SourceRef).
+1. **CSV ingestor** (`createCsvElectricalIngestor`) — handles
+   `kind: 'csv'` files with inline content (string or `Uint8Array`).
+2. **Unsupported EPLAN stub** (`createUnsupportedEplanIngestor`) —
+   fall-through for every remaining kind (`xml` / `edz` / `pdf` /
+   `unknown`) until a real parser ships.
+
+### Sprint 72 — unsupported EPLAN stub
+
+`createUnsupportedEplanIngestor()`:
+
+- `canIngest === true` for known file kinds (`xml` / `edz` /
+  `pdf` / `csv` / `unknown`); `false` for empty / malformed input.
+- On `ingest`, returns an empty graph + one global
+  `UNSUPPORTED_SOURCE_FEATURE` error + one info-level diagnostic
+  per file with the path attached as a SourceRef.
 - **Never throws.** Architecture invariant: stubs surface their
   limitations as diagnostics, they do not fail.
 
-The `SourceRegistry` accepts ingestors and dispatches based on
-`canIngest`. Future sprints register CSV / structured-XML / real
-EPLAN ingestors *in front of* the unsupported stub; the stub stays
-as the catch-all.
+### Sprint 73 — CSV ingestor
+
+The first concrete structured-source ingestor.
+[`packages/electrical-ingest/src/sources/csv.ts`](../packages/electrical-ingest/src/sources/csv.ts)
++ [`tests/csv.spec.ts`](../packages/electrical-ingest/tests/csv.spec.ts).
+
+#### Supported CSV dialect
+
+Comma delimiter, CRLF or LF, quoted fields, `""`-escaped quotes
+inside quotes, empty cells, blank lines (skipped). Anything else
+emits a diagnostic — the parser **never throws**.
+
+| Limit | Behaviour |
+| --- | --- |
+| Empty / non-string input | `CSV_EMPTY_INPUT` |
+| First non-blank line is missing or all-blank | `CSV_MISSING_HEADER` |
+| Two raw headers map to the same canonical column | `CSV_DUPLICATE_HEADER` |
+| Row has a different cell count than the header | `CSV_ROW_WIDTH_MISMATCH` (warning, row kept with empty cells) |
+| Quoted field never closes | `CSV_UNCLOSED_QUOTE` (row skipped) |
+| Non-comma delimiter requested | `CSV_UNSUPPORTED_DELIMITER` |
+
+#### Canonical columns + aliases
+
+| Canonical | Aliases recognised (case-insensitive) |
+| --- | --- |
+| `tag` | `tag`, `device_tag`, `equipment`, `equipment_id` |
+| `kind` | `kind`, `type`, `device_type`, `equipment_type` |
+| `address` | `address`, `io_address`, `plc_address` |
+| `direction` | `direction`, `io_direction`, `dir` |
+| `label` | `label`, `description`, `text` |
+| `terminal` | `terminal`, `terminal_id`, `terminal_point` |
+| `terminal_strip` | `terminal_strip`, `strip` |
+| `cable` | `cable`, `cable_id` |
+| `wire` | `wire`, `wire_id`, `conductor` |
+| `sheet` | `sheet`, `drawing`, `source_page` |
+| `page` | `page` |
+| `plc` | `plc`, `cpu` |
+| `module` | `module`, `card`, `io_module` |
+| `channel` | `channel` |
+| `signal` | `signal`, `signal_id`, `io_signal` |
+| `role` | `role`, `io_role` |
+| `device`, `function`, `location`, `comment` | pass-through |
+
+#### Mapping rules (per row)
+
+For each non-blank data row:
+
+1. **Device node** — id `device:<normalised tag>`. Kind looked up
+   via the kind-alias table (`sensor`, `valve`, `motor`, `plc`,
+   `safety_device`, `power_supply`, `actuator`, `cylinder`, …).
+   Unknown kind → kind `unknown` + `CSV_UNKNOWN_KIND` warning.
+2. **PLC channel node** — when `address` is present and parses via
+   `detectPlcAddress`. Id `plc_channel:<address>` (the `%` is
+   preserved in the id). Adds `signal_type=bool` for bit-addressed
+   channels. Direction-versus-address conflict → `CSV_DIRECTION_ADDRESS_CONFLICT`.
+3. **Edge between device and channel** — for inputs `device →
+   channel` (`signals`); for outputs `channel → device` (`drives`).
+4. **Terminal node** — when `terminal` is present. Edge
+   `device → terminal` (`wired_to`). When both terminal + channel
+   exist, also `terminal → channel` (`wired_to`).
+5. **Cable / wire nodes** — when present, plus `terminal → cable`
+   / `terminal → wire` edges.
+
+Every node + edge carries a `SourceRef` with `kind: 'csv'`,
+`line: <CSV line number>`, `path: <fileName>`, `rawId: <tag>`,
+`sheet: <sheet/page>`. Source refs propagate when multiple rows
+reference the same shared infrastructure (e.g. two devices on the
+same terminal strip).
+
+#### Cross-row checks
+
+- **Duplicate tag** — first wins; later rows skipped with
+  `CSV_DUPLICATE_TAG`. Never silently merged.
+- **Duplicate address** — both device nodes survive; the channel
+  exists once with merged source refs; `CSV_DUPLICATE_ADDRESS`
+  flagged because shared inputs are legitimate but suspicious.
+
+#### Confidence
+
+| Evidence | Score |
+| --- | --- |
+| Known kind alias | 0.85 |
+| Empty / unknown kind | 0.4 (capped) + warning |
+| Parsed address | 0.85 |
+| Terminal / cable / wire edges | 0.65–0.8 |
+
+Combined via the existing `confidenceFromEvidence`
+complement-product. Low-confidence devices fall through to
+`PirDraftCandidate` assumptions, not final equipment — same
+threshold (0.6) the Sprint 72 mapper enforces.
+
+#### Example (golden fixture)
+
+[`tests/fixtures/simple-electrical-list.csv`](../packages/electrical-ingest/tests/fixtures/simple-electrical-list.csv):
+
+```csv
+tag,kind,address,direction,label,terminal,terminal_strip,cable,sheet
+B1,sensor,%I0.0,input,Part present,1,X1,W12,=A1/12
+Y1,valve,%Q0.0,output,Cylinder extend,4,X2,W13,=A1/13
+M1,motor,%Q0.2,output,Conveyor motor,2,X3,W14,=A1/14
+```
+
+Becomes a graph with deterministic ids — `device:B1`, `device:Y1`,
+`device:M1`, `plc_channel:%I0.0`, `plc_channel:%Q0.0`,
+`plc_channel:%Q0.2`, `terminal:1`, `cable:W12`, `cable:W13`, etc. —
+each with a CSV source ref pointing at its row line. Feeding the
+graph to `buildPirDraftCandidate` produces 5 IO candidates and 3
+equipment candidates (sensor_discrete + valve_solenoid +
+motor_simple) at confidence ≥ 0.6.
+
+#### What CSV is NOT
+
+CSV is **not** the final EPLAN strategy. It is the first
+deterministic structured source — easy to author, easy to test
+against, easy for operators to hand-fill from a printout. The
+Sprint 74 EPLAN structured-export parser will add support for
+real EPLAN XML; this CSV ingestor stays as the simple/manual
+fallback.
 
 ## Trademark / provenance note
 
@@ -207,9 +334,9 @@ encodes this by:
 
 | Sprint | Goal |
 | --- | --- |
-| **72** (this sprint) | Architecture + canonical model + helpers + unsupported EPLAN stub + tests + this doc. |
-| 73 | First structured-source parser: CSV terminal/device list → ElectricalGraph. |
-| 74 | EPLAN structured-export parser (XML — likely `Project.xml` / `EplanProject.xml` from a `.elt` /  `.epdz` archive). |
+| 72 | Architecture + canonical model + helpers + unsupported EPLAN stub + tests + this doc. |
+| **73** (this sprint) | CSV terminal/device list → ElectricalGraph; 12 new diagnostic codes; default registry routes CSV → CSV ingestor → EPLAN stub fall-through. |
+| 74 | EPLAN structured-export parser (XML — likely `Project.xml` / `EplanProject.xml` from a `.elt` / `.epdz` archive). |
 | 75 | Review UI: confidence panel, source-ref drilldown, accept/reject assumptions. |
 | 76 | PIR draft → PIR builder; integrate with the existing codegen pipeline. |
 | later | EDZ macro extraction (vendor symbol library), PDF fallback (only as last resort, OCR clearly flagged), Siemens TIA hardware-config import as an alternative source. |
@@ -231,6 +358,9 @@ pnpm -r test
 pnpm run ci
 ```
 
-Sprint 72 adds 81 new tests (graph + confidence + diagnostics +
-sources + trace + pir-candidate). Existing codegen tests are
-unchanged.
+Sprint 72 added 81 new tests (graph + confidence + diagnostics +
+sources + trace + pir-candidate). Sprint 73 adds 46 more (CSV
+parser dialect, header alias coverage, row mapping, full-file
+ingestion, golden fixtures, PIR-candidate integration, registry
+integration) for a package-local total of 127. Existing codegen
+tests are unchanged.

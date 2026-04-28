@@ -1,0 +1,7 @@
+tag,kind,address,direction,label,terminal,terminal_strip,cable,sheet
+B1,sensor,%I0.0,input,Part present,1,X1,W12,=A1/12
+B2,sensor,%I0.1,input,Part clamped,2,X1,W12,=A1/12
+Y1,valve,%Q0.0,output,Cylinder extend,4,X2,W13,=A1/13
+Y2,valve,%Q0.1,output,Cylinder retract,5,X2,W13,=A1/13
+M1,motor,%Q0.2,output,Conveyor motor,2,X3,W14,=A1/14
+S1,safety,,,Emergency stop,1,X4,,=A1/15

@@ -1,0 +1,9 @@
+device_tag,type,io_address,dir,description,terminal,strip,cable_id,page
+,sensor,%I0.0,input,Missing tag row,1,X1,W12,=A1/01
+B1,sensor,not-an-address,input,Bad address,2,X1,W12,=A1/02
+B1,sensor,%I0.5,input,Duplicate tag,3,X1,W12,=A1/03
+M9,whatever,%Q0.9,output,Unknown kind,4,X2,W13,=A1/04
+M2,motor,%I0.7,output,Direction conflict,5,X2,W13,=A1/05
+M3,motor,%Q0.0,output,Shared address,6,X2,W13,=A1/06
+B7,sensor,%Q0.0,input,"Quoted, with comma",7,X1,W12,=A1/07
+M4,motor,%Q0.3,output,"Cell with ""quote""",8,X3,W14,=A1/08

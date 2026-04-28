@@ -18,8 +18,13 @@ export type {
   ElectricalEdge,
   ElectricalEdgeKind,
   ElectricalGraph,
+  ElectricalIngestionInput,
+  ElectricalIngestionOptions,
+  ElectricalIngestionResult,
   ElectricalNode,
   ElectricalNodeKind,
+  ElectricalSourceFile,
+  ElectricalSourceIngestor,
   ElectricalSourceKind,
   EplanIngestionInput,
   EplanIngestionOptions,
@@ -84,6 +89,25 @@ export {
 export {
   createUnsupportedEplanIngestor,
 } from './sources/eplan.js';
+
+export type {
+  CsvCanonicalHeader,
+  CsvElectricalIngestionInput,
+  CsvElectricalIngestionOptions,
+  CsvParseOptions,
+  CsvParseResult,
+  CsvRow,
+  RowMappingResult,
+} from './sources/csv.js';
+export {
+  CSV_CANONICAL_HEADERS,
+  CSV_HEADER_ALIASES,
+  buildCsvGraphId,
+  createCsvElectricalIngestor,
+  ingestElectricalCsv,
+  mapCsvRowToGraphFragment,
+  parseElectricalCsv,
+} from './sources/csv.js';
 
 export type { SourceRegistry } from './sources/generic.js';
 export {
