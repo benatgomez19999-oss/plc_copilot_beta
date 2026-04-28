@@ -31,6 +31,7 @@
     "release:registry-smoke": "node packages/cli/scripts/smoke-registry-install.mjs",
     "release:npm-view": "node packages/cli/scripts/verify-npm-view.mjs",
     "release:provenance": "node packages/cli/scripts/verify-provenance.mjs",
+    "release:audit-signatures": "node packages/cli/scripts/audit-signatures.mjs",
     "release:promote-latest": "node packages/cli/scripts/release-promote-latest.mjs",
     "release:github": "node packages/cli/scripts/github-release.mjs",
     "release:notes": "node packages/cli/scripts/release-notes.mjs",

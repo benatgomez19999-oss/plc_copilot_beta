@@ -90,40 +90,50 @@ pnpm build:packages-vendor
 node packages/cli/scripts/smoke-vendor-dist.mjs
 ```
 
-### Post-publish verification (sprints 64–65, 70)
+### Post-publish verification (sprints 64–65, 70, 71)
 
 Once a real publish has landed, verify it from a fresh consumer
 context with the layered audit:
 
 ```sh
-pnpm release:provenance --config-only --version 0.1.0    # local-only config check (sprint 65 stub)
-pnpm release:provenance --metadata-only --version 0.1.0  # registry metadata + DSSE claims (sprint 70)
-pnpm release:provenance --version 0.1.0                  # default = config + metadata
-pnpm release:npm-view    --version 0.1.0 --tag next      # registry metadata (sprint 65)
-pnpm release:registry-smoke --version 0.1.0              # install + bin (sprint 64)
+pnpm release:provenance --config-only --version 0.1.0    # Layer 1 (local config, no network)
+pnpm release:provenance --metadata-only --version 0.1.0  # Layers 2+3 (registry metadata + DSSE claims)
+pnpm release:provenance --version 0.1.0                  # default = layers 1+2+3
+pnpm release:audit-signatures --version 0.1.0            # Layer 4 (npm CLI cryptographic check)
+pnpm release:npm-view    --version 0.1.0 --tag next      # registry metadata smoke
+pnpm release:registry-smoke --version 0.1.0              # install + bin smoke
 
 # Or trigger from CI:
 # Actions → Post-publish verify → Run workflow   (uses --config-only, no network)
 # Actions → Verify provenance → Run workflow     (sprint 70 — read-only metadata + claims)
+# Actions → Verify signatures → Run workflow     (sprint 71 — npm audit signatures wrapper)
 ```
 
 `release:provenance --config-only` is safe to run anywhere — it
-doesn't contact the registry. The metadata / default modes hit the
-public npm registry + the npm attestations endpoint over HTTPS;
-they are read-only and don't need `NPM_TOKEN`, but they 404 before
-the first publish by design and are deliberately excluded from
-`pnpm run ci`. The first-publish runbook (token, environment,
-dry-run, real publish, partial-publish recovery) lives in
+doesn't contact the registry. The metadata / default modes +
+`release:audit-signatures` hit the public npm registry + the npm
+attestations endpoint over HTTPS; they are read-only, don't need
+`NPM_TOKEN`, and 404 before the first publish by design — they are
+deliberately excluded from `pnpm run ci`. The first-publish
+runbook (token, environment, dry-run, real publish,
+partial-publish recovery) lives in
 [`docs/first-publish-checklist.md`](docs/first-publish-checklist.md).
 
-**Cryptographic Sigstore-bundle verification is not implemented.**
-Sprint 70 verifies the attestation *claims* end-to-end against
-expected GitHub repo + workflow path + package identity, but does
-not walk the Fulcio cert chain or validate the bundle signature.
-For the npm-supported cryptographic path, run `npm audit signatures`
-against an installed copy of the packages — that is independent of
-this tool. Full Sigstore verification is reserved for a future
-sprint.
+**Trust model (Sprints 70 + 71):**
+
+- Layers 1–3 (`release:provenance`) verify what the attestation
+  *says* — its claims about repository, workflow path, and git
+  commit. Cryptographic intactness is **not** checked at these
+  layers.
+- Layer 4 (`release:audit-signatures`) delegates the cryptographic
+  check to `npm audit signatures`, which validates the registry
+  package signatures AND the Sigstore provenance attestations
+  using npm's own Sigstore implementation. Both arrays in
+  `{"invalid":[],"missing":[]}` must be empty for a pass.
+- **In-process Sigstore verification by this tool** (independent
+  of `npm audit signatures`) is still future work. Layer 4's trust
+  is delegated to the npm CLI; if you need an independent crypto
+  check today, that's the path open for a future sprint.
 
 ### First-publish docs (sprint 66)
 

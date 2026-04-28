@@ -1,0 +1,71 @@
+name: Verify signatures
+
+# Sprint 71 — manual read-only wrapper around `npm audit signatures`.
+# Installs the requested @plccopilot/* package into a fresh temp
+# consumer project and asks npm to verify the registry signatures +
+# provenance attestations for every package in the resulting graph.
+#
+# This is the npm-supported cryptographic check — strictly stronger
+# than Sprint 70's metadata + claims verification (which validated
+# what the attestations *say*, not whether the registry signature on
+# the tarball is valid). It does NOT replace Sprint 70's claims
+# verification — those check different things, and both are part of
+# the layered trust model documented in `docs/release-process.md`.
+#
+# Read-only by construction:
+#   - no NPM_TOKEN, no NODE_AUTH_TOKEN
+#   - no environment, no protected secret
+#   - permissions: contents: read
+#   - the runner asserts every npm argv with
+#     `assertNoNpmMutationSurfaceAuditSignatures` before spawn
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to verify (must already be on the registry)'
+        required: true
+        default: '0.1.0'
+      registry:
+        description: 'npm registry'
+        required: true
+        default: 'https://registry.npmjs.org'
+      package:
+        description: 'Package to install (default pulls the full @plccopilot graph)'
+        required: true
+        default: '@plccopilot/cli'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-signatures-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: verify (npm audit signatures)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run release:audit-signatures (--json)
+        run: pnpm release:audit-signatures --version "${{ inputs.version }}" --registry "${{ inputs.registry }}" --package "${{ inputs.package }}" --json

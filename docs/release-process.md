@@ -643,25 +643,67 @@ our repo for our package — strong enough that a tampered registry
 metadata would have to also produce a forged DSSE payload claiming
 the same identity.
 
-### Layer 4 — cryptographic Sigstore verification (NOT IMPLEMENTED)
+### Layer 4 — `npm audit signatures` (Sprint 71)
 
-The runner does **NOT** verify the bundle signature, walk the Fulcio
-certificate chain to the Sigstore root, or check the Rekor inclusion
-proof. Doing that requires Sigstore tooling (large dependency
-surface) and is reserved for a future sprint. The report makes this
-explicit:
+The npm CLI's authoritative cryptographic check, wrapped by
+`pnpm release:audit-signatures`:
 
-```json
-"cryptographic_verification": {
-  "implemented": false,
-  "verified": false,
-  "note": "Cryptographic Sigstore-bundle verification (Fulcio cert chain walk + Rekor inclusion proof) is NOT implemented. ..."
-}
-```
+| Command | Behaviour |
+| --- | --- |
+| `pnpm release:audit-signatures --version X.Y.Z` | Install `@plccopilot/cli@<version>` into a fresh `os.tmpdir()` consumer project, run `npm audit signatures --json`, pass iff exit==0 AND `invalid==[]` AND `missing==[]`. Cleans up the temp dir unless `--keep` or `PLC_COPILOT_KEEP_SIGNATURE_SMOKE=1` |
+| `pnpm release:audit-signatures --version X.Y.Z --json` | Same, JSON report on stdout |
+| `pnpm release:audit-signatures --version X.Y.Z --package @plccopilot/<pkg>` | Audit a different sub-graph — default `@plccopilot/cli` pulls every internal dep so it audits all 6 packages |
+| `pnpm release:audit-signatures --version X.Y.Z --keep` | Don't delete the temp consumer project after — useful for debugging |
 
-If you need cryptographic verification today, run
-`npm audit signatures` against an installed copy of the packages —
-that is the npm-supported path and is independent of this tool.
+What `npm audit signatures` actually verifies (observed empirically
+with npm 11.11.0 against `@plccopilot/cli@0.1.0` on 2026-04-28):
+
+- npm registry **package signatures** (the
+  `dist.signatures[].sig + keyid` pair against npm's signing key).
+- npm **provenance attestations** (the Sigstore bundle stored at
+  `dist.attestations.url`).
+
+For a passing graph npm prints e.g. `7 packages have verified
+registry signatures` + `7 packages have verified attestations`.
+JSON shape on success is `{"invalid":[],"missing":[]}`.
+
+This is strictly stronger than Layer 3's claims-level verification
+because it actually validates the registry signature and the
+attestation cryptography. It does **not** replace Layer 3 — those
+check different things:
+
+| Layer | What it proves |
+| --- | --- |
+| Layer 3 (`release:provenance --metadata-only`) | The attestation **says** "minted by our publish workflow on our repo for our package + commit". |
+| Layer 4 (`release:audit-signatures`) | The attestation + registry signatures are cryptographically valid and intact (npm-supported). |
+
+Both should pass for a healthy release; if Layer 4 passes but Layer
+3's claims don't match, you have a valid signature on a wrong
+attestation — that's a more interesting failure than either alone.
+
+#### What `release:audit-signatures` does NOT do
+
+- It does **NOT** independently walk the Sigstore Fulcio certificate
+  chain or verify the Rekor inclusion proof. Those are still future
+  work; the npm CLI does the full verification under the hood, but
+  this tool delegates entirely to npm.
+- It does **NOT** validate in-toto attestation *claims* (subject /
+  workflow.repository / workflow.path / git commit). That's Layer 3's
+  job. Run both for the layered trust model.
+
+#### Failure-mode codes (Sprint 71)
+
+| Code | When it fires |
+| --- | --- |
+| `AUDIT_SIGNATURES_VERSION_REQUIRED/INVALID` | `--version` missing or not strict X.Y.Z. |
+| `AUDIT_SIGNATURES_REGISTRY_INVALID/PACKAGE_INVALID` | `--registry` not http(s) or `--package` not `@plccopilot/*`. |
+| `AUDIT_SIGNATURES_PACKAGE_NOT_FOUND` | `npm install` returned 404. |
+| `AUDIT_SIGNATURES_INSTALL_FAILED` | `npm install` exited non-zero for another reason. |
+| `AUDIT_SIGNATURES_COMMAND_UNSUPPORTED` | `npm audit signatures` is unavailable in this npm version. |
+| `AUDIT_SIGNATURES_NO_SIGNATURES` | The registry didn't expose verifiable signatures, or the audit reported missing[] entries. |
+| `AUDIT_SIGNATURES_SIGNATURE_FAILED` | Signature mismatch / EINTEGRITY / invalid[] entries. |
+| `AUDIT_SIGNATURES_NONZERO` | `npm audit signatures` exited non-zero for an unclassified reason. |
+| `AUDIT_SIGNATURES_SPAWN_FAILED` | `npm` not on PATH or another spawn error. |
 
 ### Report shape (`--json`)
 
@@ -739,7 +781,10 @@ that is the npm-supported path and is independent of this tool.
 - Skip-existing / resume-after-partial-failure mode.
 - Changelog automation (commit-driven) once the project ships
   user-facing milestones.
-- Cryptographic Sigstore-bundle verification (Fulcio cert chain walk
-  + Rekor inclusion proof + OIDC claim matching). Sprint 70 verifies
-  attestation **claims** end-to-end against the registry but does
-  not validate the bundle signature.
+- Cryptographic Sigstore-bundle verification by **this tool**
+  directly (Fulcio cert chain walk + Rekor inclusion proof + OIDC
+  claim matching done in-process). Sprint 70 verifies attestation
+  *claims* against the registry; Sprint 71 delegates the
+  cryptographic check to `npm audit signatures` (which does verify
+  registry signatures + attestations). A future sprint could add
+  in-process Sigstore verification independent of npm.
