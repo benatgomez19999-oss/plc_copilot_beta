@@ -1,13 +1,21 @@
-# Web electrical-ingestion workflow — Sprint 77 → 78B → 79
+# Web electrical-ingestion workflow — Sprint 77 → 78B → 79 → 80
 
 > **Status: end-to-end pipeline live in `@plccopilot/web`
-> (Sprint 77 → 78A → 78B → 79).** CSV / EPLAN XML / TcECAD XML /
-> **PDF (v0)** → review → PIR preview → **local persistence +
-> downloadable artefacts**, all inside the existing dev-mode app.
+> (Sprint 77 → 78A → 78B → 79 → 80).** CSV / EPLAN XML /
+> TcECAD XML / **PDF (real text-layer, v0)** → review → PIR preview
+> → **local persistence + downloadable artefacts**, all inside the
+> existing dev-mode app. **Sprint 80** swaps Sprint 79's binary
+> stub for a real `pdfjs-dist`-backed text-layer extractor —
+> uploading a selectable-text PDF now produces populated review
+> sessions where Sprint 79 returned only diagnostics.
 > **No automatic PLC codegen.** Codegen still requires explicit
 > operator action and is not wired into this flow. **No backend,
 > no auth, no upload, no OCR.** Raw source content (CSV/XML body,
 > PDF bytes) is not persisted by default.
+>
+> **Manual product PDF verification is explicitly deferred until
+> Sprint 81 finishes.** Sprint 80's tests use hand-crafted minimal
+> PDFs only.
 
 ## Run the dev server
 
@@ -348,34 +356,66 @@ Set the file name to `plan.pdf`. Press **Ingest**. Expected:
   and `PDF_TABLE_DETECTION_NOT_IMPLEMENTED` (info — Sprint 79
   v0 does not detect tables).
 
-### Binary path (honest stub)
+### Binary path (Sprint 80 — real text-layer extraction)
 
-Upload a real `.pdf` file via the file picker. The workspace reads
-it via `arrayBuffer()` and forwards the bytes to the registry. A
-banner reads:
+Upload a real `.pdf` file via the file picker. The workspace
+reads it via `arrayBuffer()` and forwards the bytes to the
+registry. The Sprint 79 honest-stub banner from
+[`docs/web-electrical-ingestion-workflow.md`](web-electrical-ingestion-workflow.md)
+still warns that PDF binary uploads are accepted but the workshop
+may produce only diagnostics on scanned PDFs.
 
-> Binary PDF loaded (N bytes). Sprint 79 v0 has no binary text-
-> layer parser; the ingestor will surface honest diagnostics
-> (`PDF_UNSUPPORTED_BINARY_PARSER`,
-> `PDF_TEXT_LAYER_UNAVAILABLE`) and produce no electrical
-> evidence. To exercise the architecture, paste already-extracted
-> text in the box above.
-
-The ingestor:
+The Sprint 80 ingestor (`ingestPdf` async + adapter at
+`packages/electrical-ingest/src/sources/pdf-text-layer.ts`):
 
 - Validates `%PDF-` magic. Mismatch → `PDF_MALFORMED` (error).
-- Sniffs `/Encrypt`. Match → `PDF_ENCRYPTED_NOT_SUPPORTED`
-  (error) + `metadata.encrypted = true`.
-- Emits `PDF_UNSUPPORTED_BINARY_PARSER` + `PDF_TEXT_LAYER_UNAVAILABLE`
-  + `PDF_ELECTRICAL_EXTRACTION_NOT_IMPLEMENTED`.
-- Returns an empty `ElectricalGraph` with `sourceKind: 'pdf'`.
+- Calls `extractPdfTextLayer` (pdfjs-dist legacy build) with
+  `disableFontFace`, `useSystemFonts: false`, `useWorkerFetch:
+  false`, `isEvalSupported: false` — Node-friendly settings.
+- Per page: walks text items, clusters them by baseline-Y into
+  deterministic lines (helper at `pdf-text-normalize.ts`),
+  produces `PdfTextBlock`s with combined PDF-point bboxes
+  (unit `'pt'`) and verbatim snippets.
+- Runs the Sprint 79 conservative IO-row regex over each line.
+  Matches produce low-confidence (≤ 0.65) `pdf_device:` /
+  `plc_channel:` graph nodes + `signals` / `drives` edges.
 
-The Build PIR button stays disabled (empty candidate is not
-ready, per Sprint 78A). The review-session panel still saves the
-diagnostic-only snapshot, and the export panel still offers
-**ingestion diagnostics** + **review session** + **bundle**
-downloads — useful for handing off the "this PDF can't be
-ingested today" report to the next operator.
+Expected behaviour on a real selectable-text PDF whose content
+includes IO-list rows:
+
+- Diagnostics include `PDF_TEXT_LAYER_EXTRACTED` (info: N line
+  blocks across M pages) + `PDF_TABLE_DETECTION_NOT_IMPLEMENTED`
+  (info — roadmap reminder).
+- Review tables show extracted IO + device candidates with
+  source-ref drilldown showing `kind: pdf`, `page: N`, `line: M`,
+  `bbox` in PDF points, and the verbatim snippet.
+
+Expected behaviour on a scanned PDF (no embedded text):
+
+- Per-page `PDF_TEXT_LAYER_EMPTY_PAGE` (warning).
+- `PDF_NO_TEXT_BLOCKS` (warning) when every page is empty.
+- No graph candidates. Build PIR button stays disabled.
+
+Expected behaviour on a malformed / encrypted / unsupported
+PDF:
+
+- `PDF_TEXT_LAYER_EXTRACTION_FAILED` (error) for malformed
+  bodies. pdfjs failed `getDocument`.
+- `PDF_ENCRYPTED_NOT_SUPPORTED` (error) when pdfjs raised
+  `PasswordException`. `metadata.encrypted = true`.
+- `PDF_DEPENDENCY_LOAD_FAILED` (error) on a partial reinstall
+  where the dynamic import of pdfjs-dist itself fails.
+
+If the operator uploaded bytes AND pasted text, and the bytes
+extraction failed, the ingestor falls back to the Sprint 79
+test-mode parser. Both diagnostic sets are preserved.
+
+The Build PIR button stays disabled until every reviewable item
+is accepted/rejected (Sprint 78A gate), regardless of source.
+The review-session panel still saves the snapshot, and the
+export panel still offers per-artefact downloads + a bundle —
+useful for sharing extracted PDF evidence even when the builder
+refuses (e.g., unrecognised addresses).
 
 ### What is NOT supported in Sprint 79 v0
 

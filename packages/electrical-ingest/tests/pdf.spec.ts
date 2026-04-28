@@ -204,12 +204,22 @@ describe('parsePdfDocument — test-mode text path', () => {
 });
 
 // -----------------------------------------------------------------------------
-// ingestPdf — bytes path (honest binary stub)
+// ingestPdf — bytes path (Sprint 80: real text-layer extraction)
+//
+// Sprint 79's `validateBytes` stub emitted PDF_UNSUPPORTED_BINARY_PARSER
+// + PDF_TEXT_LAYER_UNAVAILABLE for any valid-header byte string.
+// Sprint 80 replaces that stub with `pdfjs-dist`, so:
+//   - obviously-not-a-PDF bytes still raise PDF_MALFORMED (header
+//     check is in front of the extractor);
+//   - byte strings that pass the header check but aren't a parseable
+//     PDF body raise PDF_TEXT_LAYER_EXTRACTION_FAILED;
+//   - real PDFs with selectable text are exercised in
+//     pdf-text-layer.spec.ts (this file's text-mode block stays).
 // -----------------------------------------------------------------------------
 
-describe('ingestPdf — bytes path (honest binary stub)', () => {
-  it('1. emits PDF_MALFORMED when bytes do not start with %PDF-', () => {
-    const r = ingestPdf({
+describe('ingestPdf — bytes path (Sprint 80 — real extractor)', () => {
+  it('1. emits PDF_MALFORMED when bytes do not start with %PDF-', async () => {
+    const r = await ingestPdf({
       sourceId: 's1',
       fileName: 'broken.pdf',
       bytes: new Uint8Array([0x50, 0x4b, 0x03, 0x04]),
@@ -219,31 +229,37 @@ describe('ingestPdf — bytes path (honest binary stub)', () => {
     expect(r.graph.edges).toEqual([]);
   });
 
-  it('2. emits PDF_UNSUPPORTED_BINARY_PARSER + PDF_TEXT_LAYER_UNAVAILABLE on a valid header', () => {
-    const r = ingestPdf({
+  it('2. emits PDF_TEXT_LAYER_EXTRACTION_FAILED for a header-only stub body', async () => {
+    const r = await ingestPdf({
       sourceId: 's1',
       fileName: 'real.pdf',
       bytes: pdfBytes('1.7\n%body…'),
     });
     const codes = r.diagnostics.map((d) => d.code);
-    expect(codes).toContain('PDF_UNSUPPORTED_BINARY_PARSER');
-    expect(codes).toContain('PDF_TEXT_LAYER_UNAVAILABLE');
+    // The Sprint 79 stub-only codes are gone; the real extractor
+    // surfaces an extraction-failed diagnostic instead.
+    expect(codes).toContain('PDF_TEXT_LAYER_EXTRACTION_FAILED');
+    expect(codes).not.toContain('PDF_UNSUPPORTED_BINARY_PARSER');
+    expect(codes).not.toContain('PDF_TEXT_LAYER_UNAVAILABLE');
   });
 
-  it('3. detects /Encrypt and emits PDF_ENCRYPTED_NOT_SUPPORTED', () => {
-    const r = ingestPdf({
+  it('3. emits PDF_TEXT_LAYER_EXTRACTION_FAILED on a non-parseable body even when the literal /Encrypt sub-string is present', async () => {
+    // Sprint 79's substring sniff is gone; pdfjs-dist owns
+    // encryption detection now and only flags real
+    // PasswordException-bearing PDFs. A garbage body containing
+    // "/Encrypt" is just garbage to the real parser.
+    const r = await ingestPdf({
       sourceId: 's1',
-      fileName: 'encrypted.pdf',
+      fileName: 'encrypted-shaped.pdf',
       bytes: pdfBytes('1.7\nblah /Encrypt 1 0 R\n…'),
     });
-    expect(
-      r.diagnostics.some((d) => d.code === 'PDF_ENCRYPTED_NOT_SUPPORTED'),
-    ).toBe(true);
-    expect(r.document.metadata?.encrypted).toBe(true);
+    const codes = r.diagnostics.map((d) => d.code);
+    expect(codes).toContain('PDF_TEXT_LAYER_EXTRACTION_FAILED');
+    expect(r.document.metadata?.encrypted).toBeUndefined();
   });
 
-  it('4. emits PDF_ELECTRICAL_EXTRACTION_NOT_IMPLEMENTED on bytes-only input', () => {
-    const r = ingestPdf({
+  it('4. emits PDF_ELECTRICAL_EXTRACTION_NOT_IMPLEMENTED on bytes-only input that fails to parse', async () => {
+    const r = await ingestPdf({
       sourceId: 's1',
       fileName: 'x.pdf',
       bytes: pdfBytes('1.7'),
@@ -255,16 +271,16 @@ describe('ingestPdf — bytes path (honest binary stub)', () => {
     ).toBe(true);
   });
 
-  it('5. NEVER throws on malformed input', () => {
-    expect(() =>
+  it('5. NEVER throws on malformed input', async () => {
+    await expect(
       ingestPdf({ sourceId: 's1', bytes: new Uint8Array(0) }),
-    ).not.toThrow();
-    expect(() => ingestPdf(null as never)).not.toThrow();
-    expect(() => ingestPdf({ sourceId: 's1' })).not.toThrow();
+    ).resolves.toBeDefined();
+    await expect(ingestPdf(null as never)).resolves.toBeDefined();
+    await expect(ingestPdf({ sourceId: 's1' })).resolves.toBeDefined();
   });
 
-  it('6. graph carries sourceKind: "pdf"', () => {
-    const r = ingestPdf({
+  it('6. graph carries sourceKind: "pdf"', async () => {
+    const r = await ingestPdf({
       sourceId: 's1',
       fileName: 'real.pdf',
       bytes: pdfBytes('1.7'),
@@ -279,8 +295,8 @@ describe('ingestPdf — bytes path (honest binary stub)', () => {
 // -----------------------------------------------------------------------------
 
 describe('ingestPdf — text-mode IO-row extraction', () => {
-  it('1. extracts simple "<address> <tag> <label>" rows into nodes + edges', () => {
-    const r = ingestPdf({
+  it('1. extracts simple "<address> <tag> <label>" rows into nodes + edges', async () => {
+    const r = await ingestPdf({
       sourceId: 's1',
       fileName: 'plan.pdf',
       text: SIMPLE_TEXT_PDF,
@@ -291,8 +307,8 @@ describe('ingestPdf — text-mode IO-row extraction', () => {
     expect(channelNodes.length).toBe(3); // %I0.0, %Q0.0, %Q0.1
   });
 
-  it('2. infers input direction from %I addresses → "signals" edge', () => {
-    const r = ingestPdf({
+  it('2. infers input direction from %I addresses → "signals" edge', async () => {
+    const r = await ingestPdf({
       sourceId: 's1',
       fileName: 'plan.pdf',
       text: '--- page 1 ---\nI0.0 B1 Part present\n',
@@ -304,8 +320,8 @@ describe('ingestPdf — text-mode IO-row extraction', () => {
     expect(edge.to.startsWith('plc_channel:')).toBe(true);
   });
 
-  it('3. infers output direction from %Q addresses → "drives" edge', () => {
-    const r = ingestPdf({
+  it('3. infers output direction from %Q addresses → "drives" edge', async () => {
+    const r = await ingestPdf({
       sourceId: 's1',
       fileName: 'plan.pdf',
       text: '--- page 1 ---\nQ0.1 M1 Conveyor motor\n',
@@ -316,8 +332,8 @@ describe('ingestPdf — text-mode IO-row extraction', () => {
     expect(edge.to.startsWith('pdf_device:')).toBe(true);
   });
 
-  it('4. every node + edge carries a SourceRef with kind "pdf" and a page', () => {
-    const r = ingestPdf({
+  it('4. every node + edge carries a SourceRef with kind "pdf" and a page', async () => {
+    const r = await ingestPdf({
       sourceId: 's1',
       fileName: 'plan.pdf',
       text: SIMPLE_TEXT_PDF,
@@ -332,8 +348,8 @@ describe('ingestPdf — text-mode IO-row extraction', () => {
     }
   });
 
-  it('5. confidence on PDF-derived nodes never exceeds 0.65', () => {
-    const r = ingestPdf({
+  it('5. confidence on PDF-derived nodes never exceeds 0.65', async () => {
+    const r = await ingestPdf({
       sourceId: 's1',
       fileName: 'plan.pdf',
       text: SIMPLE_TEXT_PDF,
@@ -343,8 +359,8 @@ describe('ingestPdf — text-mode IO-row extraction', () => {
     }
   });
 
-  it('6. emits PDF_ELECTRICAL_EXTRACTION_NOT_IMPLEMENTED when no IO rows match', () => {
-    const r = ingestPdf({
+  it('6. emits PDF_ELECTRICAL_EXTRACTION_NOT_IMPLEMENTED when no IO rows match', async () => {
+    const r = await ingestPdf({
       sourceId: 's1',
       fileName: 'narrative.pdf',
       text: 'this is just a paragraph with no IO list inside it.',
@@ -358,8 +374,12 @@ describe('ingestPdf — text-mode IO-row extraction', () => {
     expect(r.graph.edges).toEqual([]);
   });
 
-  it('7. text + bytes — bytes header is recognised, text path runs extraction', () => {
-    const r = ingestPdf({
+  it('7. Sprint 80 — text fallback runs when bytes fail to parse and text is supplied', async () => {
+    // Sprint 79 emitted PDF_UNSUPPORTED_BINARY_PARSER + PDF_TEXT_BLOCK_EXTRACTED
+    // here. Sprint 80's real extractor fails on a header-only stub, so
+    // we instead expect PDF_TEXT_LAYER_EXTRACTION_FAILED + the text-mode
+    // fallback's PDF_TEXT_BLOCK_EXTRACTED.
+    const r = await ingestPdf({
       sourceId: 's1',
       fileName: 'mixed.pdf',
       bytes: pdfBytes('1.7'),
@@ -367,12 +387,15 @@ describe('ingestPdf — text-mode IO-row extraction', () => {
     });
     expect(r.graph.nodes.length).toBeGreaterThan(0);
     const codes = r.diagnostics.map((d) => d.code);
-    expect(codes).toContain('PDF_UNSUPPORTED_BINARY_PARSER');
+    expect(codes).toContain('PDF_TEXT_LAYER_EXTRACTION_FAILED');
     expect(codes).toContain('PDF_TEXT_BLOCK_EXTRACTED');
+    // Sprint 79 stub codes are no longer emitted.
+    expect(codes).not.toContain('PDF_UNSUPPORTED_BINARY_PARSER');
+    expect(codes).not.toContain('PDF_TEXT_LAYER_UNAVAILABLE');
   });
 
-  it('8. inferred device kind matches label hints (sensor / motor / valve)', () => {
-    const r = ingestPdf({
+  it('8. inferred device kind matches label hints (sensor / motor / valve)', async () => {
+    const r = await ingestPdf({
       sourceId: 's1',
       fileName: 'plan.pdf',
       text:
@@ -393,8 +416,8 @@ describe('ingestPdf — text-mode IO-row extraction', () => {
 // -----------------------------------------------------------------------------
 
 describe('PDF → PirDraftCandidate', () => {
-  it('1. produces a PirDraftCandidate from a simple text PDF', () => {
-    const r = ingestPdf({
+  it('1. produces a PirDraftCandidate from a simple text PDF', async () => {
+    const r = await ingestPdf({
       sourceId: 's1',
       fileName: 'plan.pdf',
       text: SIMPLE_TEXT_PDF,
@@ -404,8 +427,8 @@ describe('PDF → PirDraftCandidate', () => {
     expect(candidate.io.length).toBeGreaterThan(0);
   });
 
-  it('2. PDF SourceRefs (page, snippet, symbol) survive into the candidate', () => {
-    const r = ingestPdf({
+  it('2. PDF SourceRefs (page, snippet, symbol) survive into the candidate', async () => {
+    const r = await ingestPdf({
       sourceId: 's1',
       fileName: 'plan.pdf',
       text: SIMPLE_TEXT_PDF,

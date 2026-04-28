@@ -211,7 +211,8 @@ export {
   parseTcecadXml,
 } from './sources/twincat-ecad-xml.js';
 
-// Sprint 79 — PDF ingestion architecture v0.
+// Sprint 79 → 80 — PDF ingestion architecture + real text-layer
+// extraction.
 export type {
   PdfBoundingBox,
   PdfDocument,
@@ -232,3 +233,22 @@ export {
   ingestPdf,
   parsePdfDocument,
 } from './sources/pdf.js';
+
+// Sprint 80 — pdfjs-dist text-layer adapter + line-grouping helpers.
+// Exposed so future ingestors / debug tooling can call the same
+// extractor; web code should keep going through `ingestPdf`.
+export type {
+  PdfTextLayerExtractionInput,
+  PdfTextLayerExtractionResult,
+  PdfTextLayerItem,
+  PdfTextLayerPage,
+} from './sources/pdf-text-layer.js';
+export { extractPdfTextLayer } from './sources/pdf-text-layer.js';
+export type {
+  GroupItemsIntoLinesOptions,
+  PdfTextLayerLine,
+} from './sources/pdf-text-normalize.js';
+export {
+  combineBbox,
+  groupItemsIntoLines,
+} from './sources/pdf-text-normalize.js';

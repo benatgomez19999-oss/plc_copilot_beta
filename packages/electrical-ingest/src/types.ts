@@ -226,7 +226,18 @@ export type ElectricalDiagnosticCode =
   // ingestor + the simple IO-row extractor:
   | 'PDF_NO_TEXT_BLOCKS'
   | 'PDF_TEXT_BLOCK_EXTRACTED'
-  | 'PDF_AMBIGUOUS_IO_ROW';
+  | 'PDF_AMBIGUOUS_IO_ROW'
+  // ---- Sprint 80: real text-layer extraction (pdfjs-dist adapter) ----
+  // Success path:
+  | 'PDF_TEXT_LAYER_EXTRACTED'
+  | 'PDF_TEXT_LAYER_EMPTY_PAGE'
+  | 'PDF_TEXT_LAYER_BBOX_APPROXIMATED'
+  // Failure / fallback paths (the architecture refuses to silently
+  // degrade — every failure has a structured code + an honest fall-
+  // back to the Sprint 79 test-mode text path when text was also
+  // supplied):
+  | 'PDF_TEXT_LAYER_EXTRACTION_FAILED'
+  | 'PDF_DEPENDENCY_LOAD_FAILED';
 
 export interface ElectricalDiagnostic {
   code: ElectricalDiagnosticCode;

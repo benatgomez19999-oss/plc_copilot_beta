@@ -1,12 +1,20 @@
-# PDF ingestion architecture — Sprint 79 v0
+# PDF ingestion architecture — Sprint 79 → 80
 
-> **Status: architecture v0.** Sprint 79 lays the *foundation* for
-> ingesting electrical PDF documents into PLC Copilot's evidence
-> pipeline. It does NOT ship a production binary parser, OCR,
-> table-detection, or symbol recognition. It DOES ship: a source
-> kind, a document/page/block model, page/bbox-capable
-> `SourceRef`s, a structured diagnostic catalogue, an honest binary
-> stub, and a deterministic test-mode text-extraction path.
+> **Status: text-layer extraction v0 (Sprint 80).** Sprint 79
+> landed the foundation: source kind, document/page/block model,
+> page/bbox-capable `SourceRef`s, structured diagnostics, an
+> honest binary stub, and a deterministic test-mode text path.
+> **Sprint 80** replaces the binary stub with a real text-layer
+> extractor backed by `pdfjs-dist` (legacy Node build), behind an
+> isolated adapter that the rest of the codebase never imports
+> directly. Confidence stays conservative; review-first stays
+> load-bearing; OCR / symbol recognition / wire tracing remain
+> deferred.
+>
+> **Manual product validation with real PDFs is explicitly
+> deferred until Sprint 81 finishes.** Sprint 80's tests use
+> hand-crafted minimal PDFs generated at runtime; the suite is
+> deterministic and DOM-free.
 
 ## Why PDF support is strategic
 
@@ -28,15 +36,14 @@ carries a `SourceRef` with `kind: 'pdf'`, `page`, optional
 `bbox`, and a verbatim `snippet` so the operator can audit "where
 did this fact come from?" before it can promote to PIR.
 
-## Non-goals (load-bearing for v0)
+## Non-goals (load-bearing through Sprint 80)
 
-- **No OCR.** Sprint 79 v0 NEVER runs OCR — not even silently when
+- **No OCR.** Sprint 80 NEVER runs OCR — not even silently when
   `allowOcr: true` is passed; that flag is reserved for a future
   opt-in and currently raises `PDF_OCR_NOT_ENABLED` info.
-- **No production binary parser.** Bytes-only inputs are validated
-  for the `%PDF-` magic header and sniffed for `/Encrypt`, but the
-  document body is not decoded. Honest diagnostics surface this
-  (`PDF_UNSUPPORTED_BINARY_PARSER`, `PDF_TEXT_LAYER_UNAVAILABLE`).
+- **No symbol / connection-graph recognition.** Sprint 80 only
+  extracts text-layer items + clusters them into lines; it makes
+  no claim about reading schematic geometry.
 - **No layout-aware table detection.** Every parse emits
   `PDF_TABLE_DETECTION_NOT_IMPLEMENTED` info as a roadmap reminder.
 - **No symbol / connection-graph recognition.** PDFs of schematic
@@ -49,58 +56,82 @@ did this fact come from?" before it can promote to PIR.
 - **No raw PDF persistence.** The Sprint 78B review-session
   snapshot does NOT carry the PDF bytes (privacy default).
 
-## v0 supported behaviour
+## Sprint 80 supported behaviour
 
-Two paths through `ingestPdf` / `parsePdfDocument` /
-`createPdfElectricalIngestor`:
+Three paths through `ingestPdf` (priority order):
 
-### 1. Test-mode text path
+### 1. Bytes path with real text-layer extraction (Sprint 80 — NEW)
 
-When the caller supplies `PdfIngestionInput.text`, the ingestor
-treats the input as **already-extracted plain text** (the format a
-real binary parser would produce) and runs the v0 pipeline:
+When the caller supplies `PdfIngestionInput.bytes`:
+
+- The first 5 bytes are checked against `%PDF-`. Mismatch →
+  `PDF_MALFORMED` error; extractor is not invoked.
+- Otherwise the bytes go through `extractPdfTextLayer` (see
+  [`docs/pdf-text-layer-extraction.md`](pdf-text-layer-extraction.md)),
+  which dynamically imports `pdfjs-dist/legacy/build/pdf.mjs`,
+  walks each page, and yields a list of text items with
+  `(x, y, width, height)` in PDF point space.
+- `pdf-text-normalize.ts` clusters items by baseline-Y into
+  deterministic lines. Each line becomes a `PdfTextBlock` with a
+  combined `bbox` (unit `'pt'`), deterministic id
+  (`pdf:<sourceId>:p<page>:b<index>`), and a `SourceRef` carrying
+  `kind: 'pdf'`, `path`, `page`, `line` (= block index in page),
+  `snippet`, `bbox`, and a `symbol` of the form
+  `pdf:page:N/line:M`.
+- The same conservative IO-row regex from Sprint 79 runs over each
+  line's text; matches produce `pdf_device:<tag>` +
+  `plc_channel:<address>` nodes with `signals` (input) or `drives`
+  (output) edges. PDF-derived nodes never read above 0.65
+  confidence.
+- Per-parse diagnostic surface:
+  - `PDF_TEXT_LAYER_EXTRACTED` (info) — N line blocks across M pages.
+  - `PDF_TABLE_DETECTION_NOT_IMPLEMENTED` (info) — roadmap reminder.
+  - `PDF_OCR_NOT_ENABLED` (info, only if `allowOcr` was set).
+  - `PDF_TEXT_LAYER_EMPTY_PAGE` (warning, per page) — the page
+    has no extractable text (typical for scanned-image-only pages).
+  - `PDF_ELECTRICAL_EXTRACTION_NOT_IMPLEMENTED` (info) — text
+    layer extracted but no IO-row pattern matched.
+  - `PDF_NO_TEXT_BLOCKS` (warning) — extraction succeeded but
+    every page was empty.
+
+Failure modes (no fake fall-through):
+
+- `PDF_DEPENDENCY_LOAD_FAILED` (error) — `pdfjs-dist` failed to
+  dynamically import. Possible after a partial reinstall.
+- `PDF_TEXT_LAYER_EXTRACTION_FAILED` (error) — `pdfjs.getDocument`
+  threw on this byte stream (unsupported version, corrupted
+  cross-ref table, etc.).
+- `PDF_ENCRYPTED_NOT_SUPPORTED` (error) — `pdfjs` raised a
+  `PasswordException`. The metadata flag `encrypted: true` is
+  set on the `PdfDocument`.
+
+When extraction fails AND `text` was also supplied, the ingestor
+falls back to path 3 (test-mode text) so fixtures keep working.
+
+### 2. Bytes path fallback to test-mode text (Sprint 80)
+
+If `bytes` were provided but the real extractor failed (encrypted,
+malformed body, dependency-load failed, parse error) AND `text`
+was also supplied, the ingestor honours the Sprint 79 test-mode
+parser. Both diagnostic sets are preserved so operators see what
+happened.
+
+### 3. Test-mode text path (Sprint 79 — preserved verbatim)
+
+When the caller supplies only `PdfIngestionInput.text`:
 
 - **Page splitting.** Lines matching `--- page N ---`
   (case-insensitive, leading/trailing whitespace tolerated)
   introduce a new page. Everything before the first delimiter is
   page 1.
 - **Block extraction.** Each non-blank source line becomes a
-  `PdfTextBlock` with a deterministic id
-  (`pdf:<sourceId>:p<page>:b<index>`), its verbatim text, and a
-  `SourceRef` carrying `kind: 'pdf'`, `path`, `page`, `line`,
-  `snippet`, and a `symbol` of the form `pdf:page:N/line:M`.
-- **Confidence ladder.** Lines that match the IO-row pattern read
-  at `0.6`; other text reads at `0.5`. PDF-derived rows never
-  exceed `0.65` — strictly below CSV/EPLAN structured rows.
-- **Conservative IO extraction.** Lines matching
-  `<address> <tag> [<label>]` (Siemens-style addresses: `I0.0`,
-  `Q0.1`, `%I0.0`, `%Q0.0`, plus byte/word variants) produce a
-  `pdf_device:<tag>` node and a `plc_channel:<address>` node, with
-  a `signals` (input) or `drives` (output) edge between them. The
-  device kind is inferred from label hints (`sensor`, `valve`,
-  `motor`, etc.) using the shared `KIND_ALIASES` table.
+  `PdfTextBlock` with the same id format as path 1.
+- **Confidence ladder.** Same as path 1: 0.6 for IO-row matches,
+  0.5 otherwise; never above 0.65.
+- **Conservative IO extraction.** Same regex.
 
-### 2. Bytes path (honest binary stub)
-
-When the caller supplies `PdfIngestionInput.bytes`:
-
-- The first 5 bytes are checked against `%PDF-`. Mismatch →
-  `PDF_MALFORMED` error.
-- The body is scanned for `/Encrypt` (a brittle but documented
-  sniff for the trailer dictionary). Match →
-  `PDF_ENCRYPTED_NOT_SUPPORTED` error +
-  `metadata.encrypted = true`.
-- The ingestor emits the honest set:
-  - `PDF_UNSUPPORTED_BINARY_PARSER` (warning)
-  - `PDF_TEXT_LAYER_UNAVAILABLE` (warning)
-  - `PDF_OCR_NOT_ENABLED` (info, only if `allowOcr` was set)
-  - `PDF_ELECTRICAL_EXTRACTION_NOT_IMPLEMENTED` (info)
-- Returns an empty `ElectricalGraph` with `sourceKind: 'pdf'`.
-
-This stub exists so the architecture, the registry routing, and
-the review/persist/export flow can be exercised end-to-end without
-binding to a binary-PDF dependency. Operators see structured
-diagnostics rather than a fake extraction.
+This path stays so Sprint 79 fixtures and the `parsePdfDocument`
+public helper keep working unchanged.
 
 ## Document model
 
@@ -159,16 +190,21 @@ explains how the persistence layer handles them.
 | --- | --- | --- |
 | `PDF_EMPTY_INPUT` | error | No bytes and no text supplied |
 | `PDF_MALFORMED` | error | Bytes do not start with `%PDF-` |
-| `PDF_ENCRYPTED_NOT_SUPPORTED` | error | `/Encrypt` detected in trailer |
+| `PDF_ENCRYPTED_NOT_SUPPORTED` | error | pdfjs raised `PasswordException` (Sprint 80) |
 | `PDF_PAGE_LIMIT_EXCEEDED` | warning | More than `maxPages` (default 200) |
-| `PDF_UNSUPPORTED_BINARY_PARSER` | warning | Bytes path — no binary decoder ships in v0 |
-| `PDF_TEXT_LAYER_UNAVAILABLE` | warning | Bytes path — no text was extracted |
+| `PDF_UNSUPPORTED_BINARY_PARSER` | warning | **Sprint 79 stub only — no longer emitted by Sprint 80's real path** |
+| `PDF_TEXT_LAYER_UNAVAILABLE` | warning | **Sprint 79 stub only — no longer emitted by Sprint 80's real path** |
+| `PDF_TEXT_LAYER_EXTRACTED` | info | **Sprint 80** — N line blocks across M pages |
+| `PDF_TEXT_LAYER_EMPTY_PAGE` | warning | **Sprint 80** — extracted page contained zero items |
+| `PDF_TEXT_LAYER_BBOX_APPROXIMATED` | info | Reserved for future use (not raised in Sprint 80) |
+| `PDF_TEXT_LAYER_EXTRACTION_FAILED` | error | **Sprint 80** — pdfjs threw on `getDocument` or `getTextContent` |
+| `PDF_DEPENDENCY_LOAD_FAILED` | error | **Sprint 80** — dynamic import of pdfjs-dist failed |
 | `PDF_OCR_NOT_ENABLED` | info | `allowOcr=true` was set; OCR is not implemented |
 | `PDF_TABLE_DETECTION_NOT_IMPLEMENTED` | info | Always raised once per parse |
-| `PDF_ELECTRICAL_EXTRACTION_NOT_IMPLEMENTED` | info | Bytes-only input or no IO-row matched |
-| `PDF_NO_TEXT_BLOCKS` | warning | Text input contained only whitespace |
-| `PDF_TEXT_BLOCK_EXTRACTED` | info | Per-parse summary count |
-| `PDF_AMBIGUOUS_IO_ROW` | warning | Reserved for future use (not raised in v0) |
+| `PDF_ELECTRICAL_EXTRACTION_NOT_IMPLEMENTED` | info | Text recovered but no IO-row matched |
+| `PDF_NO_TEXT_BLOCKS` | warning | Text path: input was all whitespace; Bytes path: extraction OK but every page empty |
+| `PDF_TEXT_BLOCK_EXTRACTED` | info | Test-mode-text per-parse summary count |
+| `PDF_AMBIGUOUS_IO_ROW` | warning | Reserved for future use (not raised in Sprint 80) |
 
 ## Registry routing
 
@@ -223,47 +259,64 @@ binary text-layer parser…") so operators are never surprised.
 ## Future roadmap
 
 Each step is an independent sprint; nothing is required to land
-together with v0.
+together with Sprint 80.
 
-1. **Production text-layer extraction.** Add a vetted, deterministic
-   PDF text-layer parser (likely `pdfjs-dist` or a hand-rolled
-   parser for a constrained subset). Replace the bytes-only stub
-   with a real producer of `PdfTextBlock`s including geometry.
-2. **Table extraction.** Use line-clustering / column-detection
-   heuristics to populate `PdfTableCandidate.rows`. High-confidence
-   IO-list tables become a strong source of `ElectricalGraph`
-   candidates (similar to the CSV ingestor).
-3. **OCR fallback (opt-in).** Only when `allowOcr: true` AND a
+1. **Sprint 81 — IO/table extraction + manual PDF acceptance pass.**
+   Improve line/table grouping; detect simple IO-list tables; better
+   column heuristics; validate against real public/sample PDFs;
+   first explicit manual product validation pass for PDF — Sprint
+   80's tests use hand-crafted minimal PDFs only.
+2. **OCR fallback (opt-in).** Only when `allowOcr: true` AND a
    sandboxed OCR service is configured. The output still flows
    through the same review gate; OCR-derived blocks must be
    labelled (`SourceRef.snippet` + a dedicated diagnostic).
-4. **Symbol / connection-graph recognition.** Beyond text — actual
+3. **Symbol / connection-graph recognition.** Beyond text — actual
    geometry of schematic symbols. Will need a deterministic
    pattern library and a lower default confidence than text-row
    extraction.
-5. **Cross-page references.** Tag-level deduplication when the
+4. **Cross-page references.** Tag-level deduplication when the
    same device appears on multiple sheets. Likely shared with the
    EPLAN XML side.
+5. **Rotated / multi-column hardening.** Vertical text, rotated
+   pages, multi-column reading order — Sprint 80's grouping is
+   single-column / non-rotated only.
 
 Each step must keep the architectural invariant intact: every
 extracted fact carries a `SourceRef`, never auto-promotes to PIR,
 and is reviewable by a human before any downstream consumer.
 
-## Test coverage (Sprint 79)
+## Test coverage (Sprint 79 + 80)
 
-- `packages/electrical-ingest/tests/pdf.spec.ts` — 40 tests:
-  detection (6), parser (12), bytes path (6), text-mode IO-row
-  extraction (8), `PirDraftCandidate` integration (2), registry
-  routing (5).
+Sprint 79:
+- `packages/electrical-ingest/tests/pdf.spec.ts` — 40 tests
+  (Sprint 80 updated several assertions: bytes-path tests now
+  expect `PDF_TEXT_LAYER_EXTRACTION_FAILED` instead of the
+  removed Sprint 79 `PDF_UNSUPPORTED_BINARY_PARSER` /
+  `PDF_TEXT_LAYER_UNAVAILABLE` codes; all `ingestPdf` calls are
+  awaited).
 - `packages/electrical-ingest/tests/sources.spec.ts` — registry
   count refreshed (4 → 5).
 - `packages/electrical-ingest/tests/eplan-xml.spec.ts` — `.pdf`
-  fall-through assertion replaced with the Sprint 79 PDF-ingestor
-  honest-empty-input assertion.
-- `packages/web/tests/electrical-ingestion-flow.spec.ts` — Sprint
-  79 detection + flow block (10 tests).
-- `packages/web/tests/electrical-review-session.spec.ts` — adds
-  `'pdf'` as a valid `inputKind`; flips the "unknown" sentinel to
-  `'edz'`.
-- `packages/web/tests/electrical-review-session-workflow.spec.ts` —
-  end-to-end PDF text-mode round-trip + privacy assertion (2 tests).
+  fall-through assertion replaced with the PDF-ingestor honest-
+  empty-input assertion.
+- `packages/web/tests/electrical-ingestion-flow.spec.ts` —
+  detection + flow block (Sprint 80 flipped one assertion: the
+  bytes-only-header test now expects `PDF_TEXT_LAYER_EXTRACTION_FAILED`
+  + `PDF_ELECTRICAL_EXTRACTION_NOT_IMPLEMENTED`).
+- `packages/web/tests/electrical-review-session.spec.ts` —
+  `'pdf'` accepted as `inputKind`.
+- `packages/web/tests/electrical-review-session-workflow.spec.ts`
+  — end-to-end PDF text-mode round-trip + privacy assertion.
+
+Sprint 80 — new:
+- `packages/electrical-ingest/tests/pdf-text-layer.spec.ts` —
+  22 tests: `extractPdfTextLayer` real-bytes path (8),
+  `groupItemsIntoLines` + `combineBbox` line-grouping helpers (8),
+  `ingestPdf` end-to-end with real bytes including PDF
+  SourceRef + bbox preservation through `PirDraftCandidate` (6).
+- `packages/electrical-ingest/tests/fixtures/pdf/build-fixture.ts`
+  — minimal-PDF fixture builder (no committed binary blobs).
+- `packages/web/tests/electrical-ingestion-flow.spec.ts` —
+  Sprint 80 block (2 tests): real PDF bytes through
+  `runElectricalIngestion` produce IO candidates with
+  `SourceRef.bbox.unit === 'pt'`.

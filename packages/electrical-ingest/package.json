@@ -9,7 +9,8 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@plccopilot/pir": "workspace:*"
+    "@plccopilot/pir": "workspace:*",
+    "pdfjs-dist": "^5.7.284"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",

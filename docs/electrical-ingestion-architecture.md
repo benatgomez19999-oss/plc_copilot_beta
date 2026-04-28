@@ -1,27 +1,26 @@
 # Electrical-plan ingestion architecture
 
-> **Status: PDF ingestion architecture v0 (Sprint 79).** Sprint 72
+> **Status: PDF text-layer extraction v0 (Sprint 80).** Sprint 72
 > scaffolded the architecture. Sprint 73 added the CSV ingestor.
 > Sprint 74 added the EPLAN structured XML ingestor v0. Sprint 75
 > added the Review UI v0. Sprint 76 added the PIR builder v0.
 > Sprint 77 wired the full path in `@plccopilot/web`. Sprint 78A
 > added the Beckhoff/TwinCAT ECAD Import XML recognizer + the
 > empty-candidate UX fix. Sprint 78B layered local review-session
-> persistence + downloadable artefacts. **Sprint 79** opens the
-> second strategic source category: PDF documents. The
-> architecture lands a `'pdf'` source kind, a `PdfDocument` /
-> `PdfPage` / `PdfTextBlock` / `PdfTableCandidate` model,
-> `SourceRef` extensions for `bbox` + `snippet`, the PDF
-> diagnostic catalogue, an honest binary stub (validates `%PDF-`,
-> sniffs `/Encrypt`, refuses to fake parsing), a deterministic
-> test-mode text path with a conservative IO-row extractor, and
-> registry / web / persistence integration that preserves every
-> Sprint 72–78B invariant. Still no OCR, no production binary
-> parser, no table detection, no symbol recognition, no
-> EDZ/EPDZ archive extraction, no XML namespace handling, no
-> backend, no auth, no automatic codegen — and **raw source
-> content (CSV/XML body, PDF bytes) is not persisted by default**
-> (privacy).
+> persistence + downloadable artefacts. Sprint 79 opened the
+> second strategic source category — PDF — with architecture +
+> types + an honest binary stub. **Sprint 80** replaces that stub
+> with a real text-layer extractor backed by `pdfjs-dist` (legacy
+> Node build), behind an isolated adapter that's the only file in
+> the codebase importing pdfjs. The extractor produces
+> deterministic line-grouped `PdfTextBlock`s with PDF-point
+> bboxes; the conservative Sprint 79 IO-row regex now runs over
+> real text-layer output. Confidence stays ≤ 0.65, review-first
+> stays load-bearing, and OCR / symbol recognition / wire
+> tracing / multi-column / rotated-page support stay deferred.
+> **Manual product validation with real-world PDFs is deferred
+> until Sprint 81 finishes.** Raw PDF bytes are NEVER persisted
+> in the snapshot (privacy).
 
 ## Why this matters
 
@@ -573,6 +572,64 @@ ECAD exports today and PDF documents tomorrow — funnelling through
 the same review/persist/export model. A weak prompt cannot
 override that model: it has no surface area in any of these layers.
 
+## Sprint 80 — PDF text-layer extraction v0
+
+Sprint 80 replaces Sprint 79's binary stub with a real text-layer
+extractor. The new dependency is `pdfjs-dist@^5.7.284` (Mozilla
+PDF.js, Apache 2.0); it lands as a runtime dep of
+`@plccopilot/electrical-ingest` only. Web code still goes through
+the registry — no static import of pdfjs in the web bundle.
+
+The adapter lives in
+[`packages/electrical-ingest/src/sources/pdf-text-layer.ts`](../packages/electrical-ingest/src/sources/pdf-text-layer.ts)
+and is the **only** file in the codebase that imports pdfjs. Full
+reference + coordinate-system semantics + failure-path table:
+[`docs/pdf-text-layer-extraction.md`](pdf-text-layer-extraction.md).
+
+What changes vs Sprint 79:
+
+- **`ingestPdf` is now async.** The extractor is async, so the
+  driver wraps it and returns `Promise<IngestPdfResult>`. The
+  registry-facing wrapper was already async; downstream callers
+  in web were already awaiting it.
+- **Real text-layer extraction on bytes.** Bytes that pass the
+  `%PDF-` header check go through `extractPdfTextLayer`
+  (pdfjs-dist legacy build). Each page becomes a `PdfPage`; each
+  baseline-Y-clustered group of items becomes a `PdfTextBlock`
+  with a real `PdfBoundingBox` (unit `'pt'`) and a verbatim
+  `snippet`.
+- **Sprint 79 stub diagnostics retired on the success path.**
+  `PDF_UNSUPPORTED_BINARY_PARSER` and `PDF_TEXT_LAYER_UNAVAILABLE`
+  no longer fire on real text-layer PDFs. The success diagnostic
+  is `PDF_TEXT_LAYER_EXTRACTED` (info).
+- **Honest failure paths.** `PDF_DEPENDENCY_LOAD_FAILED` (error)
+  for a failed dynamic import; `PDF_TEXT_LAYER_EXTRACTION_FAILED`
+  (error) for a failed parse; `PDF_ENCRYPTED_NOT_SUPPORTED`
+  (error) when pdfjs raises `PasswordException`;
+  `PDF_TEXT_LAYER_EMPTY_PAGE` (warning) when a page has zero
+  items (typical for scanned-image-only pages).
+- **Fallback to the test-mode parser.** When bytes extraction
+  fails AND a `text` body was also supplied, the ingestor honours
+  the Sprint 79 test-mode parser. Both diagnostic sets are
+  preserved.
+- **No OCR, no symbol recognition, no table detection.** Sprint
+  80 keeps every Sprint 79 limit; only the binary parsing
+  capability changes.
+- **Confidence ladder unchanged.** PDF-derived blocks read at 0.5
+  / 0.6, never above 0.65. Lines from a real PDF do NOT read
+  higher than lines from the test-mode parser — both go through
+  the same regex.
+
+Web integration: the file picker reads `.pdf` via
+`arrayBuffer()` (Sprint 79); Sprint 80 changes only what happens
+*downstream* — uploading a real selectable-text PDF now produces
+a populated review session, where Sprint 79 produced an empty
+graph + structured "stub" diagnostics.
+
+The Sprint 78B persistence/export layer is unchanged. PDF bytes
+remain NEVER-persisted; PDF SourceRefs (with the new `bbox`
+field) round-trip through the snapshot exactly like Sprint 79.
+
 ## Sprint 79 — PDF ingestion architecture v0
 
 Sprint 79 lands the PDF source category as a first-class peer of
@@ -650,9 +707,11 @@ encodes this by:
 | 77 | Web end-to-end wiring in `@plccopilot/web`. 43 new web tests. |
 | 78A | Beckhoff/TwinCAT ECAD Import XML recognizer + empty-candidate UX fix. New diagnostics: 10 `TCECAD_XML_*` codes. Domain + web gates aligned: empty candidate is no longer "ready". `runElectricalIngestion` routes through the default registry so TcECAD claims XML first; EPLAN unchanged. 41 new electrical-ingest tests + 2 new web tests. |
 | 78B | Web review-session persistence + downloadable artefacts. New web utils: `electrical-review-session`, `electrical-review-storage`, `electrical-review-export`. New components: `ReviewSessionPanel`, `ExportArtifactsPanel`. Snapshot schema `electrical-review-session.v1` (raw source content NOT persisted by default). Single-slot localStorage; defensive restore; per-artefact JSON downloads + ZIP bundle. **No backend, no auth, no upload, no codegen.** 85 new web tests. |
-| **79** (this sprint) | **PDF ingestion architecture v0.** `'pdf'` source kind activated; `PdfDocument`/`PdfPage`/`PdfTextBlock`/`PdfTableCandidate` model + `PdfBoundingBox`. `SourceRef` extended with `bbox` + `snippet`. 12 new `PDF_*` diagnostics. Honest binary stub + deterministic test-mode text path with a conservative IO-row extractor. Registry: CSV → TcECAD → EPLAN → PDF → unsupported (5 ingestors). Web: `'pdf'` `DetectedInputKind`, bytes upload via `arrayBuffer()`, snapshot `inputKind` extended. Raw PDF bytes NEVER persisted. 40 new electrical-ingest tests + 13 new web tests. |
-| 80 (planned) | PDF text/table extraction v0 — pick a deterministic text-layer parser (likely `pdfjs-dist`); detect simple IO-list tables; populate `PdfTableCandidate.rows`; high-confidence rows flow into `ElectricalGraph`; review-first integration unchanged. |
-| 80A (alt) | More real-world structured-source hardening — XML namespaces, EDZ/EPDZ archive extraction, additional TcECAD/EPLAN schema variants. |
+| 79 | PDF ingestion architecture v0. `'pdf'` source kind activated; `PdfDocument`/`PdfPage`/`PdfTextBlock`/`PdfTableCandidate` model + `PdfBoundingBox`. `SourceRef` extended with `bbox` + `snippet`. 12 `PDF_*` diagnostics. Honest binary stub + deterministic test-mode text path. Registry: CSV → TcECAD → EPLAN → PDF → unsupported (5 ingestors). Web: `'pdf'` `DetectedInputKind`, bytes upload via `arrayBuffer()`, snapshot `inputKind` extended. Raw PDF bytes NEVER persisted. 40 electrical-ingest tests + 13 web tests. |
+| **80** (this sprint) | **PDF text-layer extraction v0.** `pdfjs-dist@^5.7.284` (legacy Node build) added as runtime dep of `@plccopilot/electrical-ingest`. Isolated adapter at `sources/pdf-text-layer.ts` + line-grouping at `sources/pdf-text-normalize.ts`. `ingestPdf` is now async; bytes path uses real extraction; 5 new diagnostics (`PDF_TEXT_LAYER_EXTRACTED`, `PDF_TEXT_LAYER_EMPTY_PAGE`, `PDF_TEXT_LAYER_BBOX_APPROXIMATED`, `PDF_TEXT_LAYER_EXTRACTION_FAILED`, `PDF_DEPENDENCY_LOAD_FAILED`). Sprint 79 stub codes retired on the success path. Hand-crafted minimal PDF builder for tests (no committed binaries). 22 new domain tests + 2 new web tests. **Manual product PDF validation deferred to Sprint 81.** |
+| 81 (planned) | PDF IO/table extraction + manual PDF acceptance pass — improve line/table grouping, detect simple IO-list tables, validate against real public/sample PDFs, first explicit manual product validation pass for PDF. |
+| 81A (alt) | PDF extraction hardening — worker config, coordinate normalisation, font/text-item edge cases, rotated pages, multi-column ordering. |
+| 81B (alt) | More real-world structured-source hardening — XML namespaces, EDZ/EPDZ archive extraction, additional TcECAD/EPLAN schema variants. |
 | later | OCR fallback (only as a flagged opt-in), symbol/connection-graph recognition, cross-page references, Siemens TIA hardware-config import, controlled codegen preview gated on accepted PIR. |
 
 Each future sprint stays narrow: a single concrete source format
@@ -679,11 +738,16 @@ more in `electrical-ingest` (`pir-builder.spec.ts`). Sprint 77
 added 43 web-side tests. Sprint 78A added 41 electrical-ingest
 tests (`twincat-ecad-xml.spec.ts`) + 2 web tests (empty-candidate
 UX). Sprint 78B added 85 web tests across the four new
-review-session/storage/export/workflow specs. **Sprint 79 adds 40
-electrical-ingest tests** (`pdf.spec.ts`) **+ 13 web tests** (PDF
-detection + flow + session round-trip + privacy).
-`electrical-ingest`: 301 → 341 (+40). Web: 770 → 783 (+13). Repo
-total: 2952 → 3005 (+53). Existing codegen tests are unchanged.
+review-session/storage/export/workflow specs. Sprint 79 added 40
+electrical-ingest tests (`pdf.spec.ts`) + 13 web tests (PDF
+detection + flow + session round-trip + privacy). **Sprint 80 adds
+22 electrical-ingest tests** (`pdf-text-layer.spec.ts` covering
+the real adapter + line-grouping helpers + end-to-end real-bytes
+ingestion) **+ 2 web tests** (real-bytes path through
+`runElectricalIngestion` produces extracted candidates with
+`SourceRef.bbox.unit === 'pt'`).
+`electrical-ingest`: 341 → 363 (+22). Web: 783 → 785 (+2). Repo
+total: 3005 → 3029 (+24). Existing codegen tests are unchanged.
 
 The review workflow + PIR-builder gate semantics live in
 [`docs/electrical-review-workflow.md`](electrical-review-workflow.md);

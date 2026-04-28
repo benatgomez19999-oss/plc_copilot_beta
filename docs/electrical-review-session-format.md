@@ -167,3 +167,23 @@ The schema is forward-compatible with PDF inputs added in Sprint
 - **PDF snippets ARE persisted** inside `SourceRef.snippet`. They
   carry short verbatim source text (≤ 160 chars per line). Treat
   exported snapshots as potentially sensitive.
+
+## Sprint 80 — real PDF text-layer extraction
+
+Schema impact: none. Sprint 80 is a producer change — the bytes
+path now produces real `PdfTextBlock`s with populated `bbox`
+fields (unit `'pt'`, in PDF point space) instead of Sprint 79's
+honest-stub empty graph. The `electrical-review-session.v1`
+snapshot continues to carry the same shape:
+
+- `SourceRef.kind === 'pdf'` with `page`, `bbox`, and `snippet`
+  populated by the real extractor.
+- `bbox.unit === 'pt'` (PDF native point) — the
+  `SourceRefBoundingBox.unit` union (`'pt' | 'px' | 'normalized'`)
+  is unchanged.
+- Raw PDF bytes remain NEVER-persisted. Only the extracted
+  evidence travels through the snapshot.
+
+A snapshot saved against Sprint 79 (which always had empty bboxes
+on PDF inputs) loads cleanly into Sprint 80 — the validator only
+checks shape, not whether `bbox` is populated.

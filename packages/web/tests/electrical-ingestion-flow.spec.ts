@@ -257,7 +257,7 @@ describe('ingestElectricalInput — Sprint 79 PDF', () => {
     expect(codes).toContain('PDF_TEXT_BLOCK_EXTRACTED');
   });
 
-  it('2. binary path with valid header + no text emits honest stub diagnostics', async () => {
+  it('2. Sprint 80 — bytes-only header stub fails the real extractor (no Sprint 79 stub codes)', async () => {
     const r = await ingestElectricalInput({
       sourceId: 's',
       text: '',
@@ -266,9 +266,12 @@ describe('ingestElectricalInput — Sprint 79 PDF', () => {
     });
     expect(r.graph.sourceKind).toBe('pdf');
     const codes = r.diagnostics.map((d) => d.code);
-    expect(codes).toContain('PDF_UNSUPPORTED_BINARY_PARSER');
-    expect(codes).toContain('PDF_TEXT_LAYER_UNAVAILABLE');
+    // Sprint 80 surfaces a real extraction-failed diagnostic
+    // instead of the Sprint 79 honest-stub pair.
+    expect(codes).toContain('PDF_TEXT_LAYER_EXTRACTION_FAILED');
     expect(codes).toContain('PDF_ELECTRICAL_EXTRACTION_NOT_IMPLEMENTED');
+    expect(codes).not.toContain('PDF_UNSUPPORTED_BINARY_PARSER');
+    expect(codes).not.toContain('PDF_TEXT_LAYER_UNAVAILABLE');
     expect(r.graph.nodes).toEqual([]);
   });
 
@@ -295,5 +298,47 @@ describe('ingestElectricalInput — Sprint 79 PDF', () => {
     const ref = r.candidate.io[0]?.sourceRefs[0];
     expect(ref?.kind).toBe('pdf');
     expect(ref?.page).toBeDefined();
+  });
+});
+
+// =============================================================================
+// Sprint 80 — real bytes path through the registry
+// =============================================================================
+
+import { buildMinimalPdfFixture } from '../../electrical-ingest/tests/fixtures/pdf/build-fixture.js';
+
+const SPRINT80_REAL_PDF_TEXT = 'I0.0 B1 Part present\nQ0.0 Y1 Cylinder extend';
+
+describe('Sprint 80 — real bytes through web ingestion flow', () => {
+  it('1. real PDF bytes → real text-layer extraction → IO candidates', async () => {
+    const bytes = buildMinimalPdfFixture({ pages: [SPRINT80_REAL_PDF_TEXT] });
+    const r = await runElectricalIngestion({
+      sourceId: 'real-plan',
+      text: '',
+      fileName: 'real-plan.pdf',
+      bytes,
+    });
+    expect(r.detectedKind).toBe('pdf');
+    expect(r.result.graph.sourceKind).toBe('pdf');
+    expect(r.candidate.io.length).toBeGreaterThan(0);
+    const codes = r.result.diagnostics.map((d) => d.code);
+    expect(codes).toContain('PDF_TEXT_LAYER_EXTRACTED');
+    expect(codes).not.toContain('PDF_UNSUPPORTED_BINARY_PARSER');
+    expect(codes).not.toContain('PDF_TEXT_LAYER_UNAVAILABLE');
+  });
+
+  it('2. real PDF bytes → SourceRefs carry kind=pdf + page + bbox(unit=pt) + snippet', async () => {
+    const bytes = buildMinimalPdfFixture({ pages: [SPRINT80_REAL_PDF_TEXT] });
+    const r = await runElectricalIngestion({
+      sourceId: 'real-plan',
+      text: '',
+      fileName: 'real-plan.pdf',
+      bytes,
+    });
+    const ref = r.candidate.io[0]?.sourceRefs[0];
+    expect(ref?.kind).toBe('pdf');
+    expect(ref?.page).toBe('1');
+    expect(typeof ref?.snippet).toBe('string');
+    expect(ref?.bbox?.unit).toBe('pt');
   });
 });
