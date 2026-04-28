@@ -7,13 +7,13 @@ any drift fails CI via `pnpm publish:audit --check`.
 
 | Metric | Count |
 | --- | ---: |
-| Packages | 8 |
+| Packages | 9 |
 | Publishable candidates | 6 |
-| Internal packages | 1 |
+| Internal packages | 2 |
 | Apps | 1 |
 | Blockers | 0 |
 | Warnings | 0 |
-| Infos | 11 |
+| Infos | 12 |
 
 ## Recommended publish build order
 
@@ -34,6 +34,7 @@ any drift fails CI via `pnpm publish:audit --check`.
 | `@plccopilot/codegen-integration-tests` | internal | yes | no | no | no | no | 5 | 0 | 0 |
 | `@plccopilot/codegen-rockwell` | publishable | no | yes | yes | yes | yes | 2 | 0 | 0 |
 | `@plccopilot/codegen-siemens` | publishable | no | yes | yes | yes | yes | 4 | 0 | 0 |
+| `@plccopilot/electrical-ingest` | internal | yes | no | no | no | no | 0 | 0 | 0 |
 | `@plccopilot/pir` | publishable | no | yes | yes | yes | yes | 0 | 0 | 0 |
 | `@plccopilot/web` | app | yes | no | no | no | no | 5 | 0 | 0 |
 
@@ -95,6 +96,14 @@ Internal deps: `@plccopilot/codegen-codesys`, `@plccopilot/codegen-core`, `@plcc
 #### Infos
 
 - **INTERNAL_DEP** — depends on internal packages: @plccopilot/codegen-codesys, @plccopilot/codegen-core, @plccopilot/codegen-rockwell, @plccopilot/pir
+
+### `@plccopilot/electrical-ingest` (`packages/electrical-ingest`)
+
+Intent: **internal**.
+
+#### Infos
+
+- **INTERNAL_PRIVATE** — internal package with no exports / bin; not intended for publish.
 
 ### `@plccopilot/pir` (`packages/pir`)
 

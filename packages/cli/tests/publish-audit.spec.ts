@@ -617,7 +617,12 @@ describe('discoverPackages', () => {
 // =============================================================================
 
 describe('auditWorkspace (live repo)', () => {
-  it('discovers the eight known packages and produces a usable build order', () => {
+  it('discovers the known packages and produces a usable build order', () => {
+    // Sprint 72 added `@plccopilot/electrical-ingest` (private,
+    // internal — no main/exports/bin so the classifier marks it
+    // internal automatically). The assertion below tracks the live
+    // workspace; future internal packages don't need their own
+    // assertion update unless they affect publish ordering.
     const audit = auditWorkspace(REPO_ROOT);
     const names = audit.packages.map((p: any) => p.info.pkg.name).sort();
     expect(names).toEqual([
@@ -627,11 +632,12 @@ describe('auditWorkspace (live repo)', () => {
       '@plccopilot/codegen-integration-tests',
       '@plccopilot/codegen-rockwell',
       '@plccopilot/codegen-siemens',
+      '@plccopilot/electrical-ingest',
       '@plccopilot/pir',
       '@plccopilot/web',
     ]);
     expect(audit.summary.publishable_candidates).toBe(6);
-    expect(audit.summary.internal).toBe(1);
+    expect(audit.summary.internal).toBe(2);
     expect(audit.summary.apps).toBe(1);
     expect(audit.publishBuildOrder[0]).toBe('@plccopilot/pir');
     expect(audit.publishBuildOrder.at(-1)).toBe('@plccopilot/cli');
