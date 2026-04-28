@@ -37,6 +37,7 @@ export type {
   PirIoCandidate,
   PirMappingAssumption,
   SourceRef,
+  SourceRefBoundingBox,
 } from './types.js';
 
 export {
@@ -209,3 +210,25 @@ export {
   ingestTcecadXml,
   parseTcecadXml,
 } from './sources/twincat-ecad-xml.js';
+
+// Sprint 79 — PDF ingestion architecture v0.
+export type {
+  PdfBoundingBox,
+  PdfDocument,
+  PdfDocumentMetadata,
+  PdfIngestionInput,
+  PdfIngestionOptions,
+  PdfPage,
+  PdfParseResult,
+  PdfTableCandidate,
+  PdfTableRowCandidate,
+  PdfTextBlock,
+} from './sources/pdf-types.js';
+export type { IngestPdfResult } from './sources/pdf.js';
+export {
+  buildPdfGraphId,
+  createPdfElectricalIngestor,
+  detectPdf,
+  ingestPdf,
+  parsePdfDocument,
+} from './sources/pdf.js';

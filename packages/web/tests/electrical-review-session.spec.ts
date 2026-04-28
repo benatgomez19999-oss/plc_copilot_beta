@@ -367,9 +367,9 @@ describe('restoreReviewSessionSnapshot', () => {
     expect(restoreReviewSessionSnapshot(bad).ok).toBe(false);
   });
 
-  it('6. rejects unknown inputKind', () => {
+  it('6. rejects unknown inputKind (Sprint 79: pdf is now valid; edz still rejected)', () => {
     const bad = JSON.parse(JSON.stringify(valid));
-    bad.source.inputKind = 'pdf';
+    bad.source.inputKind = 'edz';
     expect(restoreReviewSessionSnapshot(bad).ok).toBe(false);
   });
 
@@ -416,6 +416,19 @@ describe('restoreReviewSessionSnapshot', () => {
     expect(restoreReviewSessionSnapshot(JSON.parse(JSON.stringify(ok))).ok).toBe(
       true,
     );
+  });
+
+  it('11b. Sprint 79 — accepts inputKind="pdf"', () => {
+    const ok = createReviewSessionSnapshot({
+      source: { sourceId: 's', inputKind: 'pdf', fileName: 'plan.pdf' },
+      candidate: EMPTY_REVIEW_CANDIDATE,
+      reviewState: createInitialReviewState(EMPTY_REVIEW_CANDIDATE),
+      ingestionDiagnostics: [],
+      nowIso: NOW,
+    });
+    const r = restoreReviewSessionSnapshot(JSON.parse(JSON.stringify(ok)));
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.snapshot.source.inputKind).toBe('pdf');
   });
 
   it('12. defensive clone — caller may mutate input afterwards safely', () => {

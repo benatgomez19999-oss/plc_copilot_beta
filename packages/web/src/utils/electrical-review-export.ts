@@ -182,7 +182,7 @@ export interface ReviewBundleSummary {
   generatedAt: string;
   sourceFileName?: string;
   sourceKind?: string;
-  inputKind: 'csv' | 'xml' | 'unknown';
+  inputKind: 'csv' | 'xml' | 'pdf' | 'unknown';
   hasPir: boolean;
   hasSourceMap: boolean;
   buildAttempted: boolean;

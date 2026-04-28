@@ -97,6 +97,11 @@ function nowIso(): string {
 export function ElectricalIngestionWorkspace(): JSX.Element {
   const [text, setText] = useState<string>('');
   const [fileName, setFileName] = useState<string>('');
+  // Sprint 79 — raw bytes from a binary upload (PDF). Held alongside
+  // the text body so the user can switch between paste-mode and
+  // file-mode without losing one. Cleared on Reset and on text-mode
+  // re-paste.
+  const [bytes, setBytes] = useState<Uint8Array | null>(null);
   const [pending, setPending] = useState<boolean>(false);
   const [ingestion, setIngestion] = useState<IngestionState | null>(null);
   const [buildPreview, setBuildPreview] = useState<PirBuildPreview | null>(
@@ -108,8 +113,8 @@ export function ElectricalIngestionWorkspace(): JSX.Element {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const detectedKind = useMemo<DetectedInputKind>(
-    () => detectInputKind(text, fileName),
-    [text, fileName],
+    () => detectInputKind(text, fileName, bytes ?? undefined),
+    [text, fileName, bytes],
   );
 
   // ---------------------------------------------------------------------------
@@ -164,8 +169,16 @@ export function ElectricalIngestionWorkspace(): JSX.Element {
         sourceId,
         text,
         fileName: fileName.length > 0 ? fileName : undefined,
+        bytes: bytes ?? undefined,
       });
       const candidate = createCandidateFromIngestionResult(ingestionResult);
+      // Sprint 79 — when bytes were provided, hash the byte length +
+      // first/last 64 bytes via a quick text projection. Avoids
+      // converting the whole binary to a string for hashing.
+      const hashSource =
+        bytes && bytes.length > 0
+          ? `pdf:${bytes.length}:${Array.from(bytes.slice(0, 64)).join(',')}|${Array.from(bytes.slice(-64)).join(',')}`
+          : text;
       setIngestion({
         candidate,
         reviewState: createInitialReviewState(candidate),
@@ -174,13 +187,13 @@ export function ElectricalIngestionWorkspace(): JSX.Element {
         sourceId,
         ingestionDiagnostics: ingestionResult.diagnostics,
         sourceKind: ingestionResult.graph?.sourceKind,
-        contentHash: lightweightContentHash(text),
+        contentHash: lightweightContentHash(hashSource),
         createdAtIso: nowIso(),
       });
     } finally {
       setPending(false);
     }
-  }, [text, fileName, detectedKind]);
+  }, [text, fileName, detectedKind, bytes]);
 
   const handleBuild = useCallback(() => {
     if (!ingestion) return;
@@ -192,6 +205,7 @@ export function ElectricalIngestionWorkspace(): JSX.Element {
   const handleReset = useCallback(() => {
     setText('');
     setFileName('');
+    setBytes(null);
     setIngestion(null);
     setBuildPreview(null);
     setBuildAttemptedAt(null);
@@ -363,7 +377,7 @@ export function ElectricalIngestionWorkspace(): JSX.Element {
       <header className="panel-header">
         <h2>Electrical ingestion (preview)</h2>
         <span className="muted">
-          CSV / EPLAN XML / TcECAD XML → review → PIR preview · no automatic codegen
+          CSV / EPLAN XML / TcECAD XML / PDF (v0) → review → PIR preview · no automatic codegen
         </span>
       </header>
 
@@ -387,33 +401,61 @@ export function ElectricalIngestionWorkspace(): JSX.Element {
           </span>
         </div>
         <label className="text-input">
-          <span>Paste source text (CSV / EPLAN XML / TcECAD XML)</span>
+          <span>Paste source text (CSV / EPLAN XML / TcECAD XML / pre-extracted PDF text)</span>
           <textarea
             rows={8}
             spellCheck={false}
-            placeholder="Paste a CSV terminal list or an EPLAN/TcECAD structured XML export here..."
+            placeholder="Paste a CSV terminal list, an EPLAN/TcECAD structured XML export, or PDF text already extracted by another tool (delimit pages with '--- page N ---')..."
             value={text}
-            onChange={(e) => setText(e.target.value)}
+            onChange={(e) => {
+              setText(e.target.value);
+              // Switching to text-mode invalidates any byte upload —
+              // they describe different sources.
+              if (bytes !== null) setBytes(null);
+            }}
           />
         </label>
+        {bytes !== null ? (
+          <p className="muted electrical-ingestion-bytes-note" role="status">
+            Binary PDF loaded ({bytes.length} bytes). Sprint 79 v0 has no
+            binary text-layer parser; the ingestor will surface honest
+            diagnostics (<code>PDF_UNSUPPORTED_BINARY_PARSER</code>,{' '}
+            <code>PDF_TEXT_LAYER_UNAVAILABLE</code>) and produce no
+            electrical evidence. To exercise the architecture, paste
+            already-extracted text in the box above.
+          </p>
+        ) : null}
         <div className="electrical-ingestion-input-actions">
           <input
             ref={fileInputRef}
             type="file"
-            accept=".csv,.xml,text/csv,text/xml,application/xml"
+            accept=".csv,.xml,.pdf,text/csv,text/xml,application/xml,application/pdf"
             onChange={async (e) => {
               const file = e.target.files?.[0];
               if (!file) return;
-              const content = await file.text();
-              setText(content);
               setFileName(file.name);
+              const lower = file.name.toLowerCase();
+              if (lower.endsWith('.pdf')) {
+                const buffer = await file.arrayBuffer();
+                const u8 = new Uint8Array(buffer);
+                setBytes(u8);
+                setText('');
+              } else {
+                const content = await file.text();
+                setText(content);
+                setBytes(null);
+              }
             }}
           />
           <button
             type="button"
             className="btn"
             onClick={handleIngest}
-            disabled={pending || text.trim().length === 0}
+            disabled={
+              pending ||
+              (text.trim().length === 0 &&
+                (bytes === null || bytes.length === 0))
+            }
             aria-label="Ingest electrical evidence"
           >
             {pending ? 'Ingesting...' : 'Ingest'}
@@ -483,9 +525,12 @@ export function ElectricalIngestionWorkspace(): JSX.Element {
         </>
       ) : (
         <p className="muted">
-          Provide a CSV or EPLAN/TcECAD XML source and press{' '}
+          Provide a CSV / EPLAN XML / TcECAD XML / PDF source and press{' '}
           <strong>Ingest</strong> to start the review, or use{' '}
           <strong>Load last</strong> above to restore a saved session.
+          PDF binary uploads are accepted but Sprint 79 v0 has no binary
+          parser — you will see structured diagnostics rather than
+          extracted evidence.
         </p>
       )}
     </section>

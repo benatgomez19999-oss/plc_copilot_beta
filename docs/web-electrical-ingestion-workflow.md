@@ -1,11 +1,13 @@
-# Web electrical-ingestion workflow — Sprint 77 → 78B
+# Web electrical-ingestion workflow — Sprint 77 → 78B → 79
 
 > **Status: end-to-end pipeline live in `@plccopilot/web`
-> (Sprint 77 → 78A → 78B).** CSV / EPLAN XML / TcECAD XML → review →
-> PIR preview → **local persistence + downloadable artefacts**, all
-> inside the existing dev-mode app. **No automatic PLC codegen.**
-> Codegen still requires explicit operator action and is not
-> wired into this flow. **No backend, no auth, no upload.**
+> (Sprint 77 → 78A → 78B → 79).** CSV / EPLAN XML / TcECAD XML /
+> **PDF (v0)** → review → PIR preview → **local persistence +
+> downloadable artefacts**, all inside the existing dev-mode app.
+> **No automatic PLC codegen.** Codegen still requires explicit
+> operator action and is not wired into this flow. **No backend,
+> no auth, no upload, no OCR.** Raw source content (CSV/XML body,
+> PDF bytes) is not persisted by default.
 
 ## Run the dev server
 
@@ -312,6 +314,97 @@ honestly because they don't map to PIR `IoAddress`):
   enabled — operators can hand the bundle to a colleague who
   resolves the Box → Siemens address mapping out-of-band before
   re-ingesting.
+
+## Sprint 79 — PDF ingestion (v0)
+
+The workspace now accepts PDF input as a first-class peer of CSV
+and XML. Two paths through the same registry:
+
+### Test-mode text path
+
+For testing the architecture without a binary parser dependency,
+paste **already-extracted PDF text** into the textarea, using the
+convention `--- page N ---` to delimit pages:
+
+```
+--- page 1 ---
+I0.0 B1 Part present
+Q0.0 Y1 Cylinder extend
+
+--- page 2 ---
+Q0.1 M1 Conveyor motor
+notes about wiring
+```
+
+Set the file name to `plan.pdf`. Press **Ingest**. Expected:
+
+- "Detected: pdf" badge appears.
+- Text blocks are extracted with `SourceRef.kind === 'pdf'`,
+  `page`, `line`, and `snippet` (verbatim line content).
+- The conservative IO-row regex matches the three rows above and
+  produces three IO + three device candidates with low-but-honest
+  confidence (≤ 0.65 — strictly below structured CSV/XML rows).
+- The diagnostics list includes `PDF_TEXT_BLOCK_EXTRACTED` (info)
+  and `PDF_TABLE_DETECTION_NOT_IMPLEMENTED` (info — Sprint 79
+  v0 does not detect tables).
+
+### Binary path (honest stub)
+
+Upload a real `.pdf` file via the file picker. The workspace reads
+it via `arrayBuffer()` and forwards the bytes to the registry. A
+banner reads:
+
+> Binary PDF loaded (N bytes). Sprint 79 v0 has no binary text-
+> layer parser; the ingestor will surface honest diagnostics
+> (`PDF_UNSUPPORTED_BINARY_PARSER`,
+> `PDF_TEXT_LAYER_UNAVAILABLE`) and produce no electrical
+> evidence. To exercise the architecture, paste already-extracted
+> text in the box above.
+
+The ingestor:
+
+- Validates `%PDF-` magic. Mismatch → `PDF_MALFORMED` (error).
+- Sniffs `/Encrypt`. Match → `PDF_ENCRYPTED_NOT_SUPPORTED`
+  (error) + `metadata.encrypted = true`.
+- Emits `PDF_UNSUPPORTED_BINARY_PARSER` + `PDF_TEXT_LAYER_UNAVAILABLE`
+  + `PDF_ELECTRICAL_EXTRACTION_NOT_IMPLEMENTED`.
+- Returns an empty `ElectricalGraph` with `sourceKind: 'pdf'`.
+
+The Build PIR button stays disabled (empty candidate is not
+ready, per Sprint 78A). The review-session panel still saves the
+diagnostic-only snapshot, and the export panel still offers
+**ingestion diagnostics** + **review session** + **bundle**
+downloads — useful for handing off the "this PDF can't be
+ingested today" report to the next operator.
+
+### What is NOT supported in Sprint 79 v0
+
+- **No OCR**, even with `allowOcr: true` (the flag raises
+  `PDF_OCR_NOT_ENABLED` info).
+- **No layout-aware table detection** (`PDF_TABLE_DETECTION_NOT_IMPLEMENTED`
+  info on every parse).
+- **No symbol or connection-graph recognition.**
+- **No production binary parser.** A real parser arrives in a
+  future sprint (likely `pdfjs-dist`-based) — Sprint 79's stub
+  refuses to fake the work.
+
+### How exports/session treat PDF-derived evidence
+
+- **Raw PDF bytes are NEVER persisted.** Neither in `localStorage`
+  (autosave snapshot) nor in any download. The `contentHash` for
+  binary inputs hashes a small projection (length + first/last 64
+  bytes) — non-cryptographic, used for local identity only.
+- **Snippets ARE persisted** inside `SourceRef.snippet`. They
+  carry verbatim source-text excerpts (≤ 160 chars per line) so
+  the review UI's drilldown can show the operator "where did this
+  fact come from?". Treat exported review sessions as potentially
+  sensitive.
+- **PDF SourceRefs round-trip** through the snapshot — `kind: 'pdf'`,
+  `page`, `line`, `snippet`, `symbol` (and `bbox` once the
+  production binary parser ships) all survive a refresh + load
+  last cycle.
+
+Full reference: [`docs/pdf-ingestion-architecture.md`](pdf-ingestion-architecture.md).
 
 ## Known limitations (Sprint 78B)
 

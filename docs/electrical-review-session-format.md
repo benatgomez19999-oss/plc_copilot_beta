@@ -143,3 +143,27 @@ it as a structured-evidence payload, not as a final PIR or as a
 PLC code description. The PIR preview (when present) is itself
 already validated against `@plccopilot/pir` — but the snapshot's
 purpose is the *evidence and review trail*, not the PIR.
+
+## Sprint 79 — PDF source kind
+
+The schema is forward-compatible with PDF inputs added in Sprint
+79; no `schemaVersion` bump was required:
+
+- `source.inputKind` may now be `'pdf'` (in addition to the
+  existing `'csv' | 'xml' | 'unknown'`). The defensive validator
+  in `restoreReviewSessionSnapshot` accepts the new value.
+- `source.sourceKind` may be `'pdf'` (returned by the PDF
+  ingestor). This was already a free-form string in v1.
+- `SourceRef` carries two new optional fields: `bbox` (visual
+  region) and `snippet` (verbatim text excerpt). Both are
+  optional on every kind, so existing CSV / EPLAN / TcECAD
+  snapshots round-trip unchanged.
+- **Raw PDF bytes are NOT persisted** in the snapshot. The Sprint
+  78B privacy invariant ("no raw source content by default") is
+  load-bearing for PDF too — `contentHash` still serves as the
+  local-identity marker (FNV-1a 32-bit hex; for binary inputs the
+  workspace hashes a non-cryptographic projection of the byte
+  length plus first/last 64 bytes).
+- **PDF snippets ARE persisted** inside `SourceRef.snippet`. They
+  carry short verbatim source text (≤ 160 chars per line). Treat
+  exported snapshots as potentially sensitive.

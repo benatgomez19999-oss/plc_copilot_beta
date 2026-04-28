@@ -1,19 +1,27 @@
 # Electrical-plan ingestion architecture
 
-> **Status: operator workflow hardening (Sprint 78B).** Sprint 72
+> **Status: PDF ingestion architecture v0 (Sprint 79).** Sprint 72
 > scaffolded the architecture. Sprint 73 added the CSV ingestor.
 > Sprint 74 added the EPLAN structured XML ingestor v0. Sprint 75
 > added the Review UI v0. Sprint 76 added the PIR builder v0.
 > Sprint 77 wired the full path in `@plccopilot/web`. Sprint 78A
 > added the Beckhoff/TwinCAT ECAD Import XML recognizer + the
-> empty-candidate UX fix. **Sprint 78B** layers local review-session
-> persistence + per-artefact downloads + a review-bundle ZIP onto
-> the web workspace, so an operator can refresh the page without
-> losing decisions and can hand off the evidence + diagnostics
-> + (when produced) PIR preview as portable JSON. Still no
-> PDF/OCR, no EDZ/EPDZ archive extraction, no XML namespace
-> handling, no backend, no auth, no automatic codegen — and **raw
-> source content is not persisted by default** (privacy).
+> empty-candidate UX fix. Sprint 78B layered local review-session
+> persistence + downloadable artefacts. **Sprint 79** opens the
+> second strategic source category: PDF documents. The
+> architecture lands a `'pdf'` source kind, a `PdfDocument` /
+> `PdfPage` / `PdfTextBlock` / `PdfTableCandidate` model,
+> `SourceRef` extensions for `bbox` + `snippet`, the PDF
+> diagnostic catalogue, an honest binary stub (validates `%PDF-`,
+> sniffs `/Encrypt`, refuses to fake parsing), a deterministic
+> test-mode text path with a conservative IO-row extractor, and
+> registry / web / persistence integration that preserves every
+> Sprint 72–78B invariant. Still no OCR, no production binary
+> parser, no table detection, no symbol recognition, no
+> EDZ/EPDZ archive extraction, no XML namespace handling, no
+> backend, no auth, no automatic codegen — and **raw source
+> content (CSV/XML body, PDF bytes) is not persisted by default**
+> (privacy).
 
 ## Why this matters
 
@@ -565,6 +573,57 @@ ECAD exports today and PDF documents tomorrow — funnelling through
 the same review/persist/export model. A weak prompt cannot
 override that model: it has no surface area in any of these layers.
 
+## Sprint 79 — PDF ingestion architecture v0
+
+Sprint 79 lands the PDF source category as a first-class peer of
+CSV / EPLAN XML / TcECAD XML. The architecture, not a fake
+parser:
+
+- **Source kind.** `ElectricalSourceKind` already had `'pdf'` from
+  the Sprint 72 prep work; Sprint 79 makes it produce real
+  ingestor output (an empty graph + structured diagnostics for
+  bytes-only inputs, or extracted text-blocks + IO candidates for
+  the test-mode text path).
+- **Document model** lives in
+  [`packages/electrical-ingest/src/sources/pdf-types.ts`](../packages/electrical-ingest/src/sources/pdf-types.ts).
+  `PdfDocument` → `PdfPage` → `PdfTextBlock` (with optional
+  `PdfBoundingBox`) → `PdfTableCandidate` (reserved; never
+  populated in v0).
+- **SourceRef extensions.** Two optional fields added to the
+  cross-cutting `SourceRef`: `bbox?: SourceRefBoundingBox` and
+  `snippet?: string`. Existing CSV / EPLAN / TcECAD ingestors are
+  unaffected (both are optional).
+- **Diagnostics.** 12 new `PDF_*` codes covering the full v0 scope
+  (empty / malformed / encrypted / page-limit / no-binary-parser /
+  no-text-layer / no-OCR / no-table-detection / no-electrical-
+  extraction / no-text-blocks / per-block-extracted / ambiguous-
+  IO-row).
+- **Registry integration.** Default registry now lists 5 ingestors
+  (CSV → TcECAD XML → EPLAN XML → PDF → unsupported stub). PDF
+  claims `.pdf` files (extension OR `kind: 'pdf'` OR `%PDF-`
+  magic) before the unsupported stub catches anything.
+- **Web integration.** `detectInputKind` now returns
+  `'csv' | 'xml' | 'pdf' | 'unknown'`; the workspace's file picker
+  reads `.pdf` files via `arrayBuffer()` (not `text()`) and
+  forwards the bytes to the registry. The Sprint 78B snapshot's
+  `inputKind` union is extended to include `'pdf'` (raw bytes are
+  NEVER persisted).
+- **Honest binary stub.** Bytes-only inputs validate the `%PDF-`
+  magic, sniff `/Encrypt`, and emit `PDF_UNSUPPORTED_BINARY_PARSER`
+  + `PDF_TEXT_LAYER_UNAVAILABLE` + `PDF_ELECTRICAL_EXTRACTION_NOT_IMPLEMENTED`.
+  No fake parsing.
+- **Test-mode text path.** Pre-extracted text + the convention
+  `--- page N ---` exercises the architecture end-to-end. A single
+  conservative regex extracts `<address> <tag> [<label>]` rows;
+  derived candidates never read above 0.65 confidence.
+
+The contract that matters: every PDF-derived fact carries a
+`SourceRef` with `kind: 'pdf'`, `page`, optional `bbox`, and a
+`snippet`. Promotion to PIR still requires explicit human review
+through the same Sprint 75/76/77/78B pipeline.
+
+Full reference: [`docs/pdf-ingestion-architecture.md`](pdf-ingestion-architecture.md).
+
 ## Industrial safety
 
 Generated PIR candidates are **never** automatically promoted to
@@ -590,10 +649,11 @@ encodes this by:
 | 76 | PIR builder v0 in `@plccopilot/electrical-ingest`. Hard gate, role remap, sourceMap sidecar, validation against `@plccopilot/pir`. 67 new tests. |
 | 77 | Web end-to-end wiring in `@plccopilot/web`. 43 new web tests. |
 | 78A | Beckhoff/TwinCAT ECAD Import XML recognizer + empty-candidate UX fix. New diagnostics: 10 `TCECAD_XML_*` codes. Domain + web gates aligned: empty candidate is no longer "ready". `runElectricalIngestion` routes through the default registry so TcECAD claims XML first; EPLAN unchanged. 41 new electrical-ingest tests + 2 new web tests. |
-| **78B** (this sprint) | Web review-session persistence + downloadable artefacts. New web utils: `electrical-review-session`, `electrical-review-storage`, `electrical-review-export`. New components: `ReviewSessionPanel`, `ExportArtifactsPanel`. Snapshot schema `electrical-review-session.v1` (raw source content NOT persisted by default). Single-slot localStorage; defensive restore; per-artefact JSON downloads + ZIP bundle. **No backend, no auth, no upload, no codegen.** 85 new web tests. |
-| 79 (planned) | PDF ingestion architecture v0 — `PdfDocument`/`PdfPage`/`PdfTextBlock` with page/bbox `SourceRef`, text-layer extraction (no OCR by default), structured diagnostics, no direct PIR/codegen, review-first integration. |
-| 79A (alt) | More real-world structured-source hardening — XML namespaces, EDZ/EPDZ archive extraction, additional TcECAD/EPLAN schema variants. |
-| later | OCR fallback (only as a flagged last resort), Siemens TIA hardware-config import, controlled codegen preview gated on accepted PIR. |
+| 78B | Web review-session persistence + downloadable artefacts. New web utils: `electrical-review-session`, `electrical-review-storage`, `electrical-review-export`. New components: `ReviewSessionPanel`, `ExportArtifactsPanel`. Snapshot schema `electrical-review-session.v1` (raw source content NOT persisted by default). Single-slot localStorage; defensive restore; per-artefact JSON downloads + ZIP bundle. **No backend, no auth, no upload, no codegen.** 85 new web tests. |
+| **79** (this sprint) | **PDF ingestion architecture v0.** `'pdf'` source kind activated; `PdfDocument`/`PdfPage`/`PdfTextBlock`/`PdfTableCandidate` model + `PdfBoundingBox`. `SourceRef` extended with `bbox` + `snippet`. 12 new `PDF_*` diagnostics. Honest binary stub + deterministic test-mode text path with a conservative IO-row extractor. Registry: CSV → TcECAD → EPLAN → PDF → unsupported (5 ingestors). Web: `'pdf'` `DetectedInputKind`, bytes upload via `arrayBuffer()`, snapshot `inputKind` extended. Raw PDF bytes NEVER persisted. 40 new electrical-ingest tests + 13 new web tests. |
+| 80 (planned) | PDF text/table extraction v0 — pick a deterministic text-layer parser (likely `pdfjs-dist`); detect simple IO-list tables; populate `PdfTableCandidate.rows`; high-confidence rows flow into `ElectricalGraph`; review-first integration unchanged. |
+| 80A (alt) | More real-world structured-source hardening — XML namespaces, EDZ/EPDZ archive extraction, additional TcECAD/EPLAN schema variants. |
+| later | OCR fallback (only as a flagged opt-in), symbol/connection-graph recognition, cross-page references, Siemens TIA hardware-config import, controlled codegen preview gated on accepted PIR. |
 
 Each future sprint stays narrow: a single concrete source format
 or a single review-UX feature, never a "magically understand the
@@ -618,14 +678,12 @@ Sprint 74 added 66 more (XML utils + EPLAN-XML). Sprint 75 added
 more in `electrical-ingest` (`pir-builder.spec.ts`). Sprint 77
 added 43 web-side tests. Sprint 78A added 41 electrical-ingest
 tests (`twincat-ecad-xml.spec.ts`) + 2 web tests (empty-candidate
-UX). **Sprint 78B adds 85 web tests** across
-`electrical-review-session.spec.ts` (37),
-`electrical-review-export.spec.ts` (29),
-`electrical-review-storage.spec.ts` (13), and
-`electrical-review-session-workflow.spec.ts` (6).
-`electrical-ingest`: 301 → 301 (no domain changes). Web: 685 →
-770 (+85). Repo total: 2867 → 2952 (+85). Existing codegen tests
-are unchanged.
+UX). Sprint 78B added 85 web tests across the four new
+review-session/storage/export/workflow specs. **Sprint 79 adds 40
+electrical-ingest tests** (`pdf.spec.ts`) **+ 13 web tests** (PDF
+detection + flow + session round-trip + privacy).
+`electrical-ingest`: 301 → 341 (+40). Web: 770 → 783 (+13). Repo
+total: 2952 → 3005 (+53). Existing codegen tests are unchanged.
 
 The review workflow + PIR-builder gate semantics live in
 [`docs/electrical-review-workflow.md`](electrical-review-workflow.md);

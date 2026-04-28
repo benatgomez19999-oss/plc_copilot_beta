@@ -629,19 +629,25 @@ describe('Source registry — Sprint 74 routing', () => {
     expect(codes(result.diagnostics)).not.toContain('UNSUPPORTED_SOURCE_FEATURE');
   });
 
-  it('edz / pdf still fall through to the unsupported EPLAN stub', async () => {
+  it('edz still falls through to the unsupported EPLAN stub', async () => {
     const reg = createDefaultSourceRegistry();
     const r1 = await ingestWithRegistry(reg, {
       sourceId: 's',
       files: [{ path: 'a.edz', kind: 'edz' }],
     } as ElectricalIngestionInput);
     expect(codes(r1.diagnostics)).toContain('UNSUPPORTED_SOURCE_FEATURE');
+  });
 
+  it('pdf no longer falls through — Sprint 79 added a real PDF ingestor with PDF_* diagnostics', async () => {
+    const reg = createDefaultSourceRegistry();
     const r2 = await ingestWithRegistry(reg, {
       sourceId: 's',
       files: [{ path: 'a.pdf', kind: 'pdf' }],
     } as ElectricalIngestionInput);
-    expect(codes(r2.diagnostics)).toContain('UNSUPPORTED_SOURCE_FEATURE');
+    // No bytes + no text → PDF_EMPTY_INPUT (the PDF ingestor's own
+    // honest empty-input diagnostic, not the Sprint 72 catch-all).
+    expect(codes(r2.diagnostics)).toContain('PDF_EMPTY_INPUT');
+    expect(codes(r2.diagnostics)).not.toContain('UNSUPPORTED_SOURCE_FEATURE');
   });
 
   it('XML ingestor accepts Uint8Array content', async () => {

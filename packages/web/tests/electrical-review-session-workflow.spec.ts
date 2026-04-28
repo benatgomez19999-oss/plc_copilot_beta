@@ -246,6 +246,81 @@ describe('electrical-review session — TcECAD path (refused build)', () => {
   });
 });
 
+describe('electrical-review session — Sprint 79 PDF (text-mode)', () => {
+  beforeEach(() => {
+    vi.stubGlobal('localStorage', createMemoryStorage());
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const PDF_TEXT = `--- page 1 ---
+I0.0 B1 Part present
+Q0.0 Y1 Cylinder extend
+`;
+
+  it('1. PDF text-mode ingest → snapshot stores sourceKind="pdf" + PDF SourceRefs', async () => {
+    const ingestion = await ingestElectricalInput({
+      sourceId: 'plan.pdf',
+      text: PDF_TEXT,
+      fileName: 'plan.pdf',
+    });
+    expect(ingestion.graph.sourceKind).toBe('pdf');
+
+    const candidate = createCandidateFromIngestionResult(ingestion);
+    expect(candidate.io.length).toBeGreaterThan(0);
+
+    const snap = createReviewSessionSnapshot({
+      source: {
+        sourceId: 'plan.pdf',
+        fileName: 'plan.pdf',
+        inputKind: 'pdf',
+        sourceKind: ingestion.graph.sourceKind,
+        contentHash: lightweightContentHash(PDF_TEXT),
+      },
+      candidate,
+      reviewState: createInitialReviewState(candidate),
+      ingestionDiagnostics: ingestion.diagnostics,
+      nowIso: NOW,
+    });
+    saveElectricalReviewSession(snap);
+    const loaded = loadLatestElectricalReviewSession();
+    expect(loaded.ok).toBe(true);
+    if (!loaded.ok) return;
+    expect(loaded.snapshot.source.inputKind).toBe('pdf');
+    expect(loaded.snapshot.source.sourceKind).toBe('pdf');
+    // PDF SourceRefs survive the round-trip.
+    const ref = loaded.snapshot.candidate.io[0]?.sourceRefs[0];
+    expect(ref?.kind).toBe('pdf');
+    expect(ref?.page).toBeDefined();
+  });
+
+  it('2. snapshot JSON does NOT include raw PDF bytes / source text', async () => {
+    const ingestion = await ingestElectricalInput({
+      sourceId: 'plan.pdf',
+      text: PDF_TEXT,
+      fileName: 'plan.pdf',
+    });
+    const candidate = createCandidateFromIngestionResult(ingestion);
+    const snap = createReviewSessionSnapshot({
+      source: {
+        sourceId: 'plan.pdf',
+        fileName: 'plan.pdf',
+        inputKind: 'pdf',
+        sourceKind: ingestion.graph.sourceKind,
+      },
+      candidate,
+      reviewState: createInitialReviewState(candidate),
+      ingestionDiagnostics: ingestion.diagnostics,
+      nowIso: NOW,
+    });
+    const json = JSON.stringify(snap);
+    expect(json.includes('"rawContent"')).toBe(false);
+    expect(json.includes('"sourceText"')).toBe(false);
+    expect(json.includes('"bytes"')).toBe(false);
+  });
+});
+
 describe('electrical-review session — restore + reconcile + clear', () => {
   beforeEach(() => {
     vi.stubGlobal('localStorage', createMemoryStorage());

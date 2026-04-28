@@ -1,13 +1,18 @@
-// Sprint 77 — pure helpers for the web electrical-ingestion flow.
-// React shells call these; the flow itself is deterministic and
+// Sprint 77 + 78A + 79 — pure helpers for the web electrical-ingestion
+// flow. React shells call these; the flow itself is deterministic and
 // testable in Node (matching the existing web test pattern).
 //
 // Pipeline:
 //
 //   detectInputKind(text, fileName?)
-//     → ingestElectricalInput(input)              (CSV / EPLAN-XML / unknown)
+//     → ingestElectricalInput(input)              (CSV / XML / PDF / unknown)
 //     → ElectricalIngestionResult
 //     → createCandidateFromIngestionResult(result) → PirDraftCandidate
+//
+// Sprint 79 adds the `'pdf'` input kind. PDF inputs may carry either
+// pre-extracted text (test-mode) or raw bytes; both go through the
+// default registry's PDF ingestor, which honestly refuses to fake
+// binary parsing.
 //
 // The downstream review + build preview live in
 // `pir-build-preview.ts` and the React components.
@@ -25,32 +30,53 @@ import {
   type PirDraftCandidate,
 } from '@plccopilot/electrical-ingest';
 
-export type DetectedInputKind = 'csv' | 'xml' | 'unknown';
+export type DetectedInputKind = 'csv' | 'xml' | 'pdf' | 'unknown';
 
 /**
- * Decide whether a free-form text + optional fileName should be
- * routed to the CSV ingestor or the EPLAN XML ingestor.
+ * Decide which ingestor a free-form text + optional fileName +
+ * (Sprint 79) optional bytes should be routed to.
  *
- *   1. Trust the file extension when present (`.csv`, `.xml`).
- *   2. Otherwise sniff the trimmed content: a leading `<` →
- *      'xml'; otherwise 'csv' (most CSV exports have a header
- *      first line). If the content is empty → 'unknown'.
+ *   1. Trust the file extension when present (`.csv`, `.xml`,
+ *      `.pdf`).
+ *   2. Sprint 79 — if the input has bytes whose first 5 bytes are
+ *      the `%PDF-` magic header, classify as `'pdf'`.
+ *   3. Otherwise sniff the trimmed text content:
+ *        - leading `%PDF-` literal → `'pdf'` (pre-extracted from a
+ *          binary PDF that still kept the header on disk),
+ *        - leading `<` → `'xml'`,
+ *        - first non-blank line contains `,` → `'csv'`.
+ *      Empty content → `'unknown'`.
  *
- * The function is intentionally minimal — Sprint 77 doesn't try
- * to detect EDZ archives, PDFs, or any other binary format.
+ * The detector is intentionally minimal: it is the *router*, not
+ * the *parser*. The actual format validation happens inside each
+ * ingestor and surfaces structured diagnostics.
  */
 export function detectInputKind(
   text: string,
   fileName?: string | null,
+  bytes?: Uint8Array | null,
 ): DetectedInputKind {
   if (typeof fileName === 'string' && fileName.length > 0) {
     const lower = fileName.toLowerCase();
     if (lower.endsWith('.csv')) return 'csv';
     if (lower.endsWith('.xml')) return 'xml';
+    if (lower.endsWith('.pdf')) return 'pdf';
+  }
+  if (bytes instanceof Uint8Array && bytes.length >= 5) {
+    if (
+      bytes[0] === 0x25 &&
+      bytes[1] === 0x50 &&
+      bytes[2] === 0x44 &&
+      bytes[3] === 0x46 &&
+      bytes[4] === 0x2d
+    ) {
+      return 'pdf';
+    }
   }
   if (typeof text !== 'string') return 'unknown';
   const trimmed = text.trim();
   if (trimmed.length === 0) return 'unknown';
+  if (trimmed.startsWith('%PDF-')) return 'pdf';
   if (trimmed.startsWith('<')) return 'xml';
   // Heuristic: a CSV header has commas in the first non-blank line.
   const firstLine = trimmed.split(/\r?\n/, 1)[0] ?? '';
@@ -61,10 +87,21 @@ export function detectInputKind(
 export interface ElectricalInputDescriptor {
   /** Required — used for SourceRef.sourceId. */
   sourceId: string;
-  /** Required body — UTF-8 text or pre-decoded bytes. */
+  /**
+   * Body as UTF-8 text. May be the pasted CSV/XML, or — for the
+   * Sprint 79 PDF test-mode path — a pre-extracted text body. Pass
+   * an empty string when only `bytes` are supplied.
+   */
   text: string;
   /** Optional file name — used for SourceRef.path + extension detection. */
   fileName?: string;
+  /**
+   * Sprint 79 — raw bytes for binary inputs (PDF). When supplied the
+   * file picker's `arrayBuffer()` result is forwarded verbatim to
+   * the registry. The PDF ingestor honours `bytes`; CSV/XML
+   * ingestors ignore it.
+   */
+  bytes?: Uint8Array;
 }
 
 /**
@@ -97,23 +134,31 @@ export async function ingestElectricalInput(
     return synthesiseEmptyResult('text must be a string.');
   }
 
-  const kind = detectInputKind(input.text, input.fileName);
+  const kind = detectInputKind(input.text, input.fileName, input.bytes);
+  // Sprint 79 — for PDF, prefer raw bytes when supplied; otherwise
+  // fall back to the pre-extracted-text path. CSV/XML keep using
+  // the text content verbatim.
+  const fileExt =
+    kind === 'xml' ? 'xml' : kind === 'pdf' ? 'pdf' : 'csv';
+  const content =
+    kind === 'pdf' && input.bytes instanceof Uint8Array && input.bytes.length > 0
+      ? input.bytes
+      : input.text;
   const file: ElectricalSourceFile = {
-    path: input.fileName ?? `${input.sourceId}.${kind === 'xml' ? 'xml' : 'csv'}`,
+    path: input.fileName ?? `${input.sourceId}.${fileExt}`,
     kind: kind === 'unknown' ? 'unknown' : kind,
-    content: input.text,
+    content,
   };
   const registryInput: ElectricalIngestionInput = {
     sourceId: input.sourceId,
     files: [file],
   };
 
-  // Sprint 78A — route through the default registry so the
-  // Beckhoff/TwinCAT ECAD recognizer + the EPLAN XML ingestor both
-  // get a chance at the input. Earlier sprints called individual
-  // ingestors directly, but that bypassed the TcECAD detection
-  // chain. We still keep the explicit unsupported fall-through
-  // for `unknown` so the diagnostic message is friendly.
+  // Sprint 78A — route through the default registry so every
+  // recognizer (CSV → TcECAD → EPLAN → PDF → unsupported) gets a
+  // chance at the input. We still keep the explicit unsupported
+  // fall-through for `unknown` so the diagnostic message is
+  // friendly.
   if (kind === 'unknown') {
     return createUnsupportedEplanIngestor().ingest(registryInput);
   }
@@ -160,7 +205,7 @@ export async function runElectricalIngestion(
   candidate: PirDraftCandidate;
   detectedKind: DetectedInputKind;
 }> {
-  const detectedKind = detectInputKind(input.text, input.fileName);
+  const detectedKind = detectInputKind(input.text, input.fileName, input.bytes);
   const result = await ingestElectricalInput(input);
   const candidate = createCandidateFromIngestionResult(result);
   return { result, candidate, detectedKind };

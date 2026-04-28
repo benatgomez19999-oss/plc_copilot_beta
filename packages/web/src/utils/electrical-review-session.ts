@@ -357,6 +357,7 @@ function isSourceShape(v: unknown): v is ElectricalReviewSessionSource {
   if (
     o.inputKind !== 'csv' &&
     o.inputKind !== 'xml' &&
+    o.inputKind !== 'pdf' &&
     o.inputKind !== 'unknown'
   ) {
     return false;

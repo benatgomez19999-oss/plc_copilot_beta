@@ -119,13 +119,14 @@ describe('createSourceRegistry', () => {
 });
 
 describe('createDefaultSourceRegistry', () => {
-  it('comes pre-loaded with CSV + TcECAD + EPLAN-XML + EPLAN unsupported stub (Sprint 78A)', () => {
+  it('comes pre-loaded with CSV + TcECAD + EPLAN-XML + PDF + EPLAN unsupported stub (Sprint 79)', () => {
     const reg = createDefaultSourceRegistry();
     // Sprint 72: 1 ingestor (unsupported stub).
     // Sprint 73: +CSV → 2.
     // Sprint 74: +EPLAN XML → 3.
     // Sprint 78A: +TcECAD XML (in front of EPLAN XML) → 4.
-    expect(reg.list().length).toBe(4);
+    // Sprint 79: +PDF (in front of unsupported stub) → 5.
+    expect(reg.list().length).toBe(5);
     // CSV input resolves to the CSV ingestor.
     const resolvedCsv = reg.resolve({
       sourceId: 's',
@@ -138,6 +139,12 @@ describe('createDefaultSourceRegistry', () => {
       files: [{ path: 'a.xml', kind: 'xml', content: '<EplanProject/>' }],
     });
     expect(resolvedXml).not.toBeNull();
+    // PDF input resolves to the PDF ingestor (Sprint 79).
+    const resolvedPdf = reg.resolve({
+      sourceId: 's',
+      files: [{ path: 'plan.pdf', kind: 'pdf' }],
+    });
+    expect(resolvedPdf).not.toBeNull();
     // edz still falls through to the unsupported stub.
     const resolvedEdz = reg.resolve({
       sourceId: 's',

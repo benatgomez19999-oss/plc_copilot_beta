@@ -209,3 +209,91 @@ describe('runElectricalIngestion', () => {
     expect(r.candidate.io).toEqual([]);
   });
 });
+
+// =============================================================================
+// Sprint 79 — PDF detection + flow
+// =============================================================================
+
+const PDF_HEADER = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d]); // %PDF-
+
+const SIMPLE_PDF_TEXT = `--- page 1 ---
+I0.0 B1 Part present
+Q0.0 Y1 Cylinder extend
+`;
+
+describe('detectInputKind — Sprint 79 PDF', () => {
+  it('1. returns "pdf" for .pdf extension', () => {
+    expect(detectInputKind('', 'plan.pdf')).toBe('pdf');
+  });
+  it('2. is case-insensitive on .PDF extension', () => {
+    expect(detectInputKind('', 'PLAN.PDF')).toBe('pdf');
+  });
+  it('3. returns "pdf" when bytes start with %PDF- magic', () => {
+    expect(detectInputKind('', null, PDF_HEADER)).toBe('pdf');
+  });
+  it('4. returns "pdf" when text body starts with literal %PDF-', () => {
+    expect(detectInputKind('%PDF-1.7\n…')).toBe('pdf');
+  });
+  it('5. extension wins over content sniff (csv body in a .pdf is still pdf)', () => {
+    expect(detectInputKind('a,b\n1,2', 'list.pdf')).toBe('pdf');
+  });
+  it('6. plain text without .pdf extension does NOT classify as pdf', () => {
+    expect(detectInputKind('--- page 1 ---\nI0.0 B1 sensor', 'notes.txt')).not.toBe(
+      'pdf',
+    );
+  });
+});
+
+describe('ingestElectricalInput — Sprint 79 PDF', () => {
+  it('1. test-mode text path produces sourceKind=pdf and extracts simple IO rows', async () => {
+    const r = await ingestElectricalInput({
+      sourceId: 's',
+      text: SIMPLE_PDF_TEXT,
+      fileName: 'plan.pdf',
+    });
+    expect(r.graph.sourceKind).toBe('pdf');
+    expect(r.graph.nodes.length).toBeGreaterThan(0);
+    const codes = r.diagnostics.map((d) => d.code);
+    expect(codes).toContain('PDF_TEXT_BLOCK_EXTRACTED');
+  });
+
+  it('2. binary path with valid header + no text emits honest stub diagnostics', async () => {
+    const r = await ingestElectricalInput({
+      sourceId: 's',
+      text: '',
+      fileName: 'real.pdf',
+      bytes: PDF_HEADER,
+    });
+    expect(r.graph.sourceKind).toBe('pdf');
+    const codes = r.diagnostics.map((d) => d.code);
+    expect(codes).toContain('PDF_UNSUPPORTED_BINARY_PARSER');
+    expect(codes).toContain('PDF_TEXT_LAYER_UNAVAILABLE');
+    expect(codes).toContain('PDF_ELECTRICAL_EXTRACTION_NOT_IMPLEMENTED');
+    expect(r.graph.nodes).toEqual([]);
+  });
+
+  it('3. malformed bytes (no %PDF- magic) emits PDF_MALFORMED', async () => {
+    const r = await ingestElectricalInput({
+      sourceId: 's',
+      text: '',
+      fileName: 'broken.pdf',
+      bytes: new Uint8Array([0x50, 0x4b, 0x03, 0x04]),
+    });
+    const codes = r.diagnostics.map((d) => d.code);
+    expect(codes).toContain('PDF_MALFORMED');
+    expect(r.graph.nodes).toEqual([]);
+  });
+
+  it('4. PDF candidate carries SourceRefs with kind=pdf + page', async () => {
+    const r = await runElectricalIngestion({
+      sourceId: 's',
+      text: SIMPLE_PDF_TEXT,
+      fileName: 'plan.pdf',
+    });
+    expect(r.detectedKind).toBe('pdf');
+    expect(r.candidate.io.length).toBeGreaterThan(0);
+    const ref = r.candidate.io[0]?.sourceRefs[0];
+    expect(ref?.kind).toBe('pdf');
+    expect(ref?.page).toBeDefined();
+  });
+});

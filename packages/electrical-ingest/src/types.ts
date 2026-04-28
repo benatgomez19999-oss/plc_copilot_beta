@@ -39,6 +39,42 @@ export interface SourceRef {
   column?: number;
   /** Raw identifier as it appeared in the source (e.g. EPLAN device tag). */
   rawId?: string;
+  // ---- Sprint 79: PDF source-trace fields. Optional on every kind so
+  // ---- the existing CSV/EPLAN/TcECAD ingestors are unaffected.
+  /**
+   * Visual region inside the page that originated the evidence.
+   * Coordinates use whatever unit the producer ingestor declares
+   * (`PdfBoundingBox.unit`). Optional — not every PDF block carries
+   * geometry.
+   */
+  bbox?: SourceRefBoundingBox;
+  /**
+   * Short text excerpt copied verbatim from the source — useful for
+   * the review UI's "show me what you saw" drilldown. Snippets are
+   * intentionally short (≤ a sentence-ish) and never the full page.
+   */
+  snippet?: string;
+}
+
+/**
+ * Sprint 79 — bounding-box variant carried inside `SourceRef.bbox`.
+ * The `PdfBoundingBox` shape under `pdf-types.ts` is the canonical
+ * one for PDF text blocks; this duplicate-shaped type lives here so
+ * `SourceRef` can stay free of cross-module dependencies (the type
+ * file is at the top of the dependency DAG).
+ */
+export interface SourceRefBoundingBox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  /**
+   * Unit hint. `'pt'` is the PDF native point (1/72 inch).
+   * `'normalized'` means coordinates are in `[0, 1]` relative to
+   * page width/height. Producers should pick one and stick to it
+   * across a single ingestion result.
+   */
+  unit?: 'pt' | 'px' | 'normalized';
 }
 
 export interface Confidence {
@@ -170,7 +206,27 @@ export type ElectricalDiagnosticCode =
   | 'TCECAD_XML_DUPLICATE_VARIABLE'
   | 'TCECAD_XML_STRUCTURED_ADDRESS_USED'
   | 'TCECAD_XML_DIRECTION_CONFLICT'
-  | 'TCECAD_XML_PARTIAL_EXTRACTION';
+  | 'TCECAD_XML_PARTIAL_EXTRACTION'
+  // ---- Sprint 79: PDF ingestion architecture v0 ----
+  // Document-level / hard-fail conditions:
+  | 'PDF_EMPTY_INPUT'
+  | 'PDF_MALFORMED'
+  | 'PDF_ENCRYPTED_NOT_SUPPORTED'
+  | 'PDF_PAGE_LIMIT_EXCEEDED'
+  // Capability-not-implemented diagnostics — Sprint 79 deliberately
+  // refuses to fake binary parsing / OCR / table detection / electrical
+  // extraction, so the operator sees an honest list of what the build
+  // does and does not do:
+  | 'PDF_UNSUPPORTED_BINARY_PARSER'
+  | 'PDF_TEXT_LAYER_UNAVAILABLE'
+  | 'PDF_OCR_NOT_ENABLED'
+  | 'PDF_TABLE_DETECTION_NOT_IMPLEMENTED'
+  | 'PDF_ELECTRICAL_EXTRACTION_NOT_IMPLEMENTED'
+  // Per-block / per-row diagnostics raised by the test-mode text
+  // ingestor + the simple IO-row extractor:
+  | 'PDF_NO_TEXT_BLOCKS'
+  | 'PDF_TEXT_BLOCK_EXTRACTED'
+  | 'PDF_AMBIGUOUS_IO_ROW';
 
 export interface ElectricalDiagnostic {
   code: ElectricalDiagnosticCode;
