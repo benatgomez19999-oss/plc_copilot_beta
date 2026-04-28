@@ -51,3 +51,16 @@ export function checkPublishDryRunSpawn(
   result: PublishDryRunSpawnLike,
   expected: PublishExpectation,
 ): PublishDryRunIssue[];
+
+/**
+ * Sprint 67 closeout — true when the npm dry-run failure message
+ * names the exact `expectedVersion` as the conflicting one. Lets
+ * `pnpm run ci` keep accepting `release:publish-dry-run` after a
+ * successful publish without masking real conflicts on a different
+ * version.
+ */
+export function isAlreadyPublishedError(
+  stderr: string | null | undefined,
+  stdout: string | null | undefined,
+  expectedVersion: string,
+): boolean;

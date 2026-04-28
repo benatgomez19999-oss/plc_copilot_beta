@@ -113,8 +113,41 @@ export function checkPublishDryRunResult(parsed, expected) {
 }
 
 /**
+ * Sprint 67 closeout — detect the post-publish "already on registry"
+ * case. After a real publish, `npm publish --dry-run` for the same
+ * version exits non-zero with a "You cannot publish over the
+ * previously published versions: <X.Y.Z>." message. That is the
+ * registry telling us the publish *worked*; treating it as a CI
+ * failure would mean `pnpm run ci` breaks the moment a release ships.
+ *
+ * Returns true only when the message references the exact version
+ * we tried to dry-run. A different version in the message (e.g.,
+ * 0.1.0 already published but we passed --version 0.1.1) returns
+ * false so the real failure isn't masked.
+ */
+export function isAlreadyPublishedError(stderr, stdout, expectedVersion) {
+  const text = `${typeof stderr === 'string' ? stderr : ''}\n${typeof stdout === 'string' ? stdout : ''}`;
+  if (!/cannot publish over the previously published versions/i.test(text)) {
+    return false;
+  }
+  if (typeof expectedVersion !== 'string') return false;
+  // The npm error includes the exact version that was already published.
+  // Match it explicitly so a stale 0.1.0 conflict can't silence a real
+  // 0.1.1 dry-run failure.
+  const escaped = expectedVersion.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`previously published versions:\\s*${escaped}\\b`, 'i').test(text);
+}
+
+/**
  * Validate one full spawn result (status, stdout, stderr, parsed)
  * end-to-end. The lib stays UI-free; the runner formats the output.
+ *
+ * Special case (Sprint 67): if the failure is "version already on the
+ * registry" AND the version in the npm error matches the version we
+ * asked to dry-run, return an empty issue list. The dry-run is
+ * informationally telling us the version is already published, which
+ * is exactly what the operator wants `pnpm run ci` to keep accepting
+ * post-release.
  */
 export function checkPublishDryRunSpawn(result, expected) {
   const issues = [];
@@ -126,6 +159,15 @@ export function checkPublishDryRunSpawn(result, expected) {
       message: `spawning npm publish --dry-run failed: ${result.error.message ?? String(result.error)}`,
       recommendation: 'Check that npm is on PATH.',
     });
+    return issues;
+  }
+  if (
+    result.status !== 0 &&
+    isAlreadyPublishedError(result.stderr, result.stdout, expected.version)
+  ) {
+    // Treat as PASS — the version is already on the registry, exactly
+    // the version we tried to dry-run. Caller can still re-run with a
+    // bumped version when planning the next release.
     return issues;
   }
   if (result.status !== 0) {

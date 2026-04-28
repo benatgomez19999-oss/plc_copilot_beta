@@ -12,6 +12,7 @@ import {
   buildPublishDryRunCommand,
   checkPublishDryRunResult,
   checkPublishDryRunSpawn,
+  isAlreadyPublishedError,
   isDryRunCommand,
   parsePublishDryRunOutput,
 } from '../scripts/release-publish-dry-run-lib.mjs';
@@ -185,5 +186,80 @@ describe('checkPublishDryRunSpawn', () => {
       expected,
     );
     expect(issues).toEqual([]);
+  });
+
+  // Sprint 67 closeout — post-publish behaviour.
+  it('passes when npm reports the version is already on the registry', () => {
+    // Real npm 11 output for a re-publish attempt of an existing version.
+    const stderr =
+      'npm warn publish npm auto-corrected some errors in your package.json...\n' +
+      'npm error You cannot publish over the previously published versions: 0.1.0.\n';
+    const stdout = '{ "error": { "summary": "You cannot publish over the previously published versions: 0.1.0." } }';
+    const issues = checkPublishDryRunSpawn(
+      { status: 1, stdout, stderr },
+      expected,
+    );
+    expect(issues).toEqual([]);
+  });
+
+  it('keeps failing when "already published" message names a different version', () => {
+    // 0.1.0 is on the registry but operator just bumped to 0.1.1; the
+    // npm error referencing 0.1.0 must NOT silence a real conflict on
+    // 0.1.1.
+    const stderr = 'npm error You cannot publish over the previously published versions: 0.1.0.\n';
+    const codes = checkPublishDryRunSpawn(
+      { status: 1, stdout: '', stderr },
+      { name: '@plccopilot/cli', version: '0.1.1' },
+    ).map((i) => i.code);
+    expect(codes).toContain('PUBLISH_DRY_RUN_NONZERO');
+  });
+});
+
+describe('isAlreadyPublishedError', () => {
+  it('matches the canonical npm message for the expected version', () => {
+    expect(
+      isAlreadyPublishedError(
+        'npm error You cannot publish over the previously published versions: 0.1.0.',
+        '',
+        '0.1.0',
+      ),
+    ).toBe(true);
+  });
+
+  it('matches when the message is on stdout', () => {
+    expect(
+      isAlreadyPublishedError(
+        '',
+        'You cannot publish over the previously published versions: 0.1.0.',
+        '0.1.0',
+      ),
+    ).toBe(true);
+  });
+
+  it('does NOT match when the published version differs from expected', () => {
+    expect(
+      isAlreadyPublishedError(
+        'npm error You cannot publish over the previously published versions: 0.1.0.',
+        '',
+        '0.1.1',
+      ),
+    ).toBe(false);
+  });
+
+  it('does NOT match unrelated npm errors', () => {
+    expect(
+      isAlreadyPublishedError(
+        'npm error 401 Unauthorized',
+        '',
+        '0.1.0',
+      ),
+    ).toBe(false);
+  });
+
+  it('returns false on empty input or non-string version', () => {
+    expect(isAlreadyPublishedError('', '', '0.1.0')).toBe(false);
+    expect(
+      isAlreadyPublishedError('You cannot publish over the previously published versions: 0.1.0.', '', undefined as any),
+    ).toBe(false);
   });
 });
