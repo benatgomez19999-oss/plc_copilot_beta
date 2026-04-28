@@ -25,6 +25,7 @@
 
 import { confidenceFromEvidence, confidenceOf } from '../confidence.js';
 import { createElectricalDiagnostic } from '../diagnostics.js';
+import { KIND_ALIASES, knownKindHintList } from '../mapping/kind-aliases.js';
 import { detectPlcAddress, normalizeNodeId } from '../normalize.js';
 import { mergeSourceRefs } from './trace.js';
 import type {
@@ -141,47 +142,6 @@ export const CSV_HEADER_ALIASES: ReadonlyMap<string, CsvCanonicalHeader> =
     ['location', 'location'],
     ['comment', 'comment'],
   ] as const);
-
-// ---------------------------------------------------------------------------
-// Kind inference table
-// ---------------------------------------------------------------------------
-
-const KIND_ALIASES: ReadonlyMap<string, ElectricalNodeKind> = new Map([
-  ['sensor', 'sensor'],
-  ['sensor_discrete', 'sensor'],
-  ['proximity', 'sensor'],
-  ['prox', 'sensor'],
-  ['photoeye', 'sensor'],
-  ['switch', 'sensor'],
-  ['limit', 'sensor'],
-  ['pressostat', 'sensor'],
-  ['valve', 'valve'],
-  ['solenoid', 'valve'],
-  ['pneumatic_valve', 'valve'],
-  ['motor', 'motor'],
-  ['drive', 'motor'],
-  ['conveyor', 'motor'],
-  ['plc', 'plc'],
-  ['cpu', 'plc'],
-  ['plc_module', 'plc_module'],
-  ['module', 'plc_module'],
-  ['card', 'plc_module'],
-  ['io_module', 'plc_module'],
-  ['terminal', 'terminal'],
-  ['terminal_strip', 'terminal_strip'],
-  ['safety', 'safety_device'],
-  ['safety_device', 'safety_device'],
-  ['e_stop', 'safety_device'],
-  ['estop', 'safety_device'],
-  ['guard_switch', 'safety_device'],
-  ['power', 'power_supply'],
-  ['psu', 'power_supply'],
-  ['power_supply', 'power_supply'],
-  ['cable', 'cable'],
-  ['wire', 'wire'],
-  ['actuator', 'actuator'],
-  ['cylinder', 'actuator'],
-] as const);
 
 // ---------------------------------------------------------------------------
 // CSV parser
@@ -554,7 +514,7 @@ export function mapCsvRowToGraphFragment(
           code: 'CSV_UNKNOWN_KIND',
           message: `CSV row at line ${row.lineNumber} has unknown kind ${JSON.stringify(rawKind)}.`,
           sourceRef: baseRef,
-          hint: `recognised kinds: ${[...new Set(KIND_ALIASES.values())].sort().join(', ')}.`,
+          hint: `recognised kinds: ${knownKindHintList()}.`,
         }),
       );
       kindConfidence.push({

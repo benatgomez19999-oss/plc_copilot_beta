@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Representative structured XML fixture for the Sprint 74 EPLAN
+  ingestor v0. This is NOT a guaranteed real EPLAN export schema.
+  See docs/electrical-eplan-xml-format.md for the scope contract.
+-->
+<EplanProject schemaVersion="0.1">
+  <Pages>
+    <Page sheet="=A1/12" name="Sheet 12">
+      <Element id="el-001" tag="B1" kind="sensor">
+        <Label>Part present</Label>
+        <Function>position-sense</Function>
+        <Location>cabinet-A1</Location>
+        <PlcChannel address="%I0.0" direction="input" plc="CPU1" module="DI16" channel="0"/>
+        <Terminal id="1" strip="X1"/>
+        <Cable id="W12"/>
+        <Wire id="C7"/>
+      </Element>
+      <Element id="el-002" tag="B2" kind="sensor"
+               address="%I0.1" direction="input"
+               label="Part clamped"
+               terminal="2" terminal-strip="X1" cable="W12"/>
+    </Page>
+    <Page sheet="=A1/13">
+      <Element id="el-003">
+        <Tag>Y1</Tag>
+        <Kind>valve</Kind>
+        <Description>Cylinder extend</Description>
+        <PlcChannel address="%Q0.0" direction="output"/>
+        <Terminal id="4" strip="X2"/>
+        <Cable id="W13"/>
+      </Element>
+      <Element id="el-004" tag="Y2" kind="valve"
+               address="%Q0.1" direction="output"
+               label="Cylinder retract"
+               terminal="5" strip="X2" cable="W13"/>
+    </Page>
+    <Page sheet="=A1/14">
+      <Element id="el-005" tag="M1" kind="motor"
+               address="%Q0.2" direction="output"
+               label="Conveyor motor"
+               terminal="2" strip="X3" cable="W14"/>
+    </Page>
+    <Page sheet="=A1/15">
+      <!-- Safety device deliberately has no PLC channel — exercises the
+           "device without address" branch. -->
+      <Element id="el-006" tag="S1" kind="safety"
+               label="Emergency stop"
+               terminal="1" strip="X4"/>
+    </Page>
+  </Pages>
+</EplanProject>

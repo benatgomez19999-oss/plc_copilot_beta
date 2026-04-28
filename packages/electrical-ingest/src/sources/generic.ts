@@ -6,6 +6,7 @@
 // defaults from day one.
 
 import { createCsvElectricalIngestor } from './csv.js';
+import { createEplanXmlElectricalIngestor } from './eplan-xml.js';
 import { createUnsupportedEplanIngestor } from './eplan.js';
 import type { EplanIngestionInput, EplanIngestor, EplanIngestionResult } from '../types.js';
 
@@ -52,19 +53,22 @@ export function createSourceRegistry(): SourceRegistry {
 
 /**
  * Convenience: build a registry preloaded with the standard
- * Sprint-72/Sprint-73 ingestors:
+ * Sprint-72/73/74 ingestors:
  *   1. CSV ingestor (Sprint 73) — handles `kind: 'csv'` files.
- *   2. Unsupported EPLAN stub (Sprint 72) — fall-through for every
- *      remaining file kind (`xml` / `edz` / `pdf` / etc.) until a
- *      real parser ships.
+ *   2. EPLAN XML ingestor (Sprint 74) — handles `kind: 'xml'`
+ *      files. Even unrecognised XML roots are handled here (with
+ *      an honest `EPLAN_XML_UNKNOWN_ROOT` diagnostic) so XML never
+ *      falls through to the silent unsupported stub.
+ *   3. Unsupported EPLAN stub (Sprint 72) — fall-through for
+ *      `edz` / `epdz` / `pdf` / `unknown` until real parsers ship.
  *
  * `resolve` walks the registered ingestors in registration order
- * and picks the first match, so registering the CSV ingestor first
- * ensures CSV input never falls through to the stub.
+ * and picks the first match.
  */
 export function createDefaultSourceRegistry(): SourceRegistry {
   const reg = createSourceRegistry();
   reg.register(createCsvElectricalIngestor());
+  reg.register(createEplanXmlElectricalIngestor());
   reg.register(createUnsupportedEplanIngestor());
   return reg;
 }

@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Ambiguous fixture for Sprint 74 — exercises every EPLAN_XML_*
+  diagnostic. Representative XML structure, not a real EPLAN export.
+-->
+<ElectricalProject>
+  <Pages>
+    <Page sheet="=A1/01">
+      <!-- Missing tag entirely -->
+      <Element id="amb-001" kind="sensor" address="%I0.0" direction="input"/>
+    </Page>
+    <Page sheet="=A1/02">
+      <!-- Bad address — should emit EPLAN_XML_INVALID_ADDRESS, no PLC channel -->
+      <Element id="amb-002" tag="B1" kind="sensor" address="not-an-address" direction="input"
+               label="Bad address"/>
+    </Page>
+    <Page sheet="=A1/03">
+      <!-- Duplicate tag B1; this row should be skipped -->
+      <Element id="amb-003" tag="B1" kind="sensor" address="%I0.5" direction="input"
+               label="Duplicate tag"/>
+    </Page>
+    <Page sheet="=A1/04">
+      <!-- Unknown kind -->
+      <Element id="amb-004" tag="M9" kind="mystery_box" address="%Q0.9" direction="output"
+               label="Unknown kind"/>
+    </Page>
+    <Page sheet="=A1/05">
+      <!-- direction conflict with address -->
+      <Element id="amb-005" tag="M2" kind="motor" address="%I0.7" direction="output"
+               label="Direction conflict"/>
+    </Page>
+    <Page sheet="=A1/06">
+      <!-- Two devices on the same address -->
+      <Element id="amb-006" tag="M3" kind="motor" address="%Q0.0" direction="output"
+               label="Shared address (motor)"/>
+      <Element id="amb-007" tag="B7" kind="sensor" address="%Q0.0" direction="input"
+               label="Shared address (sensor) — also a direction conflict"/>
+    </Page>
+    <Page sheet="=A1/07">
+      <!-- Element with escaped XML entities in label + comment in middle -->
+      <Element id="amb-008" tag="M4" kind="motor" address="%Q0.3" direction="output">
+        <Label>Cell with &quot;escaped &amp; quote&quot;</Label>
+        <!-- intentional comment inside element -->
+        <Function>conveyor</Function>
+      </Element>
+    </Page>
+    <Page sheet="=A1/08">
+      <!-- Non-element child the parser should ignore -->
+      <Note>This page has no Elements; should not throw.</Note>
+    </Page>
+  </Pages>
+</ElectricalProject>

@@ -109,6 +109,41 @@ export {
   parseElectricalCsv,
 } from './sources/csv.js';
 
+// Sprint 74 — EPLAN structured XML ingestor v0.
+export type {
+  EplanXmlDetectedFormat,
+  EplanXmlElementRecord,
+  EplanXmlIngestionInput,
+  EplanXmlIngestionOptions,
+  EplanXmlParseResult,
+  XmlRowMappingResult,
+} from './sources/eplan-xml.js';
+export {
+  buildEplanXmlGraphId,
+  createEplanXmlElectricalIngestor,
+  detectEplanXmlFormat,
+  ingestEplanXml,
+  mapEplanXmlElementToFragment,
+  parseEplanXml,
+} from './sources/eplan-xml.js';
+
+// Shared kind-alias table (Sprint 74 — extracted so multiple
+// ingestors share one source of truth).
+export { KIND_ALIASES, knownKindHintList } from './mapping/kind-aliases.js';
+
+// Minimal XML utilities exposed for tests + future structured
+// ingestors. These are pure helpers, not a full DOM.
+export type { XmlAttribute, XmlElement, XmlParseError, XmlParseResult } from './sources/xml-utils.js';
+export {
+  decodeEntities,
+  findAllElements,
+  findElement,
+  getAttribute,
+  getChildText,
+  parseXml,
+  walkElements,
+} from './sources/xml-utils.js';
+
 export type { SourceRegistry } from './sources/generic.js';
 export {
   createDefaultSourceRegistry,

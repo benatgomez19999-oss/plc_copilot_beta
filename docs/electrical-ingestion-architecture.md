@@ -1,11 +1,15 @@
 # Electrical-plan ingestion architecture
 
-> **Status: first concrete ingestor live (Sprint 73).** Architecture
-> + canonical model + helpers + an honest unsupported-EPLAN stub
-> shipped in Sprint 72; Sprint 73 added the CSV ingestor + 12 new
-> diagnostic codes covering parser dialect, header aliasing, row
-> mapping, and address/direction conflicts. Still no EPLAN-XML
-> parser, no PDF/OCR, no final PIR builder.
+> **Status: structured XML ingestion v0 live (Sprint 74).** Sprint
+> 72 scaffolded the architecture + canonical model + helpers + an
+> honest unsupported-EPLAN stub. Sprint 73 added the CSV ingestor
+> + 12 new diagnostic codes. **Sprint 74** adds a hand-rolled
+> minimal XML parser + the EPLAN structured-export ingestor v0 with
+> 12 more diagnostic codes; the default registry now routes
+> `kind: 'csv'` → CSV ingestor, `kind: 'xml'` → EPLAN XML ingestor
+> (which surfaces unknown roots honestly), and the unsupported stub
+> is the catch-all for `edz` / `epdz` / `pdf` / `unknown`. Still no
+> PDF/OCR, no EDZ archive extraction, no final PIR builder.
 
 ## Why this matters
 
@@ -166,14 +170,19 @@ interface ElectricalSourceIngestor {
 ```
 
 The `SourceRegistry` accepts ingestors and dispatches based on
-`canIngest` (first match wins, registration order). Sprint 73's
+`canIngest` (first match wins, registration order). Sprint 74's
 `createDefaultSourceRegistry()` ships pre-loaded with:
 
-1. **CSV ingestor** (`createCsvElectricalIngestor`) — handles
-   `kind: 'csv'` files with inline content (string or `Uint8Array`).
-2. **Unsupported EPLAN stub** (`createUnsupportedEplanIngestor`) —
-   fall-through for every remaining kind (`xml` / `edz` / `pdf` /
-   `unknown`) until a real parser ships.
+1. **CSV ingestor** (`createCsvElectricalIngestor`, Sprint 73) —
+   handles `kind: 'csv'` files with inline content (string or
+   `Uint8Array`).
+2. **EPLAN XML ingestor** (`createEplanXmlElectricalIngestor`,
+   Sprint 74) — handles every `kind: 'xml'` file with content.
+   Even unknown XML roots are owned by this ingestor (it emits
+   `EPLAN_XML_UNKNOWN_ROOT` instead of falling through silently).
+3. **Unsupported EPLAN stub** (`createUnsupportedEplanIngestor`,
+   Sprint 72) — fall-through for `edz` / `epdz` / `pdf` /
+   `unknown` until real parsers ship.
 
 ### Sprint 72 — unsupported EPLAN stub
 
@@ -302,9 +311,200 @@ motor_simple) at confidence ≥ 0.6.
 CSV is **not** the final EPLAN strategy. It is the first
 deterministic structured source — easy to author, easy to test
 against, easy for operators to hand-fill from a printout. The
-Sprint 74 EPLAN structured-export parser will add support for
-real EPLAN XML; this CSV ingestor stays as the simple/manual
+Sprint 74 EPLAN structured-export parser added support for
+EPLAN-style XML; this CSV ingestor stays as the simple/manual
 fallback.
+
+### Sprint 74 — EPLAN structured XML ingestor v0
+
+The first XML-shaped ingestion path.
+[`packages/electrical-ingest/src/sources/eplan-xml.ts`](../packages/electrical-ingest/src/sources/eplan-xml.ts)
++ [`xml-utils.ts`](../packages/electrical-ingest/src/sources/xml-utils.ts)
++ [`tests/eplan-xml.spec.ts`](../packages/electrical-ingest/tests/eplan-xml.spec.ts)
++ [`docs/electrical-eplan-xml-format.md`](electrical-eplan-xml-format.md).
+
+> **Honesty note:** This is *structured XML v0*, not a guaranteed
+> EPLAN export schema. Fixtures are described as "representative
+> structured XML"; real EPLAN exports often resemble this shape but
+> we make no vendor-certified compatibility claim. The
+> trademark/affiliation note in the architecture root applies here
+> too.
+
+#### XML parser
+
+A hand-rolled minimal parser ships in
+[`xml-utils.ts`](../packages/electrical-ingest/src/sources/xml-utils.ts)
+because the monorepo policy is "no new runtime dependencies for
+ingestion" and the structured fixtures we care about are
+well-formed XML that doesn't need a full W3C DOM. Supports:
+
+- Open / close / self-closing element tags.
+- Quoted attributes (single + double quotes); unquoted are also
+  accepted but real EPLAN exports always quote.
+- Text content with the canonical entities decoded (`&lt; &gt; &amp;
+  &quot; &apos;`) plus decimal / hex numeric character references.
+- `<![CDATA[...]]>` (content preserved verbatim).
+- `<?xml ... ?>` declarations, `<!-- ... -->` comments,
+  `<?...?>` processing instructions, and `<!DOCTYPE ...>` blocks
+  — all skipped.
+- Deterministic locator paths per element (`/Root[1]/Child[2]/Element[3]`)
+  for source-ref construction.
+- 1-based line + column tracking surviving CRLF / LF.
+- **Never throws.** Malformed input produces structured
+  `XmlParseError` records, surfaced as `EPLAN_XML_MALFORMED`
+  diagnostics by the ingestor.
+
+Out of scope: XML namespaces (the prefix is treated as part of the
+tag name), DTD / external entity resolution, mixed-content
+semantics.
+
+#### Detection
+
+`detectEplanXmlFormat(root)` returns one of three labels:
+
+| Label | When |
+| --- | --- |
+| `eplan_project_xml` | Root tag is `EplanProject` / `Project` / `ElectricalProject`. |
+| `eplan_generic_xml` | Root tag is `Pages` / `Elements` / similar; OR any document containing `<Element>` descendants. |
+| `unknown_xml` | Anything else — emits `EPLAN_XML_UNKNOWN_ROOT` (warning). With `strict: true`, also emits `EPLAN_XML_UNSUPPORTED_FORMAT` (error). |
+
+The XML ingestor's `canIngest` returns `true` for **every**
+`kind: 'xml'` file with inline content — including unknown roots
+— so XML never falls to the silent unsupported stub. Diagnostics
+are the architecture-correct way to surface "we saw your XML but
+don't know what to do with it".
+
+#### Element extraction
+
+The walker hunts for `<Element>` (case-insensitive) descendants
+under the root. Sheet / page attributes from any ancestor `<Page>`
+are inherited. Two interchangeable element shapes are supported:
+
+```xml
+<!-- Attribute form -->
+<Element id="el-1" tag="B1" kind="sensor" address="%I0.0" direction="input"
+         label="Part present"
+         terminal="X1:1" terminal-strip="X1" cable="W12" sheet="=A1/12"/>
+
+<!-- Nested-children form -->
+<Element id="el-2">
+  <Tag>B2</Tag>
+  <Kind>sensor</Kind>
+  <Label>Part clamped</Label>
+  <PlcChannel address="%I0.1" direction="input" plc="CPU1" module="DI16" channel="1"/>
+  <Terminal id="X1:2" strip="X1"/>
+  <Cable id="W12"/>
+  <Wire id="C7"/>
+</Element>
+```
+
+Tag resolution priority (deliberate — element `id` attribute is
+*element numbering*, not device tag, so it is **not** in the
+fallback chain): `tag` attribute → `<Tag>` child → `device-tag` /
+`equipment-id` attribute → `<Name>` child. Missing → element is
+skipped + `EPLAN_XML_MISSING_DEVICE_TAG`.
+
+#### Mapping rules
+
+Same shape as the CSV mapper (Sprint 73). Each element produces:
+
+1. **Device node** — kind from the shared `KIND_ALIASES` table
+   (extracted in Sprint 74 to avoid duplication between CSV and
+   XML). Unknown kind → kind `unknown` + `EPLAN_XML_UNKNOWN_KIND`.
+2. **PLC channel node** — when `address` parses via
+   `detectPlcAddress`. Direction-vs-address conflict →
+   `EPLAN_XML_DIRECTION_ADDRESS_CONFLICT`.
+3. **Edge** — `device → channel` (`signals`) for inputs;
+   `channel → device` (`drives`) for outputs.
+4. **Terminal / cable / wire nodes** + `wired_to` edges when
+   present.
+
+Every node and edge carries a `SourceRef` with `kind: 'eplan'`,
+`line: <element line>`, `path: <fileName>`, `rawId: <tag>`,
+`sheet: <inherited sheet>`, **and a deterministic XML locator**
+in `symbol` (e.g. `/EplanProject[1]/Pages[1]/Page[3]/Element[2]`)
+so the future review UI can deep-link directly to the source XML
+node.
+
+#### Cross-element checks
+
+- **Duplicate tag** — first wins; later element skipped with
+  `EPLAN_XML_DUPLICATE_TAG`. Never silently merged.
+- **Duplicate address** — both device nodes survive; the channel
+  exists once with merged source refs; `EPLAN_XML_DUPLICATE_ADDRESS`
+  flagged.
+
+#### Diagnostics added (Sprint 74)
+
+| Code | Default severity | When |
+| --- | --- | --- |
+| `EPLAN_XML_EMPTY_INPUT` | error | Empty / non-string input. |
+| `EPLAN_XML_MALFORMED` | error | XML parse error (mismatched / unterminated tags, etc.). |
+| `EPLAN_XML_UNKNOWN_ROOT` | warning | Root tag isn't recognised; partial recovery may still happen. |
+| `EPLAN_XML_UNSUPPORTED_FORMAT` | warning | (only with `strict: true`) refuses to extract from unknown root. |
+| `EPLAN_XML_MISSING_DEVICE_TAG` | error | Element has no resolvable device tag — element skipped. |
+| `EPLAN_XML_UNKNOWN_KIND` | warning | `kind` doesn't match any alias — device kept with kind `unknown`. |
+| `EPLAN_XML_INVALID_ADDRESS` | warning | `address` doesn't parse — channel + edge skipped. |
+| `EPLAN_XML_DUPLICATE_TAG` | warning | First wins; duplicate skipped. |
+| `EPLAN_XML_DUPLICATE_ADDRESS` | warning | Multiple devices on one channel — both kept, channel merged. |
+| `EPLAN_XML_DIRECTION_ADDRESS_CONFLICT` | warning | `direction` attribute disagrees with the address-implied direction. |
+| `EPLAN_XML_MISSING_SOURCE_REF` | warning | Reserved for future use (currently unused; structure-only). |
+| `EPLAN_XML_PARTIAL_EXTRACTION` | warning | Recognised root but no `<Element>` descendants. |
+
+#### Confidence
+
+Same model as Sprint 73 (complement-product). Identical thresholds:
+known kind = 0.85, address parsed = 0.85, terminal/cable/wire = 0.65–0.8,
+unknown kind capped at 0.4 + warning. The candidate mapper's
+threshold (0.6) is unchanged; XML and CSV produce comparable
+confidence shapes.
+
+#### Example fixture (golden)
+
+[`tests/fixtures/eplan/simple-eplan-export.xml`](../packages/electrical-ingest/tests/fixtures/eplan/simple-eplan-export.xml):
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<EplanProject schemaVersion="0.1">
+  <Pages>
+    <Page sheet="=A1/12">
+      <Element id="el-001" tag="B1" kind="sensor">
+        <Label>Part present</Label>
+        <PlcChannel address="%I0.0" direction="input" plc="CPU1" module="DI16" channel="0"/>
+        <Terminal id="1" strip="X1"/>
+        <Cable id="W12"/>
+        <Wire id="C7"/>
+      </Element>
+      <Element id="el-002" tag="B2" kind="sensor"
+               address="%I0.1" direction="input"
+               label="Part clamped"
+               terminal="2" terminal-strip="X1" cable="W12"/>
+    </Page>
+  </Pages>
+</EplanProject>
+```
+
+Becomes a graph with deterministic ids — `device:B1`, `device:B2`,
+`plc_channel:%I0.0`, `plc_channel:%I0.1`, `terminal:1`, `terminal:2`,
+`cable:W12`, `wire:C7` — each with an EPLAN source ref pointing at
+its element line + XML locator. Feeding the graph to
+`buildPirDraftCandidate` produces 5 IO candidates and 3 equipment
+candidates from the full simple fixture (sensor_discrete +
+valve_solenoid + motor_simple).
+
+#### What EPLAN XML v0 is NOT
+
+- **Not the final EPLAN strategy.** It supports a representative
+  structured XML schema. Real EPLAN exports may need additional
+  shape recognisers, namespace handling, or EDZ archive
+  extraction; those land in future sprints.
+- **Not PDF / OCR.** Files with `kind: 'pdf'` still fall through
+  to the unsupported stub.
+- **Not EDZ archive extraction.** `kind: 'edz'` / `epdz` are
+  archives — out of scope for v0.
+- **Not in-process Sigstore for trust.** Trust still flows from
+  CI provenance + npm audit signatures (Sprint 70/71); ingestion
+  does not authenticate the source XML.
 
 ## Trademark / provenance note
 
@@ -335,11 +535,11 @@ encodes this by:
 | Sprint | Goal |
 | --- | --- |
 | 72 | Architecture + canonical model + helpers + unsupported EPLAN stub + tests + this doc. |
-| **73** (this sprint) | CSV terminal/device list → ElectricalGraph; 12 new diagnostic codes; default registry routes CSV → CSV ingestor → EPLAN stub fall-through. |
-| 74 | EPLAN structured-export parser (XML — likely `Project.xml` / `EplanProject.xml` from a `.elt` / `.epdz` archive). |
+| 73 | CSV terminal/device list → ElectricalGraph; 12 new diagnostic codes; default registry routes CSV → CSV ingestor → EPLAN stub fall-through. |
+| **74** (this sprint) | EPLAN structured XML ingestor v0 + minimal hand-rolled XML parser; 12 more diagnostic codes; XML routing owned by the EPLAN XML ingestor (unknown roots emit `EPLAN_XML_UNKNOWN_ROOT`, never fall through silently). |
 | 75 | Review UI: confidence panel, source-ref drilldown, accept/reject assumptions. |
 | 76 | PIR draft → PIR builder; integrate with the existing codegen pipeline. |
-| later | EDZ macro extraction (vendor symbol library), PDF fallback (only as last resort, OCR clearly flagged), Siemens TIA hardware-config import as an alternative source. |
+| later | EDZ archive extraction (real EPLAN containers), PDF fallback (only as last resort, OCR clearly flagged), Siemens TIA hardware-config import as an alternative source. |
 
 Each future sprint stays narrow: a single concrete source format
 or a single review-UX feature, never a "magically understand the
@@ -359,8 +559,8 @@ pnpm run ci
 ```
 
 Sprint 72 added 81 new tests (graph + confidence + diagnostics +
-sources + trace + pir-candidate). Sprint 73 adds 46 more (CSV
-parser dialect, header alias coverage, row mapping, full-file
-ingestion, golden fixtures, PIR-candidate integration, registry
-integration) for a package-local total of 127. Existing codegen
-tests are unchanged.
+sources + trace + pir-candidate). Sprint 73 added 46 more (CSV).
+**Sprint 74 adds 66 more** (XML utils + EPLAN-XML detection +
+parser + mapping + diagnostics + registry routing + PIR candidate
+integration + golden fixtures) for a package-local total of 193.
+Existing codegen tests are unchanged.

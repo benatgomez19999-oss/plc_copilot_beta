@@ -119,23 +119,30 @@ describe('createSourceRegistry', () => {
 });
 
 describe('createDefaultSourceRegistry', () => {
-  it('comes pre-loaded with the CSV ingestor + EPLAN unsupported stub (Sprint 73)', () => {
+  it('comes pre-loaded with CSV + EPLAN-XML + EPLAN unsupported stub (Sprint 74)', () => {
     const reg = createDefaultSourceRegistry();
-    // Sprint 72 had 1 ingestor (the unsupported stub). Sprint 73
-    // adds the CSV ingestor in front.
-    expect(reg.list().length).toBe(2);
-    // EPLAN-style XML still resolves (falls through to the stub).
-    const resolved = reg.resolve({
-      sourceId: 's',
-      files: [{ path: 'a.xml', kind: 'xml' }],
-    });
-    expect(resolved).not.toBeNull();
-    // CSV input resolves to the CSV ingestor (not the stub).
+    // Sprint 72: 1 ingestor (unsupported stub).
+    // Sprint 73: +CSV → 2.
+    // Sprint 74: +EPLAN XML → 3.
+    expect(reg.list().length).toBe(3);
+    // CSV input resolves to the CSV ingestor.
     const resolvedCsv = reg.resolve({
       sourceId: 's',
       files: [{ path: 'a.csv', kind: 'csv', content: 'tag,kind\nB1,sensor\n' }],
     });
     expect(resolvedCsv).not.toBeNull();
+    // XML input with content resolves to the EPLAN XML ingestor.
+    const resolvedXml = reg.resolve({
+      sourceId: 's',
+      files: [{ path: 'a.xml', kind: 'xml', content: '<EplanProject/>' }],
+    });
+    expect(resolvedXml).not.toBeNull();
+    // edz still falls through to the unsupported stub.
+    const resolvedEdz = reg.resolve({
+      sourceId: 's',
+      files: [{ path: 'a.edz', kind: 'edz' }],
+    });
+    expect(resolvedEdz).not.toBeNull();
   });
 });
 
