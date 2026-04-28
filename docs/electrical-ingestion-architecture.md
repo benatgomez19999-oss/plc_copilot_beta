@@ -1,17 +1,17 @@
 # Electrical-plan ingestion architecture
 
-> **Status: review UI v0 live (Sprint 75).** Sprint 72 scaffolded
-> the architecture + canonical model + helpers + an honest
-> unsupported-EPLAN stub. Sprint 73 added the CSV ingestor + 12
-> new diagnostic codes. Sprint 74 added a hand-rolled minimal XML
-> parser + the EPLAN structured-export ingestor v0 with 12 more
-> diagnostic codes. **Sprint 75** adds the Review UI v0 in
-> `@plccopilot/web`: pure review-state / confidence-classification /
-> source-ref helpers + thin React components for IO / equipment /
-> assumptions / diagnostics. The review workflow is the
-> deterministic gate between ingestion and PIR generation. Still
-> no PDF/OCR, no EDZ archive extraction, no final PIR builder
-> (Sprint 76 scope), no codegen changes.
+> **Status: PIR builder v0 live (Sprint 76).** Sprint 72 scaffolded
+> the architecture. Sprint 73 added the CSV ingestor. Sprint 74
+> added the EPLAN structured XML ingestor v0. Sprint 75 added the
+> Review UI v0. **Sprint 76** adds the load-bearing bridge between
+> reviewed evidence and final PIR — `buildPirFromReviewedCandidate`
+> in `@plccopilot/electrical-ingest/src/mapping/pir-builder.ts`.
+> Accepted-only filtering, hard gate on pending items + error
+> diagnostics, deterministic ID canonicalisation, per-equipment-
+> type role remap, placeholder sequence + sourceMap sidecar, and
+> direct hookup into `@plccopilot/pir`'s validator. Still no
+> PDF/OCR, no EDZ archive extraction, no codegen changes — those
+> are downstream sprints.
 
 ## Why this matters
 
@@ -539,8 +539,9 @@ encodes this by:
 | 72 | Architecture + canonical model + helpers + unsupported EPLAN stub + tests + this doc. |
 | 73 | CSV terminal/device list → ElectricalGraph; 12 new diagnostic codes; default registry routes CSV → CSV ingestor → EPLAN stub fall-through. |
 | 74 | EPLAN structured XML ingestor v0 + minimal hand-rolled XML parser; 12 more diagnostic codes; XML routing owned by the EPLAN XML ingestor. |
-| **75** (this sprint) | Review UI v0 in `@plccopilot/web` — pure helpers (`createInitialReviewState`, `setReviewDecision`, `summarizeReviewState`, `classifyConfidence`, `summarizeSourceRef`) + thin React components (`ConfidenceBadge`, `SourceRefPanel`, `ReviewDecisionControls`, `IoCandidateReviewTable`, `EquipmentCandidateReviewTable`, `AssumptionsPanel`, `ElectricalDiagnosticsList`, `ElectricalReviewPanel`). 59 new web tests. |
-| 76 | PIR draft → PIR builder; consume only `accepted` review decisions; integrate with the existing codegen pipeline. |
+| 75 | Review UI v0 in `@plccopilot/web` — pure helpers + thin React components, 59 new web tests. |
+| **76** (this sprint) | PIR builder v0 in `@plccopilot/electrical-ingest` — `buildPirFromReviewedCandidate` consumes only `'accepted'` items. Hard gate on pending / error diagnostics. Deterministic ID canonicalisation (`device:B1` → `b1`). Per-PIR-EquipmentType role remap (candidate `drive`/`feedback` → `run_out`/`signal_in`/`solenoid_out`/etc per `EQUIPMENT_SHAPES`). Address parser produces PIR `IoAddress`. Placeholder sequence (init → terminal). `sourceMap` sidecar for source-ref preservation. Built PIR validates against `@plccopilot/pir`. 67 new tests. |
+| 77 | Wire the full path in the web app: input fixture → ingestion → review → PIR builder preview. |
 | later | EDZ archive extraction (real EPLAN containers), PDF fallback (only as last resort, OCR clearly flagged), Siemens TIA hardware-config import as an alternative source. |
 
 Each future sprint stays narrow: a single concrete source format
@@ -560,16 +561,14 @@ pnpm -r test
 pnpm run ci
 ```
 
-Sprint 72 added 81 new tests (graph + confidence + diagnostics +
-sources + trace + pir-candidate). Sprint 73 added 46 more (CSV).
-Sprint 74 added 66 more (XML utils + EPLAN-XML). **Sprint 75 adds
-59 web-side tests** (review-state + review-confidence +
-review-source-refs + review-fixtures) inside
-`@plccopilot/web`; the `electrical-ingest` package is unchanged
-at 193. Web grows from 581 → 640 tests. Existing codegen tests
-are unchanged.
+Sprint 72 added 81 new tests. Sprint 73 added 46 more (CSV).
+Sprint 74 added 66 more (XML utils + EPLAN-XML). Sprint 75 added
+59 web-side tests inside `@plccopilot/web`. **Sprint 76 adds 67
+more** in `electrical-ingest` (`pir-builder.spec.ts`) for a
+package-local total of 260. Web stays at 640. Repo total: 2714 →
+2781 (+67). Existing codegen tests are unchanged.
 
-The review workflow itself — pending / accepted / rejected
-semantics, confidence thresholds, source-ref drilldown,
-"ready for PIR builder" gate — lives in
-[`docs/electrical-review-workflow.md`](electrical-review-workflow.md).
+The review workflow + PIR-builder gate semantics live in
+[`docs/electrical-review-workflow.md`](electrical-review-workflow.md);
+the builder's API + diagnostics + role-remap rules live in
+[`docs/pir-builder-v0.md`](pir-builder-v0.md).

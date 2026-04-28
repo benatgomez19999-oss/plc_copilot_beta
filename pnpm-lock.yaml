@@ -144,6 +144,10 @@ importers:
         version: 1.6.1(@types/node@20.19.39)
 
   packages/electrical-ingest:
+    dependencies:
+      '@plccopilot/pir':
+        specifier: workspace:*
+        version: link:../pir
     devDependencies:
       '@types/node':
         specifier: ^20.11.0

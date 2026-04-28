@@ -112,9 +112,45 @@ visual idioms but have different data shapes and stay decoupled.
   (no `pending`), AND
 - no `error`-severity diagnostic remains in the candidate.
 
-Sprint 75 only renders the result. Sprint 76's PIR builder is the
-component that consumes `isReadyForPirBuilder` as an actual gate
-(refuses to build PIR if `false`).
+Sprint 75 renders the result. **Sprint 76's PIR builder
+(`buildPirFromReviewedCandidate` in `@plccopilot/electrical-ingest`)
+consumes the same gate as a hard refusal**: it returns
+`pir: undefined` plus structured diagnostics whenever the predicate
+is false. The web `isReadyForPirBuilder` and the domain-layer
+`isReviewedCandidateReadyForPirBuild` agree on semantics; they
+share the same review-state shape (`PirBuildReviewState` is
+structurally identical to `ElectricalReviewState`).
+
+## Sprint 76 — review → PIR boundary
+
+The builder is the deterministic, accepted-only conversion from
+`PirDraftCandidate` to `@plccopilot/pir` `Project`:
+
+| Decision | IO | Equipment | Assumption |
+| --- | --- | --- | --- |
+| `'accepted'` | mapped to `IoSignal` | mapped to `Equipment` | recorded in `sourceMap` only — never auto-promoted |
+| `'rejected'` | excluded (counted) | excluded (counted) | excluded (counted) |
+| `'pending'` | gate failure | gate failure | gate failure |
+
+What the builder preserves:
+- Every IO + equipment carries a `provenance: { source: 'import' }`
+  on the PIR side.
+- A `sourceMap` sidecar (keyed by the canonical PIR id like
+  `io_b1` or `eq_y1`) carries the original `SourceRef[]` —
+  including the EPLAN XML locator from Sprint 74.
+
+What the builder refuses:
+- Pending items.
+- Candidate-level error diagnostics.
+- Accepted IO with no address / unknown direction / unmappable
+  address.
+- Equipment bindings pointing at non-accepted IO.
+- Equipment with more bindings than the chosen PIR `EquipmentType`
+  shape supports.
+- Accepted equipment with kind `'unknown'` (no safe PIR mapping).
+- Empty accepted input (nothing to build from).
+
+Full reference: [`docs/pir-builder-v0.md`](pir-builder-v0.md).
 
 ## Why this is NOT final PIR generation
 

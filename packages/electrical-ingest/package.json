@@ -8,7 +8,9 @@
     "test": "vitest run",
     "test:watch": "vitest"
   },
-  "dependencies": {},
+  "dependencies": {
+    "@plccopilot/pir": "workspace:*"
+  },
   "devDependencies": {
     "@types/node": "^20.11.0",
     "typescript": "^5.4.0",

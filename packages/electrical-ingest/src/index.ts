@@ -165,3 +165,30 @@ export {
   blockingDiagnostics,
   buildPirDraftCandidate,
 } from './mapping/pir-candidate.js';
+
+// Sprint 76 — PIR builder v0.
+export type {
+  PirBuildReviewDecision,
+  PirBuildReviewedItemState,
+  PirBuildReviewState,
+} from './mapping/review-types.js';
+export {
+  PIR_BUILD_REVIEW_DECISIONS,
+  getReviewedDecision,
+} from './mapping/review-types.js';
+export type {
+  ParsedIoAddress,
+  PirBuildDiagnostic,
+  PirBuildDiagnosticCode,
+  PirBuildOptions,
+  PirBuildResult,
+} from './mapping/pir-builder.js';
+export {
+  buildPirFromReviewedCandidate,
+  canonicalisePirId,
+  isReviewedCandidateReadyForPirBuild,
+  mapCandidateDirection,
+  mapCandidateEquipmentKind,
+  parseCandidateAddress,
+  remapEquipmentRoles,
+} from './mapping/pir-builder.js';
