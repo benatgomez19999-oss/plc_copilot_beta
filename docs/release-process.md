@@ -569,10 +569,28 @@ confirm string) for postmortem traceability. npm-side state is
 unchanged — no tarballs were republished, no dist-tags were
 touched.
 
-### Provenance stub scope (Sprint 65)
+## Provenance verification (Sprints 65 + 70)
 
-`release:provenance` is a *stub* — it does NOT pull attestation
-bundles from the npm registry. It guards two things, locally:
+`release:provenance` runs in three modes, each enforcing a different
+layer of the npm-provenance trust chain. The runner never mutates
+anything — `assertNoNpmMutationSurfaceProvenance` rejects any argv
+with `publish` / `dist-tag` / `--no-dry-run` tokens, and the parser
+rejects npm-mutation flags at parse time.
+
+### Modes
+
+| Command | Layer | Network | Used by |
+| --- | --- | --- | --- |
+| `pnpm release:provenance --config-only --version X.Y.Z` | Configuration | none | `post-publish-verify.yml` first step (cheap, runs before any registry call) |
+| `pnpm release:provenance --metadata-only --version X.Y.Z [--registry URL]` | Registry metadata + attestation claims | `npm view` + HTTPS GET to npm attestations endpoint | `verify-provenance.yml` (mode = metadata, default) |
+| `pnpm release:provenance --version X.Y.Z` | Configuration + registry metadata + attestation claims | same as metadata mode | `verify-provenance.yml` (mode = full) |
+
+`--json` is supported in every mode and emits a stable report shape
+(see "Report shape" below).
+
+### Layer 1 — configuration (Sprint 65 stub, kept verbatim)
+
+Local-only check, no network:
 
 1. **Publish workflow** (`.github/workflows/publish.yml`) grants
    `id-token: write` to the publish job AND references `--provenance`
@@ -582,9 +600,135 @@ bundles from the npm registry. It guards two things, locally:
    still emits `--provenance` for every supported tag, AND never
    emits `--dry-run`.
 
-Real attestation-bundle verification (downloading the npm provenance
-bundle, walking the certificate chain against Sigstore Fulcio, etc.)
-is reserved for a future sprint.
+If either drifts, the runner surfaces the issue before any registry
+call. This is what `post-publish-verify.yml` runs first — broken
+publish path is caught before the network checks even start.
+
+### Layer 2 — registry metadata (Sprint 70)
+
+For every release candidate (`@plccopilot/{pir,codegen-core,codegen-codesys,codegen-rockwell,codegen-siemens,cli}@<version>`):
+
+- `npm view <pkg>@<version> --json` returns an object whose `name`,
+  `version`, and `dist.integrity` / `dist.tarball` match expectations.
+- `dist.attestations.url` is present and is an `https://` URL — i.e.
+  the package was published with `npm publish --provenance`.
+- `repository.url` normalises to
+  `https://github.com/benatgomez19999-oss/plc_copilot_beta` (handling
+  `git+` prefix, `.git` suffix, and trailing slashes via
+  `normalizeRepositoryUrl`).
+- `repository.directory` matches `packages/<dir>` for the candidate.
+- `gitHead` exists (warning, not error — npm does not always expose
+  this, and its absence does not falsify the claims chain).
+
+### Layer 3 — attestation claims (Sprint 70)
+
+For every release candidate, the runner fetches
+`dist.attestations.url`, parses the response as JSON, picks the
+SLSA-provenance entry (the one with
+`predicateType ~= "slsa.dev/provenance"`), base64-decodes the
+`bundle.dsseEnvelope.payload`, and validates the in-toto Statement:
+
+- `subject[0].name` URL-decodes to `pkg:npm/<scope>/<name>@<version>`.
+- `predicateType` is `https://slsa.dev/provenance/v1`.
+- `predicate.buildDefinition.externalParameters.workflow.repository`
+  normalises to the expected GitHub repo.
+- `predicate.buildDefinition.externalParameters.workflow.path`
+  equals `.github/workflows/publish.yml`.
+- `predicate.buildDefinition.resolvedDependencies[0].digest.gitCommit`
+  is recorded (warning if absent, never an error).
+
+This is *claims-level* verification. It proves npm exposed an
+attestation that **says** it was minted by our publish workflow on
+our repo for our package — strong enough that a tampered registry
+metadata would have to also produce a forged DSSE payload claiming
+the same identity.
+
+### Layer 4 — cryptographic Sigstore verification (NOT IMPLEMENTED)
+
+The runner does **NOT** verify the bundle signature, walk the Fulcio
+certificate chain to the Sigstore root, or check the Rekor inclusion
+proof. Doing that requires Sigstore tooling (large dependency
+surface) and is reserved for a future sprint. The report makes this
+explicit:
+
+```json
+"cryptographic_verification": {
+  "implemented": false,
+  "verified": false,
+  "note": "Cryptographic Sigstore-bundle verification (Fulcio cert chain walk + Rekor inclusion proof) is NOT implemented. ..."
+}
+```
+
+If you need cryptographic verification today, run
+`npm audit signatures` against an installed copy of the packages —
+that is the npm-supported path and is independent of this tool.
+
+### Report shape (`--json`)
+
+```jsonc
+{
+  "ok": true,
+  "version": "0.1.0",
+  "registry": "https://registry.npmjs.org",
+  "mode": "default" | "config-only" | "metadata-only",
+  "config": {
+    "workflow_id_token_write": true,
+    "publish_command_provenance_flag": true,
+    "publish_command_no_dry_run": true
+  } | null,
+  "packages": [
+    {
+      "name": "@plccopilot/cli",
+      "version": "0.1.0",
+      "repository_ok": true,
+      "dist_integrity": true,
+      "tarball": true,
+      "attestations": {
+        "present": true,
+        "url": "https://registry.npmjs.org/-/npm/v1/attestations/...",
+        "predicate_type": "https://slsa.dev/provenance/v1",
+        "workflow_path": ".github/workflows/publish.yml",
+        "repository_url": "https://github.com/benatgomez19999-oss/plc_copilot_beta",
+        "git_commit": "ca53b5a14df53a0d40570a1dfde3ffa0e8325bdc",
+        "claims_verified": true,
+        "cryptographically_verified": false
+      },
+      "issues": []
+    }
+  ] | null,
+  "cryptographic_verification": { "implemented": false, ... },
+  "note": "Sprint 70 default mode — ...",
+  "issues": []
+}
+```
+
+### Triggering the manual workflow
+
+1. _Actions → Verify provenance → Run workflow_.
+2. Inputs:
+   - `version`: `0.1.0` (or whatever's on the registry today)
+   - `registry`: `https://registry.npmjs.org` (default)
+   - `mode`: `metadata` (default — registry checks) / `config` /
+     `full` (= config + metadata)
+3. The job runs read-only — no `NPM_TOKEN`, no environment, no
+   protected secrets, no `contents: write`. The endpoints it hits
+   are public.
+
+### Failure-mode codes (Sprint 70 additions)
+
+| Code | When it fires |
+| --- | --- |
+| `PROVENANCE_VERSION_REQUIRED` | `--metadata-only` without `--version`. |
+| `PROVENANCE_NPM_VIEW_NONZERO/PARSE_FAILED` | `npm view` exited non-zero or stdout was not parseable JSON. |
+| `PROVENANCE_PACKAGE_NOT_FOUND` | Registry has no record of the package@version. |
+| `PROVENANCE_NAME_MISMATCH/VERSION_MISMATCH` | `npm view` returned the wrong identity. |
+| `PROVENANCE_DIST_MISSING/INTEGRITY_MISSING/TARBALL_MISSING` | `dist` payload incomplete. |
+| `PROVENANCE_REPOSITORY_MISSING/URL_MISMATCH/DIRECTORY_MISMATCH` | `repository` field missing or doesn't match expected. |
+| `PROVENANCE_ATTESTATION_MISSING/URL_INVALID` | Package was not published with `--provenance`. |
+| `PROVENANCE_ATTESTATION_FETCH_FAILED` | HTTPS GET to the attestations endpoint failed. |
+| `PROVENANCE_ATTESTATION_PARSE_FAILED` | Response was not parseable JSON, or DSSE payload could not be decoded. |
+| `PROVENANCE_ATTESTATION_REPO_MISMATCH/WORKFLOW_MISMATCH` | In-toto claims (subject / workflow.repository / workflow.path) don't match expected. |
+| `PROVENANCE_GIT_HEAD_MISSING` | `npm view`'s `gitHead` not exposed (warning only). |
 
 ## Future work
 
@@ -595,6 +739,7 @@ is reserved for a future sprint.
 - Skip-existing / resume-after-partial-failure mode.
 - Changelog automation (commit-driven) once the project ships
   user-facing milestones.
-- Deep npm-provenance attestation verification (Sigstore Fulcio
-  chain walk + OIDC claim matching). Sprint 65 stub only checks the
-  publish path is configured for provenance.
+- Cryptographic Sigstore-bundle verification (Fulcio cert chain walk
+  + Rekor inclusion proof + OIDC claim matching). Sprint 70 verifies
+  attestation **claims** end-to-end against the registry but does
+  not validate the bundle signature.

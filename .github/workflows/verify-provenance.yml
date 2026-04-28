@@ -1,0 +1,83 @@
+name: Verify provenance
+
+# Sprint 70 — manual read-only verification of npm provenance for an
+# already-published @plccopilot version. The runner only ever reads:
+#   - `npm view <pkg>@<version> --json`  (read-only registry metadata)
+#   - HTTPS GET against the npm attestations endpoint per package
+#
+# It NEVER mutates anything. The runner enforces this with
+# `assertNoNpmMutationSurfaceProvenance`, and the workflow YAML below
+# has zero `npm publish` / `npm dist-tag` shell lines (asserted in
+# `verify-provenance.spec.ts`).
+#
+# No NPM_TOKEN, no environment, no contents:write — the job is purely
+# read-only. The endpoints it hits are public.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to verify (must already be on the registry)'
+        required: true
+        default: '0.1.0'
+      registry:
+        description: 'npm registry'
+        required: true
+        default: 'https://registry.npmjs.org'
+      mode:
+        description: |
+          Verification depth:
+          - metadata: registry metadata + attestation claims (default)
+          - config: local config check only (no network)
+          - full: config + metadata + attestation claims
+        required: true
+        type: choice
+        options:
+          - metadata
+          - config
+          - full
+        default: metadata
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-provenance-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: verify (read-only registry + attestation claims)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify provenance (config mode)
+        if: ${{ inputs.mode == 'config' }}
+        run: pnpm release:provenance --config-only --version "${{ inputs.version }}" --json
+
+      - name: Verify provenance (metadata mode)
+        if: ${{ inputs.mode == 'metadata' }}
+        run: pnpm release:provenance --metadata-only --version "${{ inputs.version }}" --registry "${{ inputs.registry }}" --json
+
+      - name: Verify provenance (full mode = config + metadata)
+        if: ${{ inputs.mode == 'full' }}
+        run: pnpm release:provenance --version "${{ inputs.version }}" --registry "${{ inputs.registry }}" --json

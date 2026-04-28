@@ -90,25 +90,40 @@ pnpm build:packages-vendor
 node packages/cli/scripts/smoke-vendor-dist.mjs
 ```
 
-### Post-publish verification (sprints 64–65)
+### Post-publish verification (sprints 64–65, 70)
 
 Once a real publish has landed, verify it from a fresh consumer
 context with the layered audit:
 
 ```sh
-pnpm release:provenance --version 0.1.0    # local-only stub (sprint 65)
-pnpm release:npm-view    --version 0.1.0 --tag next   # registry metadata (sprint 65)
-pnpm release:registry-smoke --version 0.1.0           # install + bin (sprint 64)
+pnpm release:provenance --config-only --version 0.1.0    # local-only config check (sprint 65 stub)
+pnpm release:provenance --metadata-only --version 0.1.0  # registry metadata + DSSE claims (sprint 70)
+pnpm release:provenance --version 0.1.0                  # default = config + metadata
+pnpm release:npm-view    --version 0.1.0 --tag next      # registry metadata (sprint 65)
+pnpm release:registry-smoke --version 0.1.0              # install + bin (sprint 64)
 
-# Or trigger them in order from CI:
-# Actions → Post-publish verify → Run workflow
+# Or trigger from CI:
+# Actions → Post-publish verify → Run workflow   (uses --config-only, no network)
+# Actions → Verify provenance → Run workflow     (sprint 70 — read-only metadata + claims)
 ```
 
-`release:provenance` is safe to run anywhere — it doesn't contact
-the registry. The other two **404 before the first publish by
-design** and are deliberately excluded from `pnpm run ci`. The first-publish runbook (token, environment,
+`release:provenance --config-only` is safe to run anywhere — it
+doesn't contact the registry. The metadata / default modes hit the
+public npm registry + the npm attestations endpoint over HTTPS;
+they are read-only and don't need `NPM_TOKEN`, but they 404 before
+the first publish by design and are deliberately excluded from
+`pnpm run ci`. The first-publish runbook (token, environment,
 dry-run, real publish, partial-publish recovery) lives in
 [`docs/first-publish-checklist.md`](docs/first-publish-checklist.md).
+
+**Cryptographic Sigstore-bundle verification is not implemented.**
+Sprint 70 verifies the attestation *claims* end-to-end against
+expected GitHub repo + workflow path + package identity, but does
+not walk the Fulcio cert chain or validate the bundle signature.
+For the npm-supported cryptographic path, run `npm audit signatures`
+against an installed copy of the packages — that is independent of
+this tool. Full Sigstore verification is reserved for a future
+sprint.
 
 ### First-publish docs (sprint 66)
 

@@ -81,11 +81,16 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Provenance stub (local-only)
+      - name: Provenance config check (local-only)
         # Sprint 65: confirms the publish path is *configured* for
         # provenance. Independent of the registry; runs first so a
         # broken publish workflow surfaces before we hit the network.
-        run: pnpm release:provenance --version "${{ inputs.version }}"
+        # Sprint 70 split this into modes — `--config-only` is the
+        # original local-only stub. The deeper attestation-claims
+        # verification is now its own workflow
+        # (`.github/workflows/verify-provenance.yml`) so this
+        # post-publish step stays cheap and offline.
+        run: pnpm release:provenance --config-only --version "${{ inputs.version }}"
 
       - name: npm view verification (with tag)
         if: ${{ inputs.check_tag == true }}
