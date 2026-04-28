@@ -161,6 +161,53 @@ the kind resolves to a known alias (sensor / motor / valve / etc.).
 That's by design (Sprint 76 v0). The note above the JSON
 explains. Real sequence wiring is a future-sprint scope.
 
+## Testing with Beckhoff/TwinCAT ECAD XML
+
+Sprint 78A added a Beckhoff/TwinCAT ECAD Import recognizer for XML
+exports that *don't* match the EPLAN `<Element>` family. If your
+sample looks like this:
+
+```xml
+<Project>
+  <Description>TcECAD Import V2.2.12</Description>
+  <CPUs><CPU>...<Interfaces><Interface><Boxes><Box>
+    <Name>...</Name><Type>EL1004</Type><BoxNo>1005</BoxNo>
+    <Variables><Variable>
+      <Name>S1_1</Name><Comment>Lichttaster</Comment>
+      <IsInput>true</IsInput><IoName>Input</IoName>
+      <IoGroup>Channel 1</IoGroup><IoDataType>BOOL</IoDataType>
+    </Variable></Variables>
+  </Box></Boxes></Interface></Interfaces></CPU></CPUs>
+</Project>
+```
+
+…it will route to the TcECAD recognizer (sourceKind: `twincat_ecad`)
+ahead of the EPLAN ingestor.
+
+Expected outcome:
+
+- IO candidates **are** extracted (one per `<Variable>` with all
+  three of `<IsInput>`, `<IoName>`, `<IoDataType>` siblings).
+- Each candidate carries a structured `tcecad:<boxNo>:<ioGroup>`
+  address — **not** Siemens %I/%Q.
+- An info diagnostic
+  (`TCECAD_XML_STRUCTURED_ADDRESS_USED`) explains why per
+  variable.
+- After accepting all candidates, **the PIR builder will refuse**
+  with `PIR_BUILD_ACCEPTED_IO_INVALID_ADDRESS` because the
+  structured address doesn't map to PIR's `IoAddress` schema.
+  This is correct — the operator must resolve the Box → Siemens
+  address mapping out-of-band before promoting PIR.
+
+Sprint 78A also fixes the empty-candidate UX bug: an unrecognised
+XML now keeps the **Build PIR preview** button disabled with a
+"no reviewable candidates" reason instead of flipping the UI to
+"Ready to build". Verified via the public `TC ECAD IMPORT V2_2_x.xml`
+sample during manual testing.
+
+Full format reference + diagnostic table:
+[`docs/twincat-ecad-xml-format.md`](twincat-ecad-xml-format.md).
+
 ## Known limitations (Sprint 77)
 
 - **No persistence.** Refreshing the browser resets the workspace.

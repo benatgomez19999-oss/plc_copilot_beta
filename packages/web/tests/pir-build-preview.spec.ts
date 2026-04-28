@@ -264,8 +264,79 @@ describe('formatPirJson', () => {
 // Empty / invalid inputs
 // =============================================================================
 
+describe('Sprint 78A — empty-candidate UX fix', () => {
+  it('hasReviewableItems returns false for an all-empty candidate', async () => {
+    // Routes through the actual flow with an unrecognised XML
+    // body to mirror Sprint 77 manual testing with Beckhoff XML
+    // before the recognizer existed.
+    const r = await runElectricalIngestion({
+      sourceId: 's',
+      text: '<svg><path/></svg>',
+      fileName: 'unrecognised.xml',
+    });
+    expect(r.candidate.io.length).toBe(0);
+    expect(r.candidate.equipment.length).toBe(0);
+    expect(r.candidate.assumptions.length).toBe(0);
+    const preview = buildPirPreview(
+      r.candidate,
+      createInitialReviewState(r.candidate),
+      FIXED_OPTIONS,
+    );
+    expect(preview.ready).toBe(false);
+    expect(
+      preview.readyReasons.some((reason) => /no reviewable candidates/.test(reason)),
+    ).toBe(true);
+  });
+
+  it('Beckhoff/TwinCAT ECAD XML is recognised + produces reviewable IO (no UX bug)', async () => {
+    const tcecadXml = `<?xml version="1.0"?>
+<Project>
+  <Description>TcECAD Import V2.2.12</Description>
+  <CPUs>
+    <CPU><Name>EAA</Name>
+      <Interfaces><Interface><Name>EtherCAT1</Name><Type>ETHERCATPROT</Type><ChannelNo>1</ChannelNo>
+        <Boxes><Box><Name>DI1</Name><Type>EL1004</Type><BoxNo>1005</BoxNo>
+          <Variables><Variable>
+            <Name>S1</Name><Comment>Lichttaster</Comment>
+            <IsInput>true</IsInput><IoName>Input</IoName>
+            <IoGroup>Channel 1</IoGroup><IoDataType>BOOL</IoDataType>
+          </Variable></Variables>
+        </Box></Boxes>
+      </Interface></Interfaces>
+    </CPU>
+  </CPUs>
+</Project>`;
+    const r = await runElectricalIngestion({
+      sourceId: 's',
+      text: tcecadXml,
+      fileName: 'tc.xml',
+    });
+    expect(r.candidate.io.length).toBeGreaterThan(0);
+    const preview = buildPirPreview(
+      r.candidate,
+      createInitialReviewState(r.candidate),
+      FIXED_OPTIONS,
+    );
+    // Pending review items keep ready=false; not the empty-input
+    // reason this time. The point: the UX no longer flips ready
+    // to true on a real-but-pending TcECAD candidate.
+    expect(preview.ready).toBe(false);
+    expect(
+      preview.readyReasons.some((reason) => /pending review/.test(reason)),
+    ).toBe(true);
+    expect(
+      preview.readyReasons.some((reason) => /no reviewable candidates/.test(reason)),
+    ).toBe(false);
+  });
+});
+
 describe('buildPirPreview — empty / invalid inputs', () => {
-  it('handles an empty candidate (refuses with empty-input diagnostic)', () => {
+  it('Sprint 78A — empty candidate is NOT ready (gate refuses) and builder still returns empty-input diagnostic', () => {
+    // Sprint 77 left preview.ready=true here because the gate had
+    // no "empty" check. Sprint 78A makes both the gate and the
+    // builder refuse — gate via hasReviewableCandidates, builder
+    // via PIR_BUILD_EMPTY_ACCEPTED_INPUT (preserved as defence in
+    // depth).
     const empty: PirDraftCandidate = {
       id: 'empty',
       io: [],
@@ -275,7 +346,8 @@ describe('buildPirPreview — empty / invalid inputs', () => {
       sourceGraphId: 'g',
     };
     const preview = buildPirPreview(empty, createInitialReviewState(empty), FIXED_OPTIONS);
-    expect(preview.ready).toBe(true);
+    expect(preview.ready).toBe(false);
+    expect(preview.readyReasons.some((r) => /no reviewable candidates/.test(r))).toBe(true);
     expect(preview.result.pir).toBeUndefined();
     expect(
       preview.result.diagnostics.some((d) => d.code === 'PIR_BUILD_EMPTY_ACCEPTED_INPUT'),

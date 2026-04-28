@@ -119,12 +119,13 @@ describe('createSourceRegistry', () => {
 });
 
 describe('createDefaultSourceRegistry', () => {
-  it('comes pre-loaded with CSV + EPLAN-XML + EPLAN unsupported stub (Sprint 74)', () => {
+  it('comes pre-loaded with CSV + TcECAD + EPLAN-XML + EPLAN unsupported stub (Sprint 78A)', () => {
     const reg = createDefaultSourceRegistry();
     // Sprint 72: 1 ingestor (unsupported stub).
     // Sprint 73: +CSV → 2.
     // Sprint 74: +EPLAN XML → 3.
-    expect(reg.list().length).toBe(3);
+    // Sprint 78A: +TcECAD XML (in front of EPLAN XML) → 4.
+    expect(reg.list().length).toBe(4);
     // CSV input resolves to the CSV ingestor.
     const resolvedCsv = reg.resolve({
       sourceId: 's',

@@ -15,6 +15,10 @@ export type ElectricalSourceKind =
   | 'csv'
   | 'xml'
   | 'manual'
+  // Sprint 78A — Beckhoff/TwinCAT ECAD import XML. NOT EPLAN; this
+  // is a separate ECAD-export shape used by Beckhoff/TwinCAT
+  // tooling. Recognised by the dedicated TcECAD ingestor.
+  | 'twincat_ecad'
   | 'unknown';
 
 export interface SourceRef {
@@ -155,7 +159,18 @@ export type ElectricalDiagnosticCode =
   | 'EPLAN_XML_DUPLICATE_ADDRESS'
   | 'EPLAN_XML_DIRECTION_ADDRESS_CONFLICT'
   | 'EPLAN_XML_MISSING_SOURCE_REF'
-  | 'EPLAN_XML_PARTIAL_EXTRACTION';
+  | 'EPLAN_XML_PARTIAL_EXTRACTION'
+  // ---- Sprint 78A: Beckhoff/TwinCAT ECAD XML recognizer ----
+  | 'TCECAD_XML_DETECTED'
+  | 'TCECAD_XML_NO_VARIABLES'
+  | 'TCECAD_XML_MISSING_VARIABLE_NAME'
+  | 'TCECAD_XML_MISSING_BOX_CONTEXT'
+  | 'TCECAD_XML_UNSUPPORTED_IO_DATATYPE'
+  | 'TCECAD_XML_UNKNOWN_DIRECTION'
+  | 'TCECAD_XML_DUPLICATE_VARIABLE'
+  | 'TCECAD_XML_STRUCTURED_ADDRESS_USED'
+  | 'TCECAD_XML_DIRECTION_CONFLICT'
+  | 'TCECAD_XML_PARTIAL_EXTRACTION';
 
 export interface ElectricalDiagnostic {
   code: ElectricalDiagnosticCode;

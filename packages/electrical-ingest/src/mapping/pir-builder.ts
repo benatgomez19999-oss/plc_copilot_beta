@@ -148,9 +148,28 @@ export interface PirBuildResult {
 // ---------------------------------------------------------------------------
 
 /**
- * Domain-layer counterpart of the web helper. Returns `false` if any
- * IO / equipment / assumption is still pending OR if the candidate
- * carries any error-severity diagnostic.
+ * True if the candidate has at least one reviewable item across
+ * IO + equipment + assumptions. Sprint 78A added this so a
+ * candidate with literally nothing to review (e.g. an XML format
+ * the ingestor doesn't yet recognise) can no longer report itself
+ * as "ready" — the UX bug observed during Sprint 77 manual
+ * testing.
+ */
+export function hasReviewableCandidates(candidate: PirDraftCandidate): boolean {
+  if (!candidate || typeof candidate !== 'object') return false;
+  const io = candidate.io ?? [];
+  const eq = candidate.equipment ?? [];
+  const as = candidate.assumptions ?? [];
+  return io.length > 0 || eq.length > 0 || as.length > 0;
+}
+
+/**
+ * Domain-layer counterpart of the web helper. Returns `false` if:
+ *
+ *   - any IO / equipment / assumption is still pending, OR
+ *   - the candidate carries any error-severity diagnostic, OR
+ *   - the candidate has zero reviewable items (Sprint 78A — empty
+ *     candidates must not report themselves as ready).
  *
  * The web `isReadyForPirBuilder` and this function MUST agree on
  * semantics — the builder uses this one as the authoritative gate
@@ -163,6 +182,11 @@ export function isReviewedCandidateReadyForPirBuild(
 ): boolean {
   if (!candidate || typeof candidate !== 'object') return false;
   if (!state || typeof state !== 'object') return false;
+  // Sprint 78A — empty candidate is not ready. The builder still
+  // emits PIR_BUILD_EMPTY_ACCEPTED_INPUT defensively, but the gate
+  // now reports the situation up-front so the UI can disable the
+  // Build button without round-tripping through the builder.
+  if (!hasReviewableCandidates(candidate)) return false;
   for (const io of candidate.io ?? []) {
     if (getReviewedDecision(state, 'io', io.id) === 'pending') return false;
   }
@@ -570,6 +594,21 @@ export function buildPirFromReviewedCandidate(
       code: 'PIR_BUILD_REVIEW_NOT_READY',
       severity: 'error',
       message: 'review state is not an object — refusing to build PIR.',
+    });
+    return finaliseRefused(ctx);
+  }
+
+  // Sprint 78A — empty-candidate up-front check. Without this the
+  // builder would walk through to the post-mapping empty check; we
+  // emit the same `PIR_BUILD_EMPTY_ACCEPTED_INPUT` diagnostic with
+  // a clearer message ("nothing to review") so the UX surface
+  // shows the operator why the build refused.
+  if (!hasReviewableCandidates(candidate)) {
+    pushDiag(ctx, {
+      code: 'PIR_BUILD_EMPTY_ACCEPTED_INPUT',
+      severity: 'error',
+      message:
+        'candidate has no reviewable items — the ingestor extracted no IO, equipment, or assumptions from this source.',
     });
     return finaliseRefused(ctx);
   }

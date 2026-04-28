@@ -319,9 +319,20 @@ describe('isReviewedCandidateReadyForPirBuild', () => {
     expect(isReviewedCandidateReadyForPirBuild(c, acceptAll(c))).toBe(true);
   });
 
-  it('handles empty candidate (returns true — caller must check counts)', () => {
+  it('Sprint 78A — empty candidate is NOT ready (no reviewable items)', () => {
+    // Sprint 76 originally returned true here ("caller must check
+    // counts"). Sprint 77 manual testing showed an empty candidate
+    // would flow through the UI as "READY TO BUILD" without any
+    // reviewable items — exactly the UX bug Sprint 78A fixes by
+    // making the gate return false when there is nothing to review.
     const c = candidate({ io: [], equipment: [], assumptions: [], diagnostics: [] });
-    expect(isReviewedCandidateReadyForPirBuild(c, { ioCandidates: {}, equipmentCandidates: {}, assumptions: {} })).toBe(true);
+    expect(
+      isReviewedCandidateReadyForPirBuild(c, {
+        ioCandidates: {},
+        equipmentCandidates: {},
+        assumptions: {},
+      }),
+    ).toBe(false);
   });
 
   it('handles malformed inputs without throwing', () => {

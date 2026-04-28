@@ -1,15 +1,18 @@
 # Electrical-plan ingestion architecture
 
-> **Status: web end-to-end pipeline live (Sprint 77).** Sprint 72
-> scaffolded the architecture. Sprint 73 added the CSV ingestor.
-> Sprint 74 added the EPLAN structured XML ingestor v0. Sprint 75
-> added the Review UI v0. Sprint 76 added the PIR builder v0.
-> **Sprint 77** wires the full path inside `@plccopilot/web`:
-> file/text input → detectInputKind → real ingestor → review
-> panel (controlled-mode) → buildPirPreview → JSON / sourceMap /
-> diagnostics. Build PIR button is gated; the domain builder
-> remains the source of truth. No automatic codegen. Still no
-> PDF/OCR, no EDZ archive extraction, no codegen changes.
+> **Status: real-world ingestion hardening (Sprint 78A).** Sprint
+> 72 scaffolded the architecture. Sprint 73 added the CSV
+> ingestor. Sprint 74 added the EPLAN structured XML ingestor v0.
+> Sprint 75 added the Review UI v0. Sprint 76 added the PIR
+> builder v0. Sprint 77 wired the full path in `@plccopilot/web`.
+> **Sprint 78A** adds the Beckhoff/TwinCAT ECAD Import XML
+> recognizer (a real-world structured ECAD format observed during
+> Sprint 77 manual testing) + fixes the empty-candidate UX bug
+> where the UI flipped to "READY TO BUILD" with zero extracted
+> items. The web flow now routes XML through the default registry
+> so TcECAD claims its own input before the EPLAN catch-all fires.
+> Still no PDF/OCR, no EDZ/EPDZ archive extraction, no XML
+> namespace handling, no automatic codegen.
 
 ## Why this matters
 
@@ -539,8 +542,9 @@ encodes this by:
 | 74 | EPLAN structured XML ingestor v0 + minimal hand-rolled XML parser; 12 more diagnostic codes; XML routing owned by the EPLAN XML ingestor. |
 | 75 | Review UI v0 in `@plccopilot/web` — pure helpers + thin React components, 59 new web tests. |
 | 76 | PIR builder v0 in `@plccopilot/electrical-ingest`. Hard gate, role remap, sourceMap sidecar, validation against `@plccopilot/pir`. 67 new tests. |
-| **77** (this sprint) | Web end-to-end wiring in `@plccopilot/web`. Pure helpers (`detectInputKind`, `ingestElectricalInput`, `buildPirPreview`, `webReviewStateToPirBuildReviewState`). New components (`PirBuildPanel`, `PirJsonPreview`, `SourceMapPreview`, `BuildDiagnosticsPanel`, `ElectricalIngestionWorkspace`). `ElectricalReviewPanel` extended with optional controlled mode. Mounted in `App.tsx` as a collapsed `<details>` card so the existing PIR-JSON workflow is unchanged. 43 new tests. |
-| 78+ | One of: (a) real-world ingestion hardening (XML namespaces, EDZ extraction, anonymised samples); (b) web review persistence + PIR download + audit trail; (c) controlled codegen preview. Decision deferred until Sprint 77 results inform the choice. |
+| 77 | Web end-to-end wiring in `@plccopilot/web`. 43 new web tests. |
+| **78A** (this sprint) | Beckhoff/TwinCAT ECAD Import XML recognizer + empty-candidate UX fix. New diagnostics: 10 `TCECAD_XML_*` codes. Domain + web gates aligned: empty candidate is no longer "ready". `runElectricalIngestion` routes through the default registry so TcECAD claims XML first; EPLAN unchanged. 41 new electrical-ingest tests + 2 new web tests. |
+| 78B+ | One of: (a) further real-world hardening (XML namespaces, EDZ/EPDZ extraction, additional schema variants); (b) web review persistence + PIR download + audit trail; (c) controlled codegen preview. Decision deferred until more real-world samples land. |
 | later | EDZ archive extraction (real EPLAN containers), PDF fallback (only as last resort, OCR clearly flagged), Siemens TIA hardware-config import as an alternative source. |
 
 Each future sprint stays narrow: a single concrete source format
@@ -563,11 +567,12 @@ pnpm run ci
 Sprint 72 added 81 new tests. Sprint 73 added 46 more (CSV).
 Sprint 74 added 66 more (XML utils + EPLAN-XML). Sprint 75 added
 59 web-side tests inside `@plccopilot/web`. Sprint 76 added 67
-more in `electrical-ingest` (`pir-builder.spec.ts`). **Sprint 77
-adds 43 web-side tests** (`electrical-ingestion-flow.spec.ts`,
-`pir-build-preview.spec.ts`, `review-state-adapter.spec.ts`).
-Web grows from 640 → 683. `electrical-ingest` stays at 260. Repo
-total: 2781 → 2824 (+43). Existing codegen tests are unchanged.
+more in `electrical-ingest` (`pir-builder.spec.ts`). Sprint 77
+added 43 web-side tests. **Sprint 78A adds 41 electrical-ingest
+tests** (`twincat-ecad-xml.spec.ts`) + 2 new web tests
+(empty-candidate UX). `electrical-ingest`: 260 → 301. Web: 683 →
+685. Repo total: 2824 → 2867 (+43). Existing codegen tests are
+unchanged.
 
 The review workflow + PIR-builder gate semantics live in
 [`docs/electrical-review-workflow.md`](electrical-review-workflow.md);

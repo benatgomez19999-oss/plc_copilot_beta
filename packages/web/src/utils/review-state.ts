@@ -198,20 +198,38 @@ export function summarizeReviewState(
 
 /**
  * Convenience predicate for the "ready to promote to PIR" gate
- * (Sprint 76 will consume this). A candidate is ready when:
+ * (Sprint 76 builder consumes this). A candidate is ready when:
+ *   - it has at least one reviewable item (Sprint 78A — empty
+ *     candidates must not be reported as ready),
  *   - every IO + equipment + assumption is either accepted or
  *     rejected (no pending),
  *   - no `error`-severity diagnostic remains.
  *
- * Sprint 75 only renders the result; the actual gating is the
- * Sprint 76 PIR-builder's job.
+ * Mirror of the domain helper `isReviewedCandidateReadyForPirBuild`
+ * — both predicates MUST agree on semantics so the UI button and
+ * the builder gate refuse the same situations.
  */
 export function isReadyForPirBuilder(
   candidate: PirDraftCandidate,
   state: ElectricalReviewState,
 ): boolean {
+  if (!hasReviewableItems(candidate)) return false;
   const summary = summarizeReviewState(candidate, state);
   return summary.pending === 0 && summary.blockingDiagnostics === 0;
+}
+
+/**
+ * True if the candidate has at least one IO / equipment / assumption
+ * row to review. Mirror of the domain helper's
+ * `hasReviewableCandidates` — kept in web so the empty-candidate
+ * UX message can be raised without crossing package boundaries.
+ */
+export function hasReviewableItems(candidate: PirDraftCandidate): boolean {
+  if (!candidate || typeof candidate !== 'object') return false;
+  const io = candidate.io ?? [];
+  const eq = candidate.equipment ?? [];
+  const as = candidate.assumptions ?? [];
+  return io.length > 0 || eq.length > 0 || as.length > 0;
 }
 
 /**

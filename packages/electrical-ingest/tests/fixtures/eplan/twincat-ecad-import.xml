@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Anonymised, representative Beckhoff/TwinCAT ECAD Import XML
+  fixture for the Sprint 78A recognizer. Hand-edited to mirror the
+  shape observed during Sprint 77 manual testing of the public
+  TC ECAD IMPORT V2_2_x.xml; identifying customer / project / site
+  data has been replaced with neutral placeholders. NOT a vendor-
+  certified Beckhoff schema reference.
+-->
+<Project>
+  <Name>CPU1</Name>
+  <Author>anon</Author>
+  <Description>TcECAD Import V2.2.12</Description>
+  <ChangeDate>2026-04-28T00:00:00</ChangeDate>
+  <CPUs>
+    <CPU>
+      <Name><![CDATA[E/A - Konfiguration]]></Name>
+      <Interfaces>
+        <Interface>
+          <Name><![CDATA[=S1.7+S1-A1-A2/EtherCAT1]]></Name>
+          <Type>ETHERCATPROT</Type>
+          <ChannelNo>1</ChannelNo>
+          <Boxes>
+            <Box>
+              <Name><![CDATA[=S1.7+S1-DI1]]></Name>
+              <Type>EL1004</Type>
+              <BoxNo>1005</BoxNo>
+              <Variables>
+                <Variable>
+                  <Name><![CDATA[S1_1_DI_CH1]]></Name>
+                  <Comment><![CDATA[Lichttaster 1 — Sensor on conveyor entry]]></Comment>
+                  <IsInput>true</IsInput>
+                  <IoName><![CDATA[Input]]></IoName>
+                  <IoGroup>Channel 1</IoGroup>
+                  <IoDataType>BOOL</IoDataType>
+                </Variable>
+                <Variable>
+                  <Name><![CDATA[S1_1_DI_CH2]]></Name>
+                  <Comment><![CDATA[Reedkontakt 1 — Cylinder retracted feedback]]></Comment>
+                  <IsInput>true</IsInput>
+                  <IoName><![CDATA[Input]]></IoName>
+                  <IoGroup>Channel 2</IoGroup>
+                  <IoDataType>BOOL</IoDataType>
+                </Variable>
+                <Variable>
+                  <Name><![CDATA[S1_1_ESTOP]]></Name>
+                  <Comment><![CDATA[Notaus / E-stop chain]]></Comment>
+                  <IsInput>true</IsInput>
+                  <IoName><![CDATA[Input]]></IoName>
+                  <IoGroup>Channel 3</IoGroup>
+                  <IoDataType>BOOL</IoDataType>
+                </Variable>
+              </Variables>
+            </Box>
+            <Box>
+              <Name><![CDATA[=S1.7+S1-DO1]]></Name>
+              <Type>EL2004</Type>
+              <BoxNo>1006</BoxNo>
+              <Variables>
+                <Variable>
+                  <Name><![CDATA[S1_1_DO_VALVE]]></Name>
+                  <Comment><![CDATA[Magnetventil — Cylinder extend solenoid]]></Comment>
+                  <IsInput>false</IsInput>
+                  <IoName><![CDATA[Output]]></IoName>
+                  <IoGroup>Channel 1</IoGroup>
+                  <IoDataType>BOOL</IoDataType>
+                </Variable>
+                <Variable>
+                  <Name><![CDATA[S1_1_DO_MOTOR]]></Name>
+                  <Comment><![CDATA[Motor Schütz — Conveyor motor contactor]]></Comment>
+                  <IsInput>false</IsInput>
+                  <IoName><![CDATA[Output]]></IoName>
+                  <IoGroup>Channel 2</IoGroup>
+                  <IoDataType>BOOL</IoDataType>
+                </Variable>
+                <!-- Direction / IoName conflict — the recognizer must
+                     emit TCECAD_XML_DIRECTION_CONFLICT but still
+                     produce a node. -->
+                <Variable>
+                  <Name><![CDATA[S1_1_AMBIGUOUS]]></Name>
+                  <Comment><![CDATA[Ambiguous direction — IsInput=false but IoName=Input]]></Comment>
+                  <IsInput>false</IsInput>
+                  <IoName><![CDATA[Input]]></IoName>
+                  <IoGroup>Channel 3</IoGroup>
+                  <IoDataType>BOOL</IoDataType>
+                </Variable>
+              </Variables>
+            </Box>
+            <Box>
+              <Name><![CDATA[=S1.7+S1-AI1]]></Name>
+              <Type>EL3204</Type>
+              <BoxNo>1007</BoxNo>
+              <Variables>
+                <!-- Unsupported data type for the v0 mapping —
+                     produces TCECAD_XML_UNSUPPORTED_IO_DATATYPE
+                     warning + signal_type stays unknown. -->
+                <Variable>
+                  <Name><![CDATA[S1_1_AI_TEMP]]></Name>
+                  <Comment><![CDATA[Pt100 temperature reading]]></Comment>
+                  <IsInput>true</IsInput>
+                  <IoName><![CDATA[Input]]></IoName>
+                  <IoGroup>Channel 1</IoGroup>
+                  <IoDataType>STRING</IoDataType>
+                </Variable>
+              </Variables>
+            </Box>
+          </Boxes>
+        </Interface>
+      </Interfaces>
+    </CPU>
+  </CPUs>
+</Project>

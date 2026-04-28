@@ -14,9 +14,9 @@
 
 import {
   buildPirDraftCandidate,
-  createCsvElectricalIngestor,
-  createEplanXmlElectricalIngestor,
+  createDefaultSourceRegistry,
   createUnsupportedEplanIngestor,
+  ingestWithRegistry,
   type ElectricalDiagnostic,
   type ElectricalGraph,
   type ElectricalIngestionInput,
@@ -108,13 +108,16 @@ export async function ingestElectricalInput(
     files: [file],
   };
 
-  if (kind === 'csv') {
-    return createCsvElectricalIngestor().ingest(registryInput);
+  // Sprint 78A — route through the default registry so the
+  // Beckhoff/TwinCAT ECAD recognizer + the EPLAN XML ingestor both
+  // get a chance at the input. Earlier sprints called individual
+  // ingestors directly, but that bypassed the TcECAD detection
+  // chain. We still keep the explicit unsupported fall-through
+  // for `unknown` so the diagnostic message is friendly.
+  if (kind === 'unknown') {
+    return createUnsupportedEplanIngestor().ingest(registryInput);
   }
-  if (kind === 'xml') {
-    return createEplanXmlElectricalIngestor().ingest(registryInput);
-  }
-  return createUnsupportedEplanIngestor().ingest(registryInput);
+  return ingestWithRegistry(createDefaultSourceRegistry(), registryInput);
 }
 
 function synthesiseEmptyResult(message: string): ElectricalIngestionResult {

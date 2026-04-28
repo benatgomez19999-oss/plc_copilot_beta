@@ -205,9 +205,14 @@ describe('isReadyForPirBuilder', () => {
     expect(isReadyForPirBuilder(SAMPLE_REVIEW_CANDIDATE, state)).toBe(false);
   });
 
-  it('returns true for the empty candidate when nothing is pending and no errors', () => {
+  it('Sprint 78A — empty candidate is NOT ready (no reviewable items)', () => {
+    // Sprint 75 originally returned true here ("nothing pending,
+    // no errors → ready"). Sprint 77 manual testing of the public
+    // Beckhoff/TwinCAT XML showed an unrecognised XML produced an
+    // empty candidate that the UI then flipped to "READY TO BUILD".
+    // Sprint 78A makes the gate refuse in this situation.
     const state = createInitialReviewState(EMPTY_REVIEW_CANDIDATE);
-    expect(isReadyForPirBuilder(EMPTY_REVIEW_CANDIDATE, state)).toBe(true);
+    expect(isReadyForPirBuilder(EMPTY_REVIEW_CANDIDATE, state)).toBe(false);
   });
 });
 

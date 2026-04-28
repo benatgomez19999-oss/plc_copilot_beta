@@ -11,7 +11,7 @@ import {
   type PirDraftCandidate,
 } from '@plccopilot/electrical-ingest';
 
-import type { ElectricalReviewState } from './review-state.js';
+import { hasReviewableItems, type ElectricalReviewState } from './review-state.js';
 import { webReviewStateToPirBuildReviewState } from './review-state-adapter.js';
 
 export interface PirBuildPreview {
@@ -77,6 +77,18 @@ export function collectReadyReasons(
   state: ElectricalReviewState,
 ): string[] {
   const out: string[] = [];
+
+  // Sprint 78A — empty candidate is not ready. The reason has to
+  // be raised before the per-bag counters because if there's
+  // nothing to review, those counters would all read zero and the
+  // UX would silently flip to "ready" — exactly the bug the real
+  // Beckhoff/TwinCAT XML test surfaced.
+  if (!hasReviewableItems(candidate)) {
+    out.push(
+      'no reviewable candidates — the ingestor extracted no IO, equipment, or assumptions from this source',
+    );
+    return out;
+  }
 
   let pendingIo = 0;
   for (const io of candidate.io ?? []) {

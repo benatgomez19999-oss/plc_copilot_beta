@@ -186,9 +186,26 @@ export type {
 export {
   buildPirFromReviewedCandidate,
   canonicalisePirId,
+  hasReviewableCandidates,
   isReviewedCandidateReadyForPirBuild,
   mapCandidateDirection,
   mapCandidateEquipmentKind,
   parseCandidateAddress,
   remapEquipmentRoles,
 } from './mapping/pir-builder.js';
+
+// Sprint 78A — Beckhoff/TwinCAT ECAD XML recognizer.
+export type {
+  TcecadIngestionInput,
+  TcecadIngestionOptions,
+  TcecadParseResult,
+  TcecadVariableRecord,
+} from './sources/twincat-ecad-xml.js';
+export {
+  buildTcecadGraphId,
+  createTcecadXmlElectricalIngestor,
+  detectTcecadXml,
+  extractTcecadVariables,
+  ingestTcecadXml,
+  parseTcecadXml,
+} from './sources/twincat-ecad-xml.js';

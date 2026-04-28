@@ -8,6 +8,7 @@
 import { createCsvElectricalIngestor } from './csv.js';
 import { createEplanXmlElectricalIngestor } from './eplan-xml.js';
 import { createUnsupportedEplanIngestor } from './eplan.js';
+import { createTcecadXmlElectricalIngestor } from './twincat-ecad-xml.js';
 import type { EplanIngestionInput, EplanIngestor, EplanIngestionResult } from '../types.js';
 
 export interface SourceRegistry {
@@ -53,13 +54,17 @@ export function createSourceRegistry(): SourceRegistry {
 
 /**
  * Convenience: build a registry preloaded with the standard
- * Sprint-72/73/74 ingestors:
+ * Sprint-72/73/74/78A ingestors:
  *   1. CSV ingestor (Sprint 73) — handles `kind: 'csv'` files.
- *   2. EPLAN XML ingestor (Sprint 74) — handles `kind: 'xml'`
- *      files. Even unrecognised XML roots are handled here (with
- *      an honest `EPLAN_XML_UNKNOWN_ROOT` diagnostic) so XML never
- *      falls through to the silent unsupported stub.
- *   3. Unsupported EPLAN stub (Sprint 72) — fall-through for
+ *   2. **TcECAD XML ingestor (Sprint 78A)** — handles `kind: 'xml'`
+ *      files whose content matches the Beckhoff/TwinCAT ECAD
+ *      Import shape. Lives *before* the generic EPLAN XML
+ *      ingestor so it claims its own XML first.
+ *   3. EPLAN XML ingestor (Sprint 74) — handles every remaining
+ *      `kind: 'xml'` file. Unknown roots emit
+ *      `EPLAN_XML_UNKNOWN_ROOT` so XML never falls through to the
+ *      silent unsupported stub.
+ *   4. Unsupported EPLAN stub (Sprint 72) — fall-through for
  *      `edz` / `epdz` / `pdf` / `unknown` until real parsers ship.
  *
  * `resolve` walks the registered ingestors in registration order
@@ -68,6 +73,7 @@ export function createSourceRegistry(): SourceRegistry {
 export function createDefaultSourceRegistry(): SourceRegistry {
   const reg = createSourceRegistry();
   reg.register(createCsvElectricalIngestor());
+  reg.register(createTcecadXmlElectricalIngestor());
   reg.register(createEplanXmlElectricalIngestor());
   reg.register(createUnsupportedEplanIngestor());
   return reg;
