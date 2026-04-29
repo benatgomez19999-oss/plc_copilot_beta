@@ -297,7 +297,14 @@ export type ElectricalDiagnosticCode =
   // messages — the extractor still proceeds with column-aware
   // ordering. No new buildable evidence comes out of either.
   | 'PDF_LAYOUT_MULTI_COLUMN_DETECTED'
-  | 'PDF_LAYOUT_ROTATION_SUSPECTED';
+  | 'PDF_LAYOUT_ROTATION_SUSPECTED'
+  // ---- Sprint 84.1: PDF region-aware table walking ----
+  // Fires per page when block geometry resolves into ≥ 2
+  // vertical regions. Header→rows walks now respect those
+  // boundaries — a header in region A cannot absorb data rows
+  // in region B. Sparse: one info diagnostic per page where
+  // clustering actually fired.
+  | 'PDF_LAYOUT_REGION_CLUSTERED';
 
 export interface ElectricalDiagnostic {
   code: ElectricalDiagnosticCode;

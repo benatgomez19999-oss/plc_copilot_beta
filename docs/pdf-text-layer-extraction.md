@@ -188,6 +188,27 @@ takes the raw item stream and produces deterministic lines:
 The algorithm is total + side-effect-free; the same input always
 yields the same lines in the same order.
 
+### Sprint 84.1 — region-aware table walking
+
+Wires the Sprint 84 `clusterBlocksIntoRegions` helper into the
+PDF detector path:
+
+- `PdfTableDetectorLine` gained an optional `regionId?: string`
+  field. `pdf.ts` populates it per page when block geometry
+  resolves into ≥ 2 vertical regions; single-region pages stay
+  unscoped (no field, identical Sprint 84 behaviour).
+- `detectIoTables` header→rows walk stops at a region boundary
+  when both the header and the candidate row carry `regionId`s,
+  so a header in region A can never absorb data rows in region
+  B (footer / title-block / unrelated narrative on the same
+  ordered line stream).
+- One info diagnostic per page where clustering fired:
+  `PDF_LAYOUT_REGION_CLUSTERED`.
+
+Sprint 84 column-aware ordering + multi-column / rotation
+diagnostics, Sprint 83 rollup behaviour, and Sprint 81/82
+strict-address path are preserved verbatim.
+
 ### Sprint 84 — layout hardening v0
 
 Sprint 84 adds [`pdf-layout.ts`](../packages/electrical-ingest/src/sources/pdf-layout.ts):

@@ -1,6 +1,6 @@
 # Electrical-plan ingestion architecture
 
-> **Status: PDF layout hardening v0 (Sprint 84).** Sprint 72
+> **Status: PDF region-aware table walking (Sprint 84.1).** Sprint 72
 > scaffolded the architecture. Sprint 73 added the CSV ingestor.
 > Sprint 74 added the EPLAN structured XML ingestor v0. Sprint 75
 > added the Review UI v0. Sprint 76 added the PIR builder v0.
@@ -574,6 +574,38 @@ This keeps both branches of the strategic requirement — structured
 ECAD exports today and PDF documents tomorrow — funnelling through
 the same review/persist/export model. A weak prompt cannot
 override that model: it has no surface area in any of these layers.
+
+## Sprint 84.1 — PDF region-aware table walking
+
+Wires the Sprint 84 region-clustering helper into the PDF
+detector path:
+
+- `PdfTableDetectorLine` gained an optional
+  `regionId?: string` field. Backwards-compatible —
+  detector lines without it fall through to Sprint 81/83
+  unscoped behaviour.
+- `pdf.ts` (text-mode + bytes-mode) clusters each page's
+  ordered blocks via `clusterBlocksIntoRegions` and tags
+  detector lines with `pdf:p<page>:r<index>` ids when the page
+  resolves into ≥ 2 regions. One info diagnostic per page
+  where clustering fired: `PDF_LAYOUT_REGION_CLUSTERED`.
+- `detectIoTables` header→rows walk now stops at a region
+  boundary: a header in region A cannot absorb data rows in
+  region B (footer / title-block / unrelated narrative on the
+  same ordered line stream).
+
+Sprint 82's strictness, Sprint 83A's classifier, Sprint 83B's
+hygiene gate, Sprint 83C's cross-page single call, Sprint 83D's
+canonical-section-role keying, Sprint 83E's helper-side
+projection, Sprint 83F's per-page `additionalSourceRefs`, and
+Sprint 84's column-aware ordering + multi-column / rotation
+diagnostics are all preserved verbatim. Volume / safety
+hardening only — no new extraction capability, no schema bump
+on existing consumers, no canvas rendering. Confidence still
+capped at 0.65.
+
+Manual acceptance:
+[`docs/pdf-manual-acceptance-sprint-84-1.md`](pdf-manual-acceptance-sprint-84-1.md).
 
 ## Sprint 84 — PDF layout hardening v0
 

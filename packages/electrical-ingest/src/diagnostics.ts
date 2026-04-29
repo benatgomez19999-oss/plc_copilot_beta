@@ -179,6 +179,8 @@ function defaultSeverityForCode(
     // Sprint 84 — layout-analysis info diagnostics.
     case 'PDF_LAYOUT_MULTI_COLUMN_DETECTED':
     case 'PDF_LAYOUT_ROTATION_SUSPECTED':
+    // Sprint 84.1 — region-aware table walking diagnostic.
+    case 'PDF_LAYOUT_REGION_CLUSTERED':
       return 'info';
     default: {
       // Exhaustiveness — TS will flag a missing case if a code is

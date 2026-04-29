@@ -1,7 +1,7 @@
-# PDF ingestion architecture — Sprint 79 → 80 → 81 → 82 → 83A → 83B → 83C → 83D → 83E → 83F → 84
+# PDF ingestion architecture — Sprint 79 → 80 → 81 → 82 → 83A → 83B → 83C → 83D → 83E → 83F → 84 → 84.1
 
-> **Status: PDF layout hardening v0 (Sprint 84) on top of
-> Sprint 83F per-occurrence drilldown.**
+> **Status: PDF region-aware table walking (Sprint 84.1) on top
+> of Sprint 84 layout hardening v0.**
 > Sprint 79 landed the foundation. Sprint 80 added a real
 > text-layer extractor. Sprint 81 added IO-list table extraction
 > + the first acceptance harness. Sprint 82 closed a real-world
@@ -64,6 +64,40 @@ did this fact come from?" before it can promote to PIR.
 - **No PLC codegen.** Always.
 - **No raw PDF persistence.** The Sprint 78B review-session
   snapshot does NOT carry the PDF bytes (privacy default).
+
+## Sprint 84.1 — what changed on top of Sprint 84
+
+Region-aware table walking. Sprint 84 introduced
+`clusterBlocksIntoRegions` as a pure helper but did not consume
+it. Sprint 84.1 wires it in:
+
+- `PdfTableDetectorLine` gained an optional `regionId?: string`
+  field. Backwards-compatible — when absent, the detector falls
+  through to Sprint 81/83 unscoped behaviour.
+- `pdf.ts` (text-mode + bytes-mode) clusters each page's
+  ordered blocks via `clusterBlocksIntoRegions` and tags
+  detector lines with `pdf:p<page>:r<index>` ids when the
+  result is ≥ 2 regions.
+- One info diagnostic per page where clustering fired:
+  `PDF_LAYOUT_REGION_CLUSTERED`. Sparse — never per-row.
+- `detectIoTables` header→rows walk now stops at a region
+  boundary: a header in region A cannot absorb data rows in
+  region B. The barrier requires both endpoints to be tagged;
+  mixed inputs fall through to unscoped behaviour.
+
+Sprint 82 strictness, Sprint 83A classifier, Sprint 83B
+hygiene gate, Sprint 83C cross-page call, Sprint 83D canonical
+keying, Sprint 83E rep-only fallback, Sprint 83F per-page
+`additionalSourceRefs`, and Sprint 84 column-aware ordering +
+multi-column / rotation diagnostics are all preserved verbatim.
+Volume / safety hardening only — no new extraction capability,
+no schema bump on existing consumers, no canvas rendering. The
+non-IO rollup branch is unchanged: a BOM region on page 80 and
+a BOM region on page 81 still collapse into one rollup via the
+Sprint 83D canonical-section-role keying.
+
+Manual acceptance:
+[`docs/pdf-manual-acceptance-sprint-84-1.md`](pdf-manual-acceptance-sprint-84-1.md).
 
 ## Sprint 84 — what changed on top of Sprint 83F
 

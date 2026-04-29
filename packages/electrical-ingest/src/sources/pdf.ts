@@ -76,6 +76,7 @@ import {
   type PdfTextLayerLine,
 } from './pdf-text-normalize.js';
 import {
+  clusterBlocksIntoRegions,
   detectColumnLayout,
   detectPageRotation,
   orderBlocksByLayout,
@@ -994,6 +995,14 @@ export async function ingestPdf(
     // interleave unrelated columns into the detector input.
     // No-op for test-mode (no bboxes) — Sprint 79/81 ordering
     // is preserved verbatim.
+    //
+    // Sprint 84.1 — also cluster each page's ordered blocks into
+    // vertical regions and tag detector lines with a `regionId`,
+    // so `detectIoTables` cannot bridge a header in one region
+    // with data rows in another (footer / title-block / unrelated
+    // narrative on the same line stream). Region tagging only
+    // fires when geometry resolves ≥ 2 regions; single-region
+    // pages stay unscoped (no `regionId` set).
     const allDetectorLines: PdfTableDetectorLine[] = [];
     for (const page of document.pages) {
       const orderedBlocks = orderBlocksByLayout(page.textBlocks, {
@@ -1028,12 +1037,34 @@ export async function ingestPdf(
           }),
         );
       }
+      const regions = clusterBlocksIntoRegions(orderedBlocks);
+      const regionIdByBlockId = new Map<string, string>();
+      if (regions.length >= 2) {
+        aggregated.push(
+          createElectricalDiagnostic({
+            code: 'PDF_LAYOUT_REGION_CLUSTERED',
+            severity: 'info',
+            message:
+              `Clustered page ${page.pageNumber} into ${regions.length} ` +
+              `vertical region(s); IO-table walks are scoped to a single region.`,
+          }),
+        );
+        regions.forEach((region, idx) => {
+          const rid = `pdf:p${page.pageNumber}:r${idx + 1}`;
+          for (const b of region.blocks) {
+            regionIdByBlockId.set(b.id, rid);
+          }
+        });
+      }
       for (const block of orderedBlocks) {
-        allDetectorLines.push({
+        const line: PdfTableDetectorLine = {
           block,
           items: undefined,
           pageNumber: page.pageNumber,
-        });
+        };
+        const rid = regionIdByBlockId.get(block.id);
+        if (rid) line.regionId = rid;
+        allDetectorLines.push(line);
       }
     }
     const tableResult = detectIoTables({
@@ -1272,10 +1303,39 @@ function buildPdfDocumentFromExtraction(
       pageWidth: page.width,
       pageHeight: page.height,
     });
+    // Sprint 84.1 — region clustering on the same ordered blocks.
+    const regions = clusterBlocksIntoRegions(ordered);
+    const regionIdByBlockId = new Map<string, string>();
+    if (regions.length >= 2) {
+      diagnostics.push(
+        createElectricalDiagnostic({
+          code: 'PDF_LAYOUT_REGION_CLUSTERED',
+          severity: 'info',
+          message:
+            `Clustered page ${page.pageNumber} into ${regions.length} ` +
+            `vertical region(s); IO-table walks are scoped to a single region.`,
+        }),
+      );
+      regions.forEach((region, idx) => {
+        const rid = `pdf:p${page.pageNumber}:r${idx + 1}`;
+        for (const b of region.blocks) {
+          regionIdByBlockId.set(b.id, rid);
+        }
+      });
+    }
     const lineByBlockId = new Map(lines.map((l) => [l.block.id, l]));
     for (const block of ordered) {
       const line = lineByBlockId.get(block.id);
-      if (line) allDetectorLines.push(line);
+      if (!line) continue;
+      const rid = regionIdByBlockId.get(block.id);
+      if (rid) {
+        // Sprint 84.1 — clone (shallow) so we don't mutate the
+        // input detector-line array that the caller may still
+        // be using.
+        allDetectorLines.push({ ...line, regionId: rid });
+      } else {
+        allDetectorLines.push(line);
+      }
     }
   }
   if (allDetectorLines.length > 0) {

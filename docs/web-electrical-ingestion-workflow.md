@@ -1,4 +1,4 @@
-# Web electrical-ingestion workflow — Sprint 77 → 78B → 79 → 80 → 81 → 82 → 83A → 83B → 83C → 83D → 83E → 83F → 84
+# Web electrical-ingestion workflow — Sprint 77 → 78B → 79 → 80 → 81 → 82 → 83A → 83B → 83C → 83D → 83E → 83F → 84 → 84.1
 
 > **Status: end-to-end pipeline live in `@plccopilot/web`
 > (Sprint 77 → 78A → 78B → 79 → 80 → 81 → 82).** CSV / EPLAN XML /
@@ -73,6 +73,16 @@
 > only reorders + flags — no new extraction capability, no UI
 > change, no canvas rendering. Sprint 84 acceptance:
 > [`docs/pdf-manual-acceptance-sprint-84.md`](pdf-manual-acceptance-sprint-84.md).
+> **Sprint 84.1** then wires region clustering into the PDF
+> detector path: detector lines carry an optional `regionId`,
+> and the IO header→rows walk stops at region boundaries so a
+> header can no longer absorb a footer/title-block/narrative
+> line that happens to look IO-shaped. One sparse info
+> diagnostic per page (`PDF_LAYOUT_REGION_CLUSTERED`). UX-
+> visible only when the operator scans diagnostics; the rollup
+> stream and per-page evidence remain identical. Sprint 84.1
+> acceptance:
+> [`docs/pdf-manual-acceptance-sprint-84-1.md`](pdf-manual-acceptance-sprint-84-1.md).
 
 ## Run the dev server
 

@@ -593,6 +593,15 @@ export interface PdfTableDetectorLine {
   items?: Array<{ text: string; x: number; width: number }>;
   /** 1-based page number for the parent `PdfTableCandidate`. */
   pageNumber: number;
+  /**
+   * Sprint 84.1 — optional region identifier scoping the detector
+   * walk. Lines in different regions never participate in the same
+   * header→rows walk: a header in region A cannot absorb data rows
+   * in region B even when they appear consecutively in the line
+   * stream. Backwards-compatible — when absent, the detector falls
+   * through to the Sprint 81/83 unscoped behaviour.
+   */
+  regionId?: string;
 }
 
 export interface PdfTableDetectionResult {
@@ -1208,6 +1217,14 @@ export function detectIoTables(args: {
     }
     // Header found. Walk forward while subsequent lines look like
     // IO rows OR are blank-shaped continuation lines.
+    //
+    // Sprint 84.1 — region barrier. When the header line carries a
+    // `regionId`, the walk stops as soon as `next.regionId` differs:
+    // a header in region A may not absorb data rows from region B
+    // (footer / title-block / unrelated narrative on the same
+    // ordered line stream). When the header has no region (older
+    // ingestion paths or test-mode without geometry), the walk
+    // falls through to the Sprint 81/83 unscoped behaviour.
     const headerRow: PdfTableRowCandidate = {
       cells: [line.block],
       confidence: 0.65,
@@ -1220,6 +1237,13 @@ export function detectIoTables(args: {
     let extracted = 0;
     while (j < lines.length) {
       const next = lines[j];
+      if (
+        line.regionId !== undefined &&
+        next.regionId !== undefined &&
+        next.regionId !== line.regionId
+      ) {
+        break;
+      }
       if (looksLikeIoRow(next.block.text)) {
         dataRows.push({
           cells: [next.block],
