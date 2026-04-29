@@ -1,6 +1,6 @@
 # Electrical-plan ingestion architecture
 
-> **Status: PDF table-family classifier hardening (Sprint 83A).** Sprint 72
+> **Status: PDF non-IO diagnostic hygiene + classifier throttling (Sprint 83B).** Sprint 72
 > scaffolded the architecture. Sprint 73 added the CSV ingestor.
 > Sprint 74 added the EPLAN structured XML ingestor v0. Sprint 75
 > added the Review UI v0. Sprint 76 added the PIR builder v0.
@@ -575,6 +575,47 @@ ECAD exports today and PDF documents tomorrow — funnelling through
 the same review/persist/export model. A weak prompt cannot
 override that model: it has no surface area in any of these layers.
 
+## Sprint 83B — PDF diagnostic hygiene + classifier throttling
+
+Diagnostic-hygiene sprint surfaced by the Sprint 83A manual run
+on `TcECAD_Import_V2_2_x.pdf`. Sprint 83A's classifier was safe
+(BOM headers no longer became IO-list candidates), but the
+non-IO branch fired once per **line**, producing hundreds of
+duplicate non-IO family diagnostics across vendor-metadata
+footers, repeated title-block lines, and body rows that
+incidentally hit a strong family token.
+
+Sprint 83B layers three cooperating helpers in
+`packages/electrical-ingest/src/sources/pdf-table-detect.ts`:
+
+- `isFooterOrTitleBlockLine` recognises repeated
+  title-block/footer metadata (`Datum … Seite`, `Bearb …`,
+  `Änderungsdatum …`, `Anzahl der Seiten …`, trailing `Seite N
+  von M`). Footer lines never produce a non-IO diagnostic.
+- `passesNonIoFamilyHeaderShapeGate` requires either a
+  canonical family-title regex (`Stückliste`, `Klemmenplan`,
+  `Kabelübersicht`, `Inhaltsverzeichnis`, `Legende`, …) OR
+  ≥ 3 strong family-token hits AND ≥ 4 total non-trivial
+  tokens. Single-strong-token lines (`Fabrikat BECKHOFF`,
+  `Klemmen `) and body rows (`=CABLE&EMB/24 2`) are
+  suppressed.
+- `nonIoFamilyDiagnosticSignature` produces a normalised dedup
+  key. The `detectIoTables` dedup key is now
+  `${sourceId}:${page}:${family}:${signature}`, collapsing
+  intra-page repeats while preserving per-page granularity.
+
+Sprint 82's address strictness and Sprint 83A's family
+classifier semantics are preserved verbatim. Sprint 83B is
+hygiene only — no new extraction capability.
+
+The realistic TcECAD-style integration test asserts ≤ 2 family
+diagnostics for a 9-line mock page (footer + vendor metadata +
+canonical BOM header + body rows), down from the Sprint 83A
+6+ baseline.
+
+Manual acceptance:
+[`docs/pdf-manual-acceptance-sprint-83B.md`](pdf-manual-acceptance-sprint-83B.md).
+
 ## Sprint 83A — PDF table-family classifier hardening
 
 Sprint 83A closes a diagnostic-noise gap surfaced by the Sprint
@@ -815,10 +856,11 @@ encodes this by:
 | 80 | PDF text-layer extraction v0. `pdfjs-dist@^5.7.284` (legacy Node build) added as runtime dep of `@plccopilot/electrical-ingest`. Isolated adapter + line-grouping. `ingestPdf` is now async. 5 new diagnostics. Sprint 79 stub codes retired on the success path. 22 domain tests + 2 web tests. |
 | 81 | PDF IO/table extraction v0. New `sources/pdf-table-detect.ts`. `extractIoRow` multi-pattern. 13 new `PDF_*` diagnostics. First deterministic PDF acceptance harness (`pdf-acceptance.spec.ts` — 4 cases). 36 new domain tests. |
 | 82 | PDF address strictness + source-evidence hardening. New `sources/pdf-address-strictness.ts`. `extractIoRow` rejects channel-marker tags; non-strict addresses preserved as evidence. `buildGraphFromIoRows` skips `plc_channel:` + edges for non-strict rows. 8 new `PDF_*` diagnostics. Web `review-source-refs.ts` surfaces `snippet` + `bbox`. 42 new domain tests + 4 new web tests. Manual TcECAD regression: `%I1`/`%I3` PIR builds no longer reproduce. |
-| **83A** (this sprint) | **PDF table-family classifier hardening.** New `classifyPdfTableHeader` returning `'io_list' \| 'bom_parts_list' \| 'terminal_list' \| 'cable_list' \| 'contents_index' \| 'legend' \| 'unknown'` with strong-token sets per family + auditable reasons. `detectIoTableHeader` returns `null` for non-IO families even when the role floor passes; `detectIoTables` emits family-specific info diagnostics deduped by `(family, page, blockId)`. 7 new `PDF_*` diagnostics. 35 new domain tests. Manual TcECAD regression: BOM pages 80–86 no longer flagged as IO-list. |
+| 83A | PDF table-family classifier hardening. New `classifyPdfTableHeader` returning `'io_list' \| 'bom_parts_list' \| 'terminal_list' \| 'cable_list' \| 'contents_index' \| 'legend' \| 'unknown'` with strong-token sets per family + auditable reasons. `detectIoTables` emits family-specific info diagnostics deduped by `(family, page, blockId)`. 7 new `PDF_*` diagnostics. 35 new domain tests. |
+| **83B** (this sprint) | **PDF diagnostic hygiene + classifier throttling.** Sprint 83A non-IO branch fired once per line; Sprint 83B adds `isFooterOrTitleBlockLine` (5 footer regexes), `passesNonIoFamilyHeaderShapeGate` (≥ 3 strong tokens AND ≥ 4 total tokens, OR canonical title-pattern), and signature-based per-page dedup (`${sourceId}:${page}:${family}:${signature}`). Vendor metadata + repeated footers + body rows that incidentally hit a strong family token are now suppressed. The Sprint 83A test for the bare `Kabel Ader Quelle Ziel` cable header was updated to use the canonical `Kabelübersicht …` form (which still passes the gate). 36 new domain tests. **Manual TcECAD regression:** non-IO family diagnostics drop from hundreds to a manageable count; safety guarantees (no `%I1`/`%I3` PIR build, no IO candidates from BOM pages) preserved. |
 | 83 (planned) | PDF source-evidence UX — optional page preview with bbox overlays, click-through from candidate to source region, better operator trust during review. |
-| 83B (alt) | PDF layout hardening — multi-column ordering, rotated pages, coordinate normalisation, region clustering, better column-position detection. |
-| 83C (alt) | More structured-source hardening — XML namespaces, EDZ/EPDZ archive extraction, additional TcECAD/EPLAN schema variants. |
+| 83C (alt) | PDF layout hardening — multi-column ordering, rotated pages, coordinate normalisation, region clustering, better column-position detection. |
+| 83D (alt) | More structured-source hardening — XML namespaces, EDZ/EPDZ archive extraction, additional TcECAD/EPLAN schema variants. |
 | later | OCR fallback (only as a flagged opt-in), symbol/connection-graph recognition, cross-page references, Siemens TIA hardware-config import, controlled codegen preview gated on accepted PIR. |
 
 Each future sprint stays narrow: a single concrete source format
@@ -857,15 +899,19 @@ Sprint 82 added 42 electrical-ingest tests (strictness classifier
 + gate inside `ingestPdf` + `PdfDraftCandidate` channel-marker
 regression) + 4 web tests (source-ref drilldown surfacing PDF
 snippet / bbox).
-**Sprint 83A adds 35 electrical-ingest tests**
-(`pdf-table-family.spec.ts`) covering family classification (16),
-the IO-only `detectIoTableHeader` gate (6), the
-`detectIoTables` non-IO family diagnostics with deduplication
-(9), and `ingestPdf` end-to-end with BOM-only / mixed BOM-IO /
-Sprint 82 channel-marker regression / strict-address regression
-(4). No web changes.
-`electrical-ingest`: 445 → 480 (+35). Web: 797 → 797 (no change).
-Repo total: 3123 → 3158 (+35). Existing codegen tests are
+Sprint 83A added 35 electrical-ingest tests
+(`pdf-table-family.spec.ts`).
+**Sprint 83B adds 36 electrical-ingest tests**
+(`pdf-table-family-throttling.spec.ts`) covering
+`isFooterOrTitleBlockLine` (7), `passesNonIoFamilyHeaderShapeGate`
+(9), `nonIoFamilyDiagnosticSignature` (4), `detectIoTables`
+integration (12 — footer / weak-token / BOM-canonical / dedup /
+body-row / IO regression), and `ingestPdf` end-to-end with the
+realistic TcECAD-style fixture (4 — compact diagnostic stream,
+Sprint 82 channel-marker regression, strict-address regression,
+mixed BOM page + real IO page). No web changes.
+`electrical-ingest`: 480 → 516 (+36). Web: 797 → 797 (no change).
+Repo total: 3158 → 3194 (+36). Existing codegen tests are
 unchanged.
 
 The review workflow + PIR-builder gate semantics live in

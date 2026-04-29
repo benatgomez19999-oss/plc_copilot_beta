@@ -274,6 +274,13 @@ export type {
 } from './sources/pdf-table-detect.js';
 export { classifyPdfTableHeader } from './sources/pdf-table-detect.js';
 
+// Sprint 83B — non-IO family diagnostic-hygiene helpers.
+export {
+  isFooterOrTitleBlockLine,
+  passesNonIoFamilyHeaderShapeGate,
+  nonIoFamilyDiagnosticSignature,
+} from './sources/pdf-table-detect.js';
+
 // Sprint 82 — PDF-specific address strictness.
 export type {
   PdfAddressClassification,

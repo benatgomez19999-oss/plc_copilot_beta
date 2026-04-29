@@ -1,4 +1,4 @@
-# PDF ingestion architecture — Sprint 79 → 80 → 81 → 82 → 83A
+# PDF ingestion architecture — Sprint 79 → 80 → 81 → 82 → 83A → 83B
 
 > **Status: PDF address strictness + source-evidence hardening
 > (Sprint 82).** Sprint 79 landed the foundation. Sprint 80
@@ -55,6 +55,51 @@ did this fact come from?" before it can promote to PIR.
 - **No PLC codegen.** Always.
 - **No raw PDF persistence.** The Sprint 78B review-session
   snapshot does NOT carry the PDF bytes (privacy default).
+
+## Sprint 83B — what changed on top of Sprint 83A
+
+Diagnostic-hygiene sprint. No new extraction capability; the
+Sprint 83A family classifier and Sprint 82 strictness gate
+stay verbatim.
+
+The Sprint 83A non-IO branch deduplicated by
+`(family, page, blockId)` — but every line of an 86-page
+TcECAD PDF has a different `blockId`, so vendor-metadata
+footers, repeated title-block lines, and body rows that
+incidentally hit a strong family token each emitted their own
+diagnostic. The manual run on `TcECAD_Import_V2_2_x.pdf`
+produced **hundreds** of duplicate non-IO family diagnostics.
+
+Sprint 83B adds three cooperating helpers in
+[`pdf-table-detect.ts`](../packages/electrical-ingest/src/sources/pdf-table-detect.ts):
+
+- `isFooterOrTitleBlockLine(text)` — recognises German
+  title-block / footer metadata (`Datum … Seite`, `Bearb …`,
+  `Änderungsdatum …`, `Anzahl der Seiten …`, trailing
+  `Seite N von M`). Footer lines NEVER produce a non-IO
+  family diagnostic.
+- `passesNonIoFamilyHeaderShapeGate(text, classification)` —
+  requires a canonical family-title regex match
+  (`Stückliste`, `Klemmenplan`, `Kabelübersicht`,
+  `Inhaltsverzeichnis`, `Legende`, …) OR ≥ 3 strong family
+  tokens AND ≥ 4 total non-trivial tokens. Single-strong-token
+  lines (`Fabrikat BECKHOFF`, `Klemmen `, `Hersteller (Firma)
+  …`) and body rows (`=CABLE&EMB/24 2`) are suppressed.
+- `nonIoFamilyDiagnosticSignature(text)` — normalised dedup
+  key (lowercase + collapse whitespace + cap at 120 chars).
+  The `detectIoTables` dedup key changed to
+  `${sourceId}:${page}:${family}:${signature}`, so identical
+  headers within a page collapse to one diagnostic; the same
+  header on a different page still produces one (per-page
+  granularity preserved).
+
+For the realistic TcECAD-style mock page (footer + vendor
+metadata + canonical BOM header + body rows), the Sprint 83B
+integration test asserts ≤ 2 non-IO family diagnostics, down
+from the Sprint 83A 6+ baseline.
+
+Manual acceptance: documented in
+[`docs/pdf-manual-acceptance-sprint-83B.md`](pdf-manual-acceptance-sprint-83B.md).
 
 ## Sprint 83A — what changed on top of Sprint 82
 
@@ -525,7 +570,29 @@ Each step must keep the architectural invariant intact: every
 extracted fact carries a `SourceRef`, never auto-promotes to PIR,
 and is reviewable by a human before any downstream consumer.
 
-## Test coverage (Sprint 79 + 80 + 81 + 82 + 83A)
+## Test coverage (Sprint 79 + 80 + 81 + 82 + 83A + 83B)
+
+Sprint 83B — new:
+- `packages/electrical-ingest/tests/pdf-table-family-throttling.spec.ts` —
+  36 tests: `isFooterOrTitleBlockLine` (7) covering each
+  title-block/footer pattern + non-matches + defensiveness;
+  `passesNonIoFamilyHeaderShapeGate` (9) covering canonical
+  titles + multi-strong-token + weak-token suppression +
+  defensiveness; `nonIoFamilyDiagnosticSignature` (4)
+  covering normalisation + cap + dedup-friendliness;
+  `detectIoTables` integration (12) covering footer
+  suppression (3), weak single-token suppression (3), BOM
+  canonical header (1), per-page-per-signature dedup (2),
+  body-row suppression (2), IO-list regression (1);
+  `ingestPdf` integration with realistic TcECAD-style fixture
+  (4) — compact diagnostic stream, Sprint 82 channel-marker
+  regression, strict-address regression, mixed BOM page +
+  real IO page.
+- `packages/electrical-ingest/tests/pdf-table-family.spec.ts` —
+  Sprint 83A test 3 updated: bare `Kabel Ader Quelle Ziel` is
+  now suppressed by the hygiene gate (only 2 strong cable
+  tokens); the canonical `Kabelübersicht …` title still
+  passes.
 
 Sprint 83A — new:
 - `packages/electrical-ingest/tests/pdf-table-family.spec.ts` —

@@ -1,4 +1,4 @@
-# Web electrical-ingestion workflow — Sprint 77 → 78B → 79 → 80 → 81 → 82 → 83A
+# Web electrical-ingestion workflow — Sprint 77 → 78B → 79 → 80 → 81 → 82 → 83A → 83B
 
 > **Status: end-to-end pipeline live in `@plccopilot/web`
 > (Sprint 77 → 78A → 78B → 79 → 80 → 81 → 82).** CSV / EPLAN XML /
@@ -16,11 +16,16 @@
 > Sprint 81 includes the first deterministic PDF acceptance
 > harness; Sprint 82's regression scenario is documented in
 > [`docs/pdf-manual-acceptance-sprint-82.md`](pdf-manual-acceptance-sprint-82.md).
-> **Sprint 83A** adds a table-family classifier so BOM /
-> terminal / cable / contents / legend headers no longer surface
-> as IO-list-shaped — diagnostic stream is now precise. Sprint
-> 83A acceptance:
+> Sprint 83A adds a table-family classifier so BOM / terminal /
+> cable / contents / legend headers no longer surface as
+> IO-list-shaped. **Sprint 83B** then throttles the classifier's
+> diagnostic stream — repeated footers, vendor-metadata lines,
+> and body rows that incidentally hit a strong family token are
+> now suppressed; identical headers within a page collapse to
+> one diagnostic. Sprint 83A acceptance:
 > [`docs/pdf-manual-acceptance-sprint-83A.md`](pdf-manual-acceptance-sprint-83A.md).
+> Sprint 83B acceptance:
+> [`docs/pdf-manual-acceptance-sprint-83B.md`](pdf-manual-acceptance-sprint-83B.md).
 
 ## Run the dev server
 

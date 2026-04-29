@@ -188,6 +188,33 @@ takes the raw item stream and produces deterministic lines:
 The algorithm is total + side-effect-free; the same input always
 yields the same lines in the same order.
 
+### Sprint 83B — diagnostic-hygiene throttling
+
+The Sprint 83A non-IO family branch fired once per **block id**,
+which on real-world 86-page PDFs produced hundreds of duplicate
+diagnostics for vendor-metadata footers, title-block lines, and
+incidental body rows. Sprint 83B layers three cooperating
+helpers on top of the family classifier:
+
+- `isFooterOrTitleBlockLine(text)` — recognises German
+  title-block / footer metadata (`Datum … Seite`, `Bearb …`,
+  `Änderungsdatum …`, `Anzahl der Seiten …`, trailing
+  `Seite N von M`). Footer lines never produce a non-IO family
+  diagnostic.
+- `passesNonIoFamilyHeaderShapeGate(text, classification)` —
+  only lets diagnostics through when the line is header-shaped
+  (canonical family-title regex match OR ≥ 3 strong family
+  tokens AND ≥ 4 total non-trivial tokens).
+- `nonIoFamilyDiagnosticSignature(text)` — normalised dedup
+  signature (lowercase + collapse whitespace + cap at 120
+  chars). The dedup key in `detectIoTables` is now
+  `${sourceId}:${page}:${family}:${signature}`, so identical
+  headers within a page collapse to one diagnostic.
+
+The Sprint 83A family classifier and the Sprint 82 strictness
+gate are preserved verbatim. Sprint 83B is hygiene only — no new
+extraction capability.
+
 ### Sprint 83A — header family classifier
 
 After line-grouping, `detectIoTableHeader` runs the line text

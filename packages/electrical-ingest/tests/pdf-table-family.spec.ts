@@ -240,10 +240,14 @@ describe('detectIoTables — Sprint 83A non-IO family diagnostics', () => {
     ).toContain('PDF_TERMINAL_TABLE_DETECTED');
   });
 
-  it('3. cable-list header emits PDF_CABLE_TABLE_DETECTED + creates no table', () => {
+  it('3. cable-list header (canonical title) emits PDF_CABLE_TABLE_DETECTED + creates no table', () => {
+    // Sprint 83B — the bare "Kabel Ader Quelle Ziel" line carries
+    // only 2 strong cable tokens, which is now suppressed by the
+    // hygiene gate. The canonical "Kabelübersicht …" title still
+    // passes the gate (canonical-title regex match).
     const result = detectIoTables({
       sourceId: 's1',
-      lines: [line('Kabel Ader Quelle Ziel', 1, 1)],
+      lines: [line('Kabelübersicht Kabel Ader Quelle Ziel', 1, 1)],
     });
     expect(result.tables).toEqual([]);
     expect(result.diagnostics.map((d) => d.code)).toContain(

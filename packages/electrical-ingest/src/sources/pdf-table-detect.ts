@@ -608,6 +608,172 @@ export interface PdfTableDetectionResult {
  * caller is responsible for pre-grouping lines by page; the
  * assembler only operates on a single page's lines at a time.
  */
+// ---------------------------------------------------------------------------
+// Sprint 83B — diagnostic-hygiene helpers
+// ---------------------------------------------------------------------------
+//
+// Sprint 83A made the family classifier safe; the manual run on
+// `TcECAD_Import_V2_2_x.pdf` (86 pages) then revealed that the
+// non-IO branch fires once per **block id** — i.e. once per line
+// — which inflates the diagnostic stream into hundreds of
+// per-line entries: vendor metadata footers ("Hersteller (Firma)
+// Beckhoff Automation GmbH"), repeated title-block lines
+// ("Datum 22.10.2013 ... Seite"), and body rows that incidentally
+// hit a strong family token ("Bearb RAL =CABLE").
+//
+// Three cooperating helpers throttle the noise without losing
+// the canonical-header signal:
+//
+//   1. `isFooterOrTitleBlockLine(text)` — recognises repeated
+//      title-block/footer metadata so those lines never produce
+//      a non-IO family diagnostic, regardless of how the
+//      classifier votes.
+//   2. `passesNonIoFamilyHeaderShapeGate(text, classification)` —
+//      only lets a non-IO family diagnostic through when the
+//      line is *header-shaped*: at least 3 strong family tokens
+//      OR matches a canonical family-title regex (e.g.
+//      `Stückliste`, `Klemmenplan`, `Inhaltsverzeichnis`).
+//   3. `nonIoFamilyDiagnosticSignature(text)` — normalises the
+//      line into a stable key so identical headers on the same
+//      page collapse to one diagnostic; the same header on a
+//      different page still surfaces (per-page granularity).
+
+const FOOTER_OR_TITLE_BLOCK_PATTERNS: ReadonlyArray<RegExp> = [
+  // "Datum 22.10.2013 ... Seite" (German title-block footer).
+  /^\s*datum\s+\d{1,2}[.\-/]\d{1,2}[.\-/]\d{2,4}\b.*\bseite\b/i,
+  // "Bearb RAL ..." (German operator/editor field; almost always
+  // followed by an ECAD reference designator like `=CABLE` /
+  // `=TERMINAL`).
+  /^\s*bearb\b/i,
+  // "Änderungsdatum 30.10.2013 von RalfL Anzahl der Seiten 86".
+  /^\s*änderungsdatum\b/i,
+  /^\s*anzahl\s+der\s+seiten\b/i,
+  // "Seite 5 von 10" / "Seite 5/10" trailing page counters.
+  /^\s*seite\s+\d+(\s*(von|\/)\s*\d+)?\s*$/i,
+];
+
+/**
+ * Sprint 83B — recognise repeated PDF page-footer / title-block
+ * metadata so the non-IO family branch can suppress diagnostics
+ * for them. Pure / DOM-free / total. Empty / non-string input
+ * returns `false`.
+ *
+ * **NOTE:** the helper does NOT remove the line from the parsed
+ * `PdfDocument` — Sprint 80's text-layer extractor still surfaces
+ * the line as a `PdfTextBlock`. Only the *family diagnostic* is
+ * skipped.
+ */
+export function isFooterOrTitleBlockLine(text: unknown): boolean {
+  if (typeof text !== 'string') return false;
+  const trimmed = text.trim();
+  if (trimmed.length === 0) return false;
+  for (const re of FOOTER_OR_TITLE_BLOCK_PATTERNS) {
+    if (re.test(trimmed)) return true;
+  }
+  return false;
+}
+
+const CANONICAL_FAMILY_TITLE_PATTERNS: ReadonlyArray<RegExp> = [
+  // BOM / parts list / material list (German + English titles).
+  /\bstückliste\b/i,
+  /\bstueckliste\b/i,
+  /\bteileliste\b/i,
+  /\bparts[ -]?list\b/i,
+  /\bbill\s+of\s+materials\b/i,
+  // Terminal lists.
+  /\bklemmenplan\b/i,
+  /\bklemmleisten[üu]bersicht\b/i,
+  /\bklemmleistenplan\b/i,
+  /\bterminal[ -]?list\b/i,
+  // Cable lists.
+  /\bkabelplan\b/i,
+  /\bkabel[üu]bersicht\b/i,
+  /\bcable[ -]?list\b/i,
+  // Contents / legend.
+  /\binhaltsverzeichnis\b/i,
+  /\btable\s+of\s+contents\b/i,
+  /\blegende\b/i,
+];
+
+const NON_TRIVIAL_TOKEN_RE = /[\p{L}\p{N}/]{2,}/gu;
+
+function strongFamilyTokenCount(
+  text: string,
+  family: PdfTableFamily,
+): number {
+  const tokens = tokensFromHeaderText(text);
+  switch (family) {
+    case 'bom_parts_list':
+      return countSetHits(tokens, STRONG_BOM_TOKENS);
+    case 'terminal_list':
+      return countSetHits(tokens, STRONG_TERMINAL_TOKENS);
+    case 'cable_list':
+      return countSetHits(tokens, STRONG_CABLE_TOKENS);
+    case 'contents_index':
+      return countSetHits(tokens, STRONG_CONTENTS_TOKENS);
+    case 'legend':
+      return countSetHits(tokens, STRONG_LEGEND_TOKENS);
+    default:
+      return 0;
+  }
+}
+
+/**
+ * Sprint 83B — gate non-IO family diagnostics behind a real
+ * header shape. Returns `true` when the line should produce a
+ * diagnostic; `false` when it should be suppressed as a body /
+ * footer / weak-keyword line. Pure / DOM-free / total.
+ *
+ * Pass rules (any of):
+ *   - The line matches a canonical family-title regex
+ *     (`Stückliste`, `Klemmenplan`, `Inhaltsverzeichnis`,
+ *     `Legende`, etc.).
+ *   - The line has ≥ 3 strong family-token hits AND ≥ 4 total
+ *     non-trivial tokens (a bona-fide column header row).
+ *
+ * Footer / title-block lines (caught by
+ * `isFooterOrTitleBlockLine`) ALWAYS fail this gate, regardless
+ * of any token count — that ladder is checked first.
+ */
+export function passesNonIoFamilyHeaderShapeGate(
+  text: unknown,
+  classification: PdfTableHeaderClassification,
+): boolean {
+  if (typeof text !== 'string') return false;
+  const trimmed = text.trim();
+  if (trimmed.length === 0) return false;
+  if (isFooterOrTitleBlockLine(trimmed)) return false;
+  // Canonical family-title patterns — the operator clearly named
+  // the page kind on this line.
+  for (const re of CANONICAL_FAMILY_TITLE_PATTERNS) {
+    if (re.test(trimmed)) return true;
+  }
+  // Multi-strong-token header. The TcECAD canonical BOM header
+  //   "Benennung (BMK) Menge Bezeichnung Typnummer Hersteller Artikelnummer"
+  // carries 4 strong BOM tokens; a single-token line like
+  // "Hersteller (Firma) Beckhoff Automation GmbH" carries 1.
+  const strongCount = strongFamilyTokenCount(trimmed, classification.family);
+  if (strongCount < 3) return false;
+  // Total non-trivial tokens — guard against three-strong-tokens
+  // pile-ups inside a body row that's mostly punctuation/numbers.
+  const totalTokens = trimmed.match(NON_TRIVIAL_TOKEN_RE)?.length ?? 0;
+  if (totalTokens < 4) return false;
+  return true;
+}
+
+/**
+ * Sprint 83B — normalised diagnostic signature for a non-IO
+ * family header line. Used as the dedup key so the same header
+ * appearing on multiple lines of the same page collapses to one
+ * diagnostic. The signature is intentionally short (capped at
+ * ~120 chars) so trailing text variation doesn't spawn variants.
+ */
+export function nonIoFamilyDiagnosticSignature(text: unknown): string {
+  if (typeof text !== 'string') return '';
+  const norm = text.trim().toLowerCase().replace(/\s+/g, ' ');
+  return norm.length > 120 ? norm.slice(0, 120) : norm;
+}
+
 export function detectIoTables(args: {
   lines: PdfTableDetectorLine[];
   sourceId: string;
@@ -623,9 +789,15 @@ export function detectIoTables(args: {
 
   let i = 0;
   let tableIndex = 1;
-  // Sprint 83A — guard against duplicate non-IO family diagnostics
-  // for the same line (e.g. a BOM header repeated across pages).
-  // Keyed by `${family}:${page}:${blockId}`.
+  // Sprint 83B — diagnostic-hygiene dedup. The Sprint 83A key was
+  // `${family}:${page}:${blockId}`; that fires once per LINE
+  // (every line has a different blockId), so an 86-page TcECAD
+  // PDF with vendor-metadata footers + body rows produced
+  // hundreds of duplicate non-IO family diagnostics. The new key
+  // collapses by normalised header signature, which means an
+  // identical BOM header appearing on multiple lines of the same
+  // page is one diagnostic — an identical header on a different
+  // page still produces one (per-page granularity preserved).
   const seenNonIoFamilyDiagnostic = new Set<string>();
   while (i < lines.length) {
     const line = lines[i];
@@ -634,21 +806,24 @@ export function detectIoTables(args: {
       items: line.items,
     });
     if (!header) {
-      // Sprint 83A — even when `detectIoTableHeader` returns null,
-      // the line may still be a known non-IO family header (BOM /
-      // terminal / cable / contents / legend). Run the family
-      // classifier and emit a precise info diagnostic for those
-      // families so the operator's stream stays explainable. We
-      // skip the diagnostic entirely for `'unknown'` lines —
-      // those are body lines that happen to share a few keywords
-      // with header vocab; surfacing them would inflate the
-      // diagnostic stream.
+      // Sprint 83A → 83B — even when `detectIoTableHeader` returns
+      // null, the line may still be a known non-IO family header
+      // (BOM / terminal / cable / contents / legend). Run the
+      // family classifier, then apply the Sprint 83B hygiene gate:
+      //   - footer / title-block lines NEVER produce a diagnostic;
+      //   - weak / single-strong-token / body-row lines NEVER
+      //     produce a diagnostic;
+      //   - canonical family-title and multi-strong-token header
+      //     rows DO produce a diagnostic, deduped by signature.
       const classification = classifyPdfTableHeader(line.block.text);
       if (classification.family !== 'unknown' && classification.family !== 'io_list') {
-        const key = `${classification.family}:${line.pageNumber}:${line.block.id}`;
-        if (!seenNonIoFamilyDiagnostic.has(key)) {
-          seenNonIoFamilyDiagnostic.add(key);
-          diagnostics.push(buildNonIoFamilyDiagnostic(line, classification));
+        if (passesNonIoFamilyHeaderShapeGate(line.block.text, classification)) {
+          const signature = nonIoFamilyDiagnosticSignature(line.block.text);
+          const key = `${sourceId}:${line.pageNumber}:${classification.family}:${signature}`;
+          if (!seenNonIoFamilyDiagnostic.has(key)) {
+            seenNonIoFamilyDiagnostic.add(key);
+            diagnostics.push(buildNonIoFamilyDiagnostic(line, classification));
+          }
         }
       }
       i++;
