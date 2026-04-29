@@ -32,6 +32,7 @@ import type {
 } from '@plccopilot/electrical-ingest';
 
 import {
+  canIngestElectricalSource,
   detectInputKind,
   ingestElectricalInput,
   createCandidateFromIngestionResult,
@@ -417,12 +418,13 @@ export function ElectricalIngestionWorkspace(): JSX.Element {
         </label>
         {bytes !== null ? (
           <p className="muted electrical-ingestion-bytes-note" role="status">
-            Binary PDF loaded ({bytes.length} bytes). Sprint 79 v0 has no
-            binary text-layer parser; the ingestor will surface honest
-            diagnostics (<code>PDF_UNSUPPORTED_BINARY_PARSER</code>,{' '}
-            <code>PDF_TEXT_LAYER_UNAVAILABLE</code>) and produce no
-            electrical evidence. To exercise the architecture, paste
-            already-extracted text in the box above.
+            Binary PDF loaded ({bytes.length} bytes). Sprint 80/81 will
+            attempt local PDF text-layer extraction and IO/table
+            detection. <strong>OCR is not run</strong> — scanned or
+            image-only PDFs may produce diagnostics
+            (<code>PDF_TEXT_LAYER_EMPTY_PAGE</code>,{' '}
+            <code>PDF_NO_TEXT_BLOCKS</code>) and no candidates. Press{' '}
+            <strong>Ingest</strong> to start.
           </p>
         ) : null}
         <div className="electrical-ingestion-input-actions">
@@ -452,9 +454,12 @@ export function ElectricalIngestionWorkspace(): JSX.Element {
             className="btn"
             onClick={handleIngest}
             disabled={
-              pending ||
-              (text.trim().length === 0 &&
-                (bytes === null || bytes.length === 0))
+              !canIngestElectricalSource({
+                inputKind: detectedKind,
+                sourceText: text,
+                bytes,
+                pending,
+              })
             }
             aria-label="Ingest electrical evidence"
           >
@@ -528,9 +533,8 @@ export function ElectricalIngestionWorkspace(): JSX.Element {
           Provide a CSV / EPLAN XML / TcECAD XML / PDF source and press{' '}
           <strong>Ingest</strong> to start the review, or use{' '}
           <strong>Load last</strong> above to restore a saved session.
-          PDF binary uploads are accepted but Sprint 79 v0 has no binary
-          parser — you will see structured diagnostics rather than
-          extracted evidence.
+          PDF binary uploads are parsed locally for selectable text;
+          <strong> OCR is not run</strong>.
         </p>
       )}
     </section>

@@ -6,6 +6,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  canIngestElectricalSource,
   detectInputKind,
   ingestElectricalInput,
   createCandidateFromIngestionResult,
@@ -340,5 +341,119 @@ describe('Sprint 80 — real bytes through web ingestion flow', () => {
     expect(ref?.page).toBe('1');
     expect(typeof ref?.snippet).toBe('string');
     expect(ref?.bbox?.unit).toBe('pt');
+  });
+});
+
+// =============================================================================
+// canIngestElectricalSource — Sprint 81 fix: PDF bytes-only enables Ingest
+// =============================================================================
+
+describe('canIngestElectricalSource', () => {
+  it('1. enables for non-empty CSV/XML text (no bytes)', () => {
+    expect(
+      canIngestElectricalSource({
+        inputKind: 'csv',
+        sourceText: 'tag,kind\nB1,sensor\n',
+        bytes: null,
+        pending: false,
+      }),
+    ).toBe(true);
+    expect(
+      canIngestElectricalSource({
+        inputKind: 'xml',
+        sourceText: '<EplanProject/>',
+        bytes: null,
+        pending: false,
+      }),
+    ).toBe(true);
+  });
+
+  it('2. enables for PDF bytes-only (textarea empty)', () => {
+    expect(
+      canIngestElectricalSource({
+        inputKind: 'pdf',
+        sourceText: '',
+        bytes: PDF_HEADER,
+        pending: false,
+      }),
+    ).toBe(true);
+  });
+
+  it('3. enables for PDF bytes-only with whitespace-only text', () => {
+    expect(
+      canIngestElectricalSource({
+        inputKind: 'pdf',
+        sourceText: '   \n\n   ',
+        bytes: PDF_HEADER,
+        pending: false,
+      }),
+    ).toBe(true);
+  });
+
+  it('4. enables for PDF text-mode (text-only, no bytes)', () => {
+    expect(
+      canIngestElectricalSource({
+        inputKind: 'pdf',
+        sourceText: '--- page 1 ---\nI0.0 B1 Part present',
+        bytes: null,
+        pending: false,
+      }),
+    ).toBe(true);
+  });
+
+  it('5. disables when both text and bytes are empty', () => {
+    expect(
+      canIngestElectricalSource({
+        inputKind: 'unknown',
+        sourceText: '',
+        bytes: null,
+        pending: false,
+      }),
+    ).toBe(false);
+    expect(
+      canIngestElectricalSource({
+        inputKind: 'pdf',
+        sourceText: '',
+        bytes: new Uint8Array(0),
+        pending: false,
+      }),
+    ).toBe(false);
+  });
+
+  it('6. disables while pending=true regardless of input', () => {
+    expect(
+      canIngestElectricalSource({
+        inputKind: 'pdf',
+        sourceText: '',
+        bytes: PDF_HEADER,
+        pending: true,
+      }),
+    ).toBe(false);
+    expect(
+      canIngestElectricalSource({
+        inputKind: 'csv',
+        sourceText: 'tag,kind\nB1,sensor\n',
+        bytes: null,
+        pending: true,
+      }),
+    ).toBe(false);
+  });
+
+  it('7. bytes-only with non-pdf inputKind does NOT enable (csv/xml use text)', () => {
+    expect(
+      canIngestElectricalSource({
+        inputKind: 'unknown',
+        sourceText: '',
+        bytes: PDF_HEADER,
+        pending: false,
+      }),
+    ).toBe(false);
+  });
+
+  it('8. defensive on null / non-object input', () => {
+    // @ts-expect-error
+    expect(canIngestElectricalSource(null)).toBe(false);
+    // @ts-expect-error
+    expect(canIngestElectricalSource(undefined)).toBe(false);
   });
 });

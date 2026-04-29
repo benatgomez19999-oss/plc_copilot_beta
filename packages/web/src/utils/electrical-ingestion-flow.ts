@@ -210,3 +210,49 @@ export async function runElectricalIngestion(
   const candidate = createCandidateFromIngestionResult(result);
   return { result, candidate, detectedKind };
 }
+
+// =============================================================================
+// canIngestElectricalSource — pure predicate behind the workspace's
+// "Ingest" button. Sprint 81 fix: PDF binary uploads must enable
+// the button even when the textarea is empty.
+// =============================================================================
+
+export interface CanIngestElectricalSourceInput {
+  /** Detected input kind (CSV / XML / PDF / unknown). */
+  inputKind: DetectedInputKind;
+  /** Pasted text in the workspace textarea. */
+  sourceText: string;
+  /**
+   * Bytes from a binary file upload (Sprint 79 PDF). For non-PDF
+   * inputs this is always null.
+   */
+  bytes: Uint8Array | null;
+  /** Whether an ingestion is already in flight. */
+  pending: boolean;
+}
+
+/**
+ * Decide whether the workspace's Ingest button should be enabled.
+ *
+ * Rule:
+ *   - never while an ingestion is pending,
+ *   - true when there is non-empty text (any input kind), OR
+ *   - true when the input kind is `'pdf'` AND bytes are loaded
+ *     (the binary path produces valid PDF evidence on its own).
+ *
+ * Pure / DOM-free / total. The component should derive its
+ * `disabled` attribute from `!canIngestElectricalSource(...)`.
+ */
+export function canIngestElectricalSource(
+  input: CanIngestElectricalSourceInput,
+): boolean {
+  if (!input || typeof input !== 'object') return false;
+  if (input.pending === true) return false;
+  const hasSourceText =
+    typeof input.sourceText === 'string' && input.sourceText.trim().length > 0;
+  const hasPdfBytes =
+    input.inputKind === 'pdf' &&
+    input.bytes instanceof Uint8Array &&
+    input.bytes.length > 0;
+  return hasSourceText || hasPdfBytes;
+}
