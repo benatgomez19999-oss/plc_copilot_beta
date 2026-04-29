@@ -188,6 +188,34 @@ takes the raw item stream and produces deterministic lines:
 The algorithm is total + side-effect-free; the same input always
 yields the same lines in the same order.
 
+### Sprint 83C — non-IO family diagnostic rollups
+
+Sprint 83B kept per-page-per-signature granularity, so identical
+BOM canonical headers on pages 80–86 each produced their own
+`PDF_BOM_TABLE_DETECTED`. Sprint 83C aggregates by `(family,
+signature)` only and emits one rollup per group with a compressed
+page range:
+
+- `compressPageRanges(pages)` — pure helper. Sorts, dedups,
+  drops non-finite / non-positive entries, coalesces consecutive
+  runs into `"X–Y"` (en-dash). Returns `""` for empty, `"1"` for
+  a single page, `"80–86"` for one run, `"3, 49–54"` for mixed.
+- `detectIoTables` non-IO branch — accumulates each occurrence
+  into a map keyed by `${family}:${signature}` (page deliberately
+  removed). At end of scan, occurrences are sorted by family
+  name then min page and one rollup info diagnostic is emitted
+  per group. The representative `SourceRef` is the first page's
+  ref; the full page set lives in the message.
+
+`pdf.ts`'s text-mode and bytes-mode paths now call
+`detectIoTables` ONCE across all pages so cross-page aggregation
+actually fires in the real pipeline.
+
+The Sprint 83A family classifier, Sprint 83B hygiene helpers,
+and Sprint 82 strictness gate are preserved verbatim. Sprint 83C
+is volume / UX only — no new extraction capability, no schema
+bump.
+
 ### Sprint 83B — diagnostic-hygiene throttling
 
 The Sprint 83A non-IO family branch fired once per **block id**,

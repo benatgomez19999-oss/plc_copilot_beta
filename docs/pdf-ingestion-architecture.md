@@ -1,20 +1,22 @@
-# PDF ingestion architecture — Sprint 79 → 80 → 81 → 82 → 83A → 83B
+# PDF ingestion architecture — Sprint 79 → 80 → 81 → 82 → 83A → 83B → 83C
 
-> **Status: PDF address strictness + source-evidence hardening
-> (Sprint 82).** Sprint 79 landed the foundation. Sprint 80
-> added a real text-layer extractor. Sprint 81 added IO-list
-> table extraction + the first acceptance harness. **Sprint 82**
-> closes a real-world safety gap surfaced by manual testing on
-> the public 86-page `TcECAD_Import_V2_2_x.pdf`: isolated
-> Beckhoff-style channel markers (`I1`, `O2`, `%I1`) were being
-> promoted to buildable `%I1` PIR addresses. Sprint 82 introduces
-> a PDF-specific strictness classifier and refuses to synthesise
-> a buildable address from a channel marker — even when
-> `detectPlcAddress` would accept it. Source evidence now
-> surfaces `snippet` + `bbox` in the review drilldown. Confidence
-> still capped at `0.65`. Still no OCR, symbol recognition,
-> multi-column / rotated support, wire tracing, or automatic
-> PIR/codegen.
+> **Status: non-IO family diagnostic rollups (Sprint 83C).**
+> Sprint 79 landed the foundation. Sprint 80 added a real
+> text-layer extractor. Sprint 81 added IO-list table extraction
+> + the first acceptance harness. Sprint 82 closed a real-world
+> safety gap with PDF-specific address strictness. Sprint 83A
+> hardened the family classifier so BOM / terminal / cable /
+> contents / legend headers stop slipping through the IO gate.
+> Sprint 83B suppressed footer / weak-token / body-row noise and
+> collapsed within-page duplicates. **Sprint 83C** keeps every
+> Sprint 82 / 83A / 83B safety guarantee verbatim and aggregates
+> the surviving non-IO family diagnostics across pages: instead
+> of 7 `PDF_BOM_TABLE_DETECTED` infos for an 86-page TcECAD PDF,
+> the operator sees 1 rollup with `pages 80–86`. Volume / UX
+> change only — no schema bump, no new extraction capability,
+> no loosened safety. Confidence still capped at `0.65`. Still
+> no OCR, symbol recognition, multi-column / rotated support,
+> wire tracing, or automatic PIR/codegen.
 
 ## Why PDF support is strategic
 
@@ -55,6 +57,53 @@ did this fact come from?" before it can promote to PIR.
 - **No PLC codegen.** Always.
 - **No raw PDF persistence.** The Sprint 78B review-session
   snapshot does NOT carry the PDF bytes (privacy default).
+
+## Sprint 83C — what changed on top of Sprint 83B
+
+Volume / UX hardening sprint. No new extraction capability; the
+Sprint 82 strictness gate, Sprint 83A family classifier, and
+Sprint 83B hygiene helpers stay verbatim.
+
+Sprint 83B kept per-page-per-signature granularity. Identical BOM
+canonical headers on pages 80–86 each emitted their own
+`PDF_BOM_TABLE_DETECTED`; the operator saw 7+ family diagnostics
+per real-world TcECAD PDF. Sprint 83C aggregates by `(family,
+signature)` only (page deliberately removed from the dedup key)
+and emits one rollup info diagnostic per group with a compressed
+page range:
+
+- `compressPageRanges(pages)` — pure helper. Drops non-finite /
+  non-positive entries, sorts, dedups, coalesces consecutive runs
+  into `"X–Y"` (en-dash). Returns `""` for empty, `"1"` for a
+  single page, `"80–86"` for one run, `"3, 49–54"` for mixed.
+- `detectIoTables` non-IO branch — accumulates each occurrence
+  into a `Map<key, NonIoFamilyOccurrence>` keyed by
+  `${family}:${signature}`. Each occurrence keeps a `Set<number>`
+  of pages, the first page's `SourceRef` as representative, the
+  first occurrence's snippet, and the first reason. At end of
+  scan the map is sorted by family name then min page and one
+  rollup info diagnostic is emitted per group with the message:
+  `Ignored ${label} sections on ${pagePhrase}. These are not IO
+  lists. First evidence: "${snippet}" (${reason}).`
+- The diagnostic codes are unchanged
+  (`PDF_BOM_TABLE_DETECTED`, `PDF_TERMINAL_TABLE_DETECTED`,
+  `PDF_CABLE_TABLE_DETECTED`, `PDF_CONTENTS_TABLE_IGNORED`,
+  `PDF_LEGEND_TABLE_IGNORED`, `PDF_TABLE_HEADER_REJECTED`).
+  No schema bump.
+
+`pdf.ts`'s text-mode and bytes-mode paths now call
+`detectIoTables` ONCE across all pages (collecting detector lines
+from every page, then redistributing the returned
+`tableCandidates` back to each `PdfPage` by `pageNumber`).
+Previous per-page-loop call would have prevented Sprint 83C
+aggregation from firing on the real pipeline.
+
+For the realistic TcECAD-style mock (BOM headers on pages 80–86
++ cable on 49–54 + contents on 3 + terminal on 1), Sprint 83C
+emits **at most 4 family rollups**, down from Sprint 83B's 7+.
+
+Manual acceptance: documented in
+[`docs/pdf-manual-acceptance-sprint-83C.md`](pdf-manual-acceptance-sprint-83C.md).
 
 ## Sprint 83B — what changed on top of Sprint 83A
 

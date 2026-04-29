@@ -1,6 +1,6 @@
 # Electrical-plan ingestion architecture
 
-> **Status: PDF non-IO diagnostic hygiene + classifier throttling (Sprint 83B).** Sprint 72
+> **Status: PDF non-IO diagnostic rollups (Sprint 83C).** Sprint 72
 > scaffolded the architecture. Sprint 73 added the CSV ingestor.
 > Sprint 74 added the EPLAN structured XML ingestor v0. Sprint 75
 > added the Review UI v0. Sprint 76 added the PIR builder v0.
@@ -574,6 +574,51 @@ This keeps both branches of the strategic requirement — structured
 ECAD exports today and PDF documents tomorrow — funnelling through
 the same review/persist/export model. A weak prompt cannot
 override that model: it has no surface area in any of these layers.
+
+## Sprint 83C — PDF non-IO diagnostic rollups
+
+Volume / UX hardening sprint on top of Sprint 83B's diagnostic
+hygiene. Sprint 83B suppressed footer / weak / body-row noise
+and collapsed within-page repeats but kept per-page granularity,
+so identical BOM canonical headers on pages 80–86 each emitted
+their own `PDF_BOM_TABLE_DETECTED`. The 86-page TcECAD PDF still
+produced 7+ family diagnostics — operationally noisy.
+
+Sprint 83C aggregates non-IO family diagnostics across pages by
+`(family, signature)` only:
+
+- `compressPageRanges(pages)` — pure helper. Sorts, dedups, drops
+  non-finite / non-positive entries, coalesces consecutive runs
+  into `"X–Y"` (en-dash). Returns `""` / `"1"` / `"80–86"` /
+  `"3, 49–54"`.
+- `detectIoTables` non-IO branch — accumulates each occurrence
+  into a `Map<key, NonIoFamilyOccurrence>` keyed by
+  `${family}:${signature}` (page deliberately removed from the
+  key). At end of scan, occurrences are sorted by family name
+  then min page and one rollup info diagnostic is emitted per
+  group with the message format `Ignored ${label} sections on
+  ${pagePhrase}. These are not IO lists. First evidence:
+  "${snippet}" (${reason}).`
+- The diagnostic codes (`PDF_BOM_TABLE_DETECTED`,
+  `PDF_TERMINAL_TABLE_DETECTED`, `PDF_CABLE_TABLE_DETECTED`,
+  `PDF_CONTENTS_TABLE_IGNORED`, `PDF_LEGEND_TABLE_IGNORED`,
+  `PDF_TABLE_HEADER_REJECTED`) are unchanged. No schema bump.
+- `pdf.ts` text-mode and bytes-mode paths now call
+  `detectIoTables` ONCE across all pages and redistribute the
+  returned `tableCandidates` back to each `PdfPage` by
+  `pageNumber`, so cross-page aggregation actually fires in the
+  real pipeline.
+
+Sprint 82's address strictness, Sprint 83A's family classifier,
+and Sprint 83B's hygiene helpers are preserved verbatim. Sprint
+83C is volume / UX only — no new extraction capability.
+
+For the TcECAD-shaped multi-page mock (BOM 80–86 + cable 49–54 +
+contents 3 + terminal 1) Sprint 83C emits **at most 4** family
+rollups, down from Sprint 83B's 7+.
+
+Manual acceptance:
+[`docs/pdf-manual-acceptance-sprint-83C.md`](pdf-manual-acceptance-sprint-83C.md).
 
 ## Sprint 83B — PDF diagnostic hygiene + classifier throttling
 

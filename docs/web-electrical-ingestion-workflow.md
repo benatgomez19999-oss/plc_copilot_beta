@@ -1,4 +1,4 @@
-# Web electrical-ingestion workflow — Sprint 77 → 78B → 79 → 80 → 81 → 82 → 83A → 83B
+# Web electrical-ingestion workflow — Sprint 77 → 78B → 79 → 80 → 81 → 82 → 83A → 83B → 83C
 
 > **Status: end-to-end pipeline live in `@plccopilot/web`
 > (Sprint 77 → 78A → 78B → 79 → 80 → 81 → 82).** CSV / EPLAN XML /
@@ -22,10 +22,18 @@
 > diagnostic stream — repeated footers, vendor-metadata lines,
 > and body rows that incidentally hit a strong family token are
 > now suppressed; identical headers within a page collapse to
-> one diagnostic. Sprint 83A acceptance:
+> one diagnostic. **Sprint 83C** then aggregates the surviving
+> non-IO family diagnostics across pages into a single rollup
+> per `(family, signature)` group with a compressed page range
+> — pages 80–86 of an 86-page TcECAD PDF now produce one
+> `PDF_BOM_TABLE_DETECTED` info instead of seven. Volume / UX
+> only — no schema change, no loosened safety. Sprint 83A
+> acceptance:
 > [`docs/pdf-manual-acceptance-sprint-83A.md`](pdf-manual-acceptance-sprint-83A.md).
 > Sprint 83B acceptance:
 > [`docs/pdf-manual-acceptance-sprint-83B.md`](pdf-manual-acceptance-sprint-83B.md).
+> Sprint 83C acceptance:
+> [`docs/pdf-manual-acceptance-sprint-83C.md`](pdf-manual-acceptance-sprint-83C.md).
 
 ## Run the dev server
 

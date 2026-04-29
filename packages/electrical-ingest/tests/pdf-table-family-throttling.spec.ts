@@ -318,7 +318,7 @@ describe('detectIoTables — Sprint 83B throttling', () => {
     expect(bomDiags.length).toBe(1);
   });
 
-  it('D.2. same BOM header on two different pages emits ONE per page (per-page granularity)', () => {
+  it('D.2. same BOM header on two different pages collapses into ONE rollup with the combined range (Sprint 83C)', () => {
     const text =
       'Benennung (BMK) Menge Bezeichnung Typnummer Hersteller Artikelnummer';
     const result = detectIoTables({
@@ -328,7 +328,12 @@ describe('detectIoTables — Sprint 83B throttling', () => {
     const bomDiags = result.diagnostics.filter(
       (d) => d.code === 'PDF_BOM_TABLE_DETECTED',
     );
-    expect(bomDiags.length).toBe(2);
+    // Sprint 83B emitted one diagnostic per page; Sprint 83C
+    // collapses them into one rollup with the consecutive range
+    // "80–81". Per-page granularity is preserved inside the
+    // message instead of by diagnostic count.
+    expect(bomDiags.length).toBe(1);
+    expect(bomDiags[0].message).toContain('80–81');
   });
 
   // ---- E. Body rows with family markers are suppressed --------------------

@@ -774,6 +774,162 @@ export function nonIoFamilyDiagnosticSignature(text: unknown): string {
   return norm.length > 120 ? norm.slice(0, 120) : norm;
 }
 
+// ---------------------------------------------------------------------------
+// Sprint 83C — non-IO family rollups
+// ---------------------------------------------------------------------------
+//
+// Sprint 83B's hygiene gate already drops vendor-metadata footers
+// and weak single-token lines. Sprint 83A's classification is
+// safe. But the manual run on `TcECAD_Import_V2_2_x.pdf` (86
+// pages) still produced one diagnostic per `(family, page,
+// signature)` tuple — i.e. one BOM diagnostic per page across
+// pages 80–86, one cable-list diagnostic per page across pages
+// 55–79, and so on. Operationally that's still too noisy for an
+// operator to scan.
+//
+// Sprint 83C swaps the per-occurrence emission for a
+// collect-then-rollup pattern:
+//   1. During the scan, every passing non-IO line is folded into
+//      a `(family, signature)` bucket along with its page number
+//      and the first-evidence sourceRef + snippet.
+//   2. After the scan, one rollup diagnostic per bucket is
+//      emitted, with the page range coalesced via
+//      `compressPageRanges` and the first-evidence sourceRef
+//      preserved as `sourceRef`.
+//
+// The existing per-family diagnostic codes
+// (`PDF_BOM_TABLE_DETECTED`, `PDF_TERMINAL_TABLE_DETECTED`,
+// `PDF_CABLE_TABLE_DETECTED`, `PDF_CONTENTS_TABLE_IGNORED`,
+// `PDF_LEGEND_TABLE_IGNORED`, `PDF_TABLE_HEADER_REJECTED`) are
+// reused — Sprint 83C is a *volume* change, not a schema change.
+// The diagnostic message gains a "pages X–Y, Z–W" range string
+// and a "First evidence: <snippet>" trailer, but the
+// `ElectricalDiagnostic` shape is otherwise unchanged.
+
+/**
+ * Sprint 83C — coalesce a list of page numbers into a compact
+ * range string with `–` (en-dash) separators between
+ * consecutive runs and `, ` between non-consecutive groups.
+ *
+ * Examples:
+ *   - []                        → ''
+ *   - [80]                      → '80'
+ *   - [80, 81, 82, 83, 84, 85, 86] → '80–86'
+ *   - [3, 49, 50, 51, 52, 53, 54] → '3, 49–54'
+ *   - [86, 80, 81, 82, 86, 84, 85, 83] → '80–86'  (sort + dedup)
+ *   - ['80', 81, '82']          → '80–82'         (string + number)
+ *   - [3.5, NaN, 'abc', null]   → ''              (defensive drops)
+ *
+ * Pure / total / DOM-free.
+ */
+export function compressPageRanges(pages: ReadonlyArray<number | string>): string {
+  if (!Array.isArray(pages) || pages.length === 0) return '';
+  // Coerce to integers, drop anything non-finite or non-integer.
+  const seen = new Set<number>();
+  for (const raw of pages) {
+    const n =
+      typeof raw === 'number'
+        ? raw
+        : typeof raw === 'string'
+          ? Number.parseInt(raw, 10)
+          : NaN;
+    if (Number.isFinite(n) && Number.isInteger(n)) seen.add(n);
+  }
+  if (seen.size === 0) return '';
+  const sorted = Array.from(seen).sort((a, b) => a - b);
+  const parts: string[] = [];
+  let runStart = sorted[0];
+  let runEnd = sorted[0];
+  for (let i = 1; i < sorted.length; i++) {
+    const v = sorted[i];
+    if (v === runEnd + 1) {
+      runEnd = v;
+      continue;
+    }
+    parts.push(runStart === runEnd ? `${runStart}` : `${runStart}–${runEnd}`);
+    runStart = v;
+    runEnd = v;
+  }
+  parts.push(runStart === runEnd ? `${runStart}` : `${runStart}–${runEnd}`);
+  return parts.join(', ');
+}
+
+interface NonIoFamilyOccurrence {
+  family: PdfTableFamily;
+  signature: string;
+  pages: Set<number>;
+  representativeSourceRef: SourceRef;
+  representativeSnippet: string;
+  firstReason: string;
+}
+
+function familyHumanLabel(family: PdfTableFamily): string {
+  switch (family) {
+    case 'bom_parts_list':
+      return 'BOM / parts-list';
+    case 'terminal_list':
+      return 'terminal-list';
+    case 'cable_list':
+      return 'cable-list';
+    case 'contents_index':
+      return 'contents/index';
+    case 'legend':
+      return 'legend';
+    default:
+      return family;
+  }
+}
+
+function familyDiagnosticCode(
+  family: PdfTableFamily,
+):
+  | 'PDF_BOM_TABLE_DETECTED'
+  | 'PDF_TERMINAL_TABLE_DETECTED'
+  | 'PDF_CABLE_TABLE_DETECTED'
+  | 'PDF_CONTENTS_TABLE_IGNORED'
+  | 'PDF_LEGEND_TABLE_IGNORED'
+  | 'PDF_TABLE_HEADER_REJECTED' {
+  switch (family) {
+    case 'bom_parts_list':
+      return 'PDF_BOM_TABLE_DETECTED';
+    case 'terminal_list':
+      return 'PDF_TERMINAL_TABLE_DETECTED';
+    case 'cable_list':
+      return 'PDF_CABLE_TABLE_DETECTED';
+    case 'contents_index':
+      return 'PDF_CONTENTS_TABLE_IGNORED';
+    case 'legend':
+      return 'PDF_LEGEND_TABLE_IGNORED';
+    default:
+      return 'PDF_TABLE_HEADER_REJECTED';
+  }
+}
+
+function buildNonIoFamilyRollupDiagnostic(
+  occurrence: NonIoFamilyOccurrence,
+): ElectricalDiagnostic {
+  const pageRange = compressPageRanges(Array.from(occurrence.pages));
+  const code = familyDiagnosticCode(occurrence.family);
+  const label = familyHumanLabel(occurrence.family);
+  const pageCount = occurrence.pages.size;
+  const pagePhrase =
+    pageCount === 1
+      ? `page ${pageRange}`
+      : `pages ${pageRange}`;
+  const reason = occurrence.firstReason;
+  const message =
+    `Ignored ${label} sections on ${pagePhrase}. ` +
+    `These are not IO lists. First evidence: "${truncate(occurrence.representativeSnippet, 80)}"` +
+    (reason ? ` (${reason})` : '') +
+    `.`;
+  return createElectricalDiagnostic({
+    code,
+    severity: 'info',
+    message,
+    sourceRef: occurrence.representativeSourceRef,
+  });
+}
+
 export function detectIoTables(args: {
   lines: PdfTableDetectorLine[];
   sourceId: string;
@@ -789,16 +945,16 @@ export function detectIoTables(args: {
 
   let i = 0;
   let tableIndex = 1;
-  // Sprint 83B — diagnostic-hygiene dedup. The Sprint 83A key was
-  // `${family}:${page}:${blockId}`; that fires once per LINE
-  // (every line has a different blockId), so an 86-page TcECAD
-  // PDF with vendor-metadata footers + body rows produced
-  // hundreds of duplicate non-IO family diagnostics. The new key
-  // collapses by normalised header signature, which means an
-  // identical BOM header appearing on multiple lines of the same
-  // page is one diagnostic — an identical header on a different
-  // page still produces one (per-page granularity preserved).
-  const seenNonIoFamilyDiagnostic = new Set<string>();
+  // Sprint 83C — collect non-IO family occurrences during the
+  // scan, then emit aggregated rollup diagnostics at the end. The
+  // Sprint 83B per-page-per-signature dedup is preserved as the
+  // *grouping key*: same canonical header repeated within a page
+  // contributes once; same header on multiple pages contributes
+  // once per page. After the scan, all pages for a given
+  // `(family, signature)` collapse into one rollup diagnostic
+  // with a coalesced page-range string ("80–86", "3, 49–54",
+  // etc.).
+  const nonIoOccurrences = new Map<string, NonIoFamilyOccurrence>();
   while (i < lines.length) {
     const line = lines[i];
     const header = detectIoTableHeader({
@@ -806,23 +962,32 @@ export function detectIoTables(args: {
       items: line.items,
     });
     if (!header) {
-      // Sprint 83A → 83B — even when `detectIoTableHeader` returns
-      // null, the line may still be a known non-IO family header
-      // (BOM / terminal / cable / contents / legend). Run the
-      // family classifier, then apply the Sprint 83B hygiene gate:
-      //   - footer / title-block lines NEVER produce a diagnostic;
+      // Sprint 83A → 83B → 83C — even when `detectIoTableHeader`
+      // returns null, the line may still be a known non-IO family
+      // header. Hygiene gates from Sprint 83B still apply:
+      //   - footer / title-block lines NEVER contribute;
       //   - weak / single-strong-token / body-row lines NEVER
-      //     produce a diagnostic;
+      //     contribute;
       //   - canonical family-title and multi-strong-token header
-      //     rows DO produce a diagnostic, deduped by signature.
+      //     rows contribute one occurrence per page.
       const classification = classifyPdfTableHeader(line.block.text);
       if (classification.family !== 'unknown' && classification.family !== 'io_list') {
         if (passesNonIoFamilyHeaderShapeGate(line.block.text, classification)) {
           const signature = nonIoFamilyDiagnosticSignature(line.block.text);
-          const key = `${sourceId}:${line.pageNumber}:${classification.family}:${signature}`;
-          if (!seenNonIoFamilyDiagnostic.has(key)) {
-            seenNonIoFamilyDiagnostic.add(key);
-            diagnostics.push(buildNonIoFamilyDiagnostic(line, classification));
+          const groupKey = `${classification.family}:${signature}`;
+          const existing = nonIoOccurrences.get(groupKey);
+          if (existing) {
+            existing.pages.add(line.pageNumber);
+          } else {
+            nonIoOccurrences.set(groupKey, {
+              family: classification.family,
+              signature,
+              pages: new Set([line.pageNumber]),
+              representativeSourceRef: line.block.sourceRef,
+              representativeSnippet: line.block.text,
+              firstReason:
+                classification.reasons[classification.reasons.length - 1] ?? '',
+            });
           }
         }
       }
@@ -929,6 +1094,22 @@ export function detectIoTables(args: {
     i = j;
   }
 
+  // Sprint 83C — emit one rollup diagnostic per (family, signature)
+  // group. Sorted by family for stable diagnostic order; tied
+  // families sort by representative page so the operator's stream
+  // reads roughly top-to-bottom of the document.
+  const orderedOccurrences = Array.from(nonIoOccurrences.values()).sort(
+    (a, b) => {
+      if (a.family !== b.family) return a.family.localeCompare(b.family);
+      const ap = Math.min(...a.pages);
+      const bp = Math.min(...b.pages);
+      return ap - bp;
+    },
+  );
+  for (const occurrence of orderedOccurrences) {
+    diagnostics.push(buildNonIoFamilyRollupDiagnostic(occurrence));
+  }
+
   return { tables, consumedBlockIds, diagnostics };
 }
 
@@ -937,64 +1118,8 @@ function truncate(s: string, n: number): string {
   return s.length > n ? `${s.slice(0, n)}…` : s;
 }
 
-/**
- * Sprint 83A — emit the precise per-family diagnostic for a
- * non-IO header line. Each family lands as info severity; the
- * line is still source-traceable through `sourceRef`.
- */
-function buildNonIoFamilyDiagnostic(
-  line: PdfTableDetectorLine,
-  classification: PdfTableHeaderClassification,
-): ElectricalDiagnostic {
-  const snippet = truncate(line.block.text, 80);
-  const reason = classification.reasons[classification.reasons.length - 1] ?? '';
-  const message =
-    `Non-IO table header on page ${line.pageNumber}: "${snippet}" classified as ` +
-    `${classification.family}` +
-    (reason ? ` (${reason})` : '') +
-    `. Ignored for IO extraction.`;
-  switch (classification.family) {
-    case 'bom_parts_list':
-      return createElectricalDiagnostic({
-        code: 'PDF_BOM_TABLE_DETECTED',
-        severity: 'info',
-        message,
-        sourceRef: line.block.sourceRef,
-      });
-    case 'terminal_list':
-      return createElectricalDiagnostic({
-        code: 'PDF_TERMINAL_TABLE_DETECTED',
-        severity: 'info',
-        message,
-        sourceRef: line.block.sourceRef,
-      });
-    case 'cable_list':
-      return createElectricalDiagnostic({
-        code: 'PDF_CABLE_TABLE_DETECTED',
-        severity: 'info',
-        message,
-        sourceRef: line.block.sourceRef,
-      });
-    case 'contents_index':
-      return createElectricalDiagnostic({
-        code: 'PDF_CONTENTS_TABLE_IGNORED',
-        severity: 'info',
-        message,
-        sourceRef: line.block.sourceRef,
-      });
-    case 'legend':
-      return createElectricalDiagnostic({
-        code: 'PDF_LEGEND_TABLE_IGNORED',
-        severity: 'info',
-        message,
-        sourceRef: line.block.sourceRef,
-      });
-    default:
-      return createElectricalDiagnostic({
-        code: 'PDF_TABLE_HEADER_REJECTED',
-        severity: 'info',
-        message,
-        sourceRef: line.block.sourceRef,
-      });
-  }
-}
+// Sprint 83A's `buildNonIoFamilyDiagnostic` (per-line emitter)
+// was retired in Sprint 83C; the rollup-builder
+// `buildNonIoFamilyRollupDiagnostic` defined above replaces it.
+// Per-family diagnostic codes are unchanged — see
+// `familyDiagnosticCode` for the mapping.

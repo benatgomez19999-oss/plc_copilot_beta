@@ -281,6 +281,9 @@ export {
   nonIoFamilyDiagnosticSignature,
 } from './sources/pdf-table-detect.js';
 
+// Sprint 83C — non-IO family diagnostic rollups.
+export { compressPageRanges } from './sources/pdf-table-detect.js';
+
 // Sprint 82 — PDF-specific address strictness.
 export type {
   PdfAddressClassification,

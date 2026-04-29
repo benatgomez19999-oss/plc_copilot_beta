@@ -75,7 +75,7 @@ import {
   groupItemsIntoLines,
   type PdfTextLayerLine,
 } from './pdf-text-normalize.js';
-import { detectIoTables } from './pdf-table-detect.js';
+import { detectIoTables, type PdfTableDetectorLine } from './pdf-table-detect.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -979,20 +979,30 @@ export async function ingestPdf(
     // signal: lines absorbed into a table still go through
     // `extractIoRow`, but the table candidate is preserved on
     // the page and the per-table diagnostics are surfaced.
+    //
+    // Sprint 83C — call `detectIoTables` ONCE over all pages so
+    // non-IO family diagnostics can roll up across page ranges
+    // (e.g. "BOM on pages 80–86") instead of one per page.
+    const allDetectorLines: PdfTableDetectorLine[] = [];
+    for (const page of document.pages) {
+      for (const block of page.textBlocks) {
+        allDetectorLines.push({
+          block,
+          items: undefined,
+          pageNumber: page.pageNumber,
+        });
+      }
+    }
+    const tableResult = detectIoTables({
+      lines: allDetectorLines,
+      sourceId: input.sourceId,
+      fileName: input.fileName,
+    });
+    aggregated.push(...tableResult.diagnostics);
+
     const updatedPages: PdfPage[] = [];
     const rows: ExtractedIoRow[] = [];
     for (const page of document.pages) {
-      const detectorLines = page.textBlocks.map((b) => ({
-        block: b,
-        items: undefined,
-        pageNumber: page.pageNumber,
-      }));
-      const tableResult = detectIoTables({
-        lines: detectorLines,
-        sourceId: input.sourceId,
-        fileName: input.fileName,
-      });
-      aggregated.push(...tableResult.diagnostics);
       for (const block of page.textBlocks) {
         const row = extractIoRow(page.pageNumber, block);
         if (row) {
@@ -1002,7 +1012,9 @@ export async function ingestPdf(
       }
       updatedPages.push({
         ...page,
-        tableCandidates: tableResult.tables,
+        tableCandidates: tableResult.tables.filter(
+          (t) => t.pageNumber === page.pageNumber,
+        ),
       });
     }
     document = { ...document, pages: updatedPages };
@@ -1169,19 +1181,33 @@ function buildPdfDocumentFromExtraction(
   // attach the candidates to the page, then run the IO-row regex
   // over every block (table + non-table, since tables don't change
   // the per-row contract — they just provide context).
-  for (let pi = 0; pi < docPages.length; pi++) {
-    const detectorLines = perPageDetectorLines[pi];
-    if (!detectorLines || detectorLines.length === 0) continue;
+  //
+  // Sprint 83C — call `detectIoTables` ONCE over all pages so
+  // non-IO family diagnostics can roll up across page ranges
+  // (e.g. "BOM on pages 80–86") instead of one per page.
+  const allDetectorLines: PdfTableDetectorLine[] = [];
+  for (const lines of perPageDetectorLines) {
+    if (lines && lines.length > 0) allDetectorLines.push(...lines);
+  }
+  if (allDetectorLines.length > 0) {
     const tableResult = detectIoTables({
-      lines: detectorLines,
+      lines: allDetectorLines,
       sourceId: input.sourceId,
       fileName: input.fileName,
     });
-    docPages[pi] = {
-      ...docPages[pi],
-      tableCandidates: tableResult.tables,
-    };
     diagnostics.push(...tableResult.diagnostics);
+    for (let pi = 0; pi < docPages.length; pi++) {
+      const pageNumber = docPages[pi].pageNumber;
+      const tablesForPage = tableResult.tables.filter(
+        (t) => t.pageNumber === pageNumber,
+      );
+      if (tablesForPage.length > 0) {
+        docPages[pi] = {
+          ...docPages[pi],
+          tableCandidates: tablesForPage,
+        };
+      }
+    }
   }
 
   const rows: ExtractedIoRow[] = [];

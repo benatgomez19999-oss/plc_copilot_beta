@@ -313,7 +313,7 @@ describe('detectIoTables — Sprint 83A non-IO family diagnostics', () => {
     expect(bomDiags.length).toBe(1);
   });
 
-  it('8. BOM lines on different pages each emit one diagnostic (page granularity)', () => {
+  it('8. BOM lines on different pages collapse into ONE rollup with the combined page range (Sprint 83C)', () => {
     const bom =
       'Benennung (BMK) Menge Bezeichnung Typnummer Hersteller Artikelnummer';
     const result = detectIoTables({
@@ -323,7 +323,10 @@ describe('detectIoTables — Sprint 83A non-IO family diagnostics', () => {
     const bomDiags = result.diagnostics.filter(
       (d) => d.code === 'PDF_BOM_TABLE_DETECTED',
     );
-    expect(bomDiags.length).toBe(3);
+    // Sprint 83A emitted one diagnostic per page; Sprint 83C
+    // emits one rollup with the consecutive range "80–82".
+    expect(bomDiags.length).toBe(1);
+    expect(bomDiags[0].message).toContain('80–82');
   });
 
   it('9. unknown / generic body lines do NOT emit any family diagnostic (noise floor)', () => {
