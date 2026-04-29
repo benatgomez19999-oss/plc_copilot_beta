@@ -1,4 +1,4 @@
-import { compileProject, } from '@plccopilot/codegen-core';
+import { compileProject, runTargetPreflight, } from '@plccopilot/codegen-core';
 import { renderFunctionBlockCodesys } from '../renderers/codesys-st.js';
 import { renderDataBlockCodesys } from '../renderers/data-blocks.js';
 import { renderTypeArtifactCodesys } from '../renderers/types.js';
@@ -23,6 +23,7 @@ import { generateCodesysManifest } from './codesys-manifest.js';
  *   - generate POU pinmap, device tree, fieldbus config or HMI assets.
  */
 export function generateCodesysProject(project, options) {
+    runTargetPreflight(project, 'codesys');
     const program = compileProject(project, options);
     return renderProgramArtifactsCodesys(program);
 }

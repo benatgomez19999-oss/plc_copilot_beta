@@ -42,6 +42,8 @@ export const CODEGEN_ERROR_CODES = [
     'TIMEOUT_NO_AUTO_TRANSITION',
     'EDGE_INSTANCE_COLLISION',
     'ALARMS_AS_LOOSE_TAGS',
+    // Sprint 86 — codegen readiness / preflight failure
+    'READINESS_FAILED',
 ];
 export class CodegenError extends Error {
     code;

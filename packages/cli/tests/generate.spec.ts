@@ -265,7 +265,14 @@ describe('generate command — codegen errors (sprint 39)', () => {
     return path;
   }
 
-  it('exits 1 with [UNSUPPORTED_EQUIPMENT] + station + symbol + hint (sprint 40)', async () => {
+  it('exits 1 with [READINESS_FAILED] + station + symbol + hint (sprint 86)', async () => {
+    // Sprint 86 — Codegen readiness preflight intercepts unsupported
+    // equipment before `compileProject` would; the wrapper error now
+    // surfaces as `READINESS_FAILED` with the per-target diagnostic
+    // list rolled up inside the message body. The previous Sprint 40
+    // direct `UNSUPPORTED_EQUIPMENT` throw is still produced when
+    // `compileProject` is called outside the target façade
+    // (covered by codegen-core/tests/error-metadata.spec.ts).
     const input = writeProjectWithUnsupportedEquipment();
     const io = bufferedIO();
     const code = await runGenerate(
@@ -274,17 +281,20 @@ describe('generate command — codegen errors (sprint 39)', () => {
     );
     expect(code).toBe(1);
     const stderr = io.err();
-    expect(stderr).toContain('[UNSUPPORTED_EQUIPMENT]');
-    // The unsupported type is named in the message.
+    expect(stderr).toContain('[READINESS_FAILED]');
+    // The roll-up names the offending equipment type.
     expect(stderr).toContain('valve_onoff');
-    // Path points at the offending field.
+    // Path points at the offending field (carried via the readiness
+    // diagnostic into the wrapper error).
     expect(stderr).toContain('machines[0].stations[0].equipment[0].type');
     // Station + symbol metadata in the parens group.
     expect(stderr).toMatch(/station: \w+/);
     expect(stderr).toMatch(/symbol: \w+/);
-    // Hint enumerates the supported types.
+    // Hint enumerates the supported types for the target.
     expect(stderr).toContain('Hint: ');
     expect(stderr).toMatch(/pneumatic_cylinder_2pos|motor_simple/);
+    // The original per-diagnostic code surfaces inside the rolled-up message body.
+    expect(stderr).toContain('READINESS_UNSUPPORTED_EQUIPMENT_FOR_TARGET');
     // No stack trace by default.
     expect(stderr).not.toMatch(/\bat \w/);
   });

@@ -1,6 +1,7 @@
 import type { Project } from '@plccopilot/pir';
 import {
   compileProject,
+  runTargetPreflight,
   type CompileProjectOptions,
   type GeneratedArtifact,
   type ProgramIR,
@@ -35,6 +36,10 @@ export function generateCodesysProject(
   project: Project,
   options?: GenerateCodesysOptions,
 ): GeneratedArtifact[] {
+  // Sprint 86 — surface readiness errors before compileProject's
+  // first-failure throw. Non-blocking warnings/info still flow
+  // into the manifest via compileProject's diagnostic stream.
+  runTargetPreflight(project, 'codesys');
   const program = compileProject(project, options);
   return renderProgramArtifactsCodesys(program);
 }

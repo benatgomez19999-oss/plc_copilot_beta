@@ -325,6 +325,19 @@ export {
   basename,
 } from './naming.js';
 
+// ---------- Sprint 86: Codegen readiness / preflight diagnostics ----------
+export {
+  getTargetCapabilities,
+  preflightProject,
+} from './readiness/codegen-readiness.js';
+export type {
+  CodegenTarget,
+  PreflightOptions,
+  PreflightResult,
+  TargetCapabilities,
+} from './readiness/codegen-readiness.js';
+export { runTargetPreflight } from './readiness/run-preflight.js';
+
 // ---------- Utilities ----------
 export { stableJson } from './utils/json.js';
 export { buildCsv, escapeCsvField, toCsvRow } from './utils/csv.js';

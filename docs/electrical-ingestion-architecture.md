@@ -1,6 +1,6 @@
 # Electrical-plan ingestion architecture
 
-> **Status: Electrical graph / PIR hardening v0 (Sprint 85).** Sprint 72
+> **Status: Codegen readiness diagnostics v0 (Sprint 86).** Sprint 72
 > scaffolded the architecture. Sprint 73 added the CSV ingestor.
 > Sprint 74 added the EPLAN structured XML ingestor v0. Sprint 75
 > added the Review UI v0. Sprint 76 added the PIR builder v0.
@@ -574,6 +574,42 @@ This keeps both branches of the strategic requirement — structured
 ECAD exports today and PDF documents tomorrow — funnelling through
 the same review/persist/export model. A weak prompt cannot
 override that model: it has no surface area in any of these layers.
+
+## Sprint 86 — Codegen readiness diagnostics v0
+
+A small pure preflight in `@plccopilot/codegen-core` runs at
+the start of every target façade
+(`generateSiemensProject` / `generateCodesysProject` /
+`generateRockwellProject`). It walks the PIR once, collects
+`READINESS_*` diagnostics for unsupported equipment / IO data
+types / IO memory areas, duplicate equipment ids / IO ids /
+addresses / generated symbols, placeholder sequences, and
+no-generatable-objects. When any error severity diagnostic is
+found, the façade throws a single `CodegenError('READINESS_FAILED', …)`
+with the rolled-up list attached as `cause` — operators see
+every blocking issue at once instead of just the first
+`UNSUPPORTED_EQUIPMENT` throw.
+
+New module
+[`packages/codegen-core/src/readiness/codegen-readiness.ts`](../packages/codegen-core/src/readiness/codegen-readiness.ts)
+exports:
+
+- `preflightProject(project, options)` — pure / total walker.
+- `runTargetPreflight(project, target)` — façade-side helper
+  that throws on blocking errors.
+- `getTargetCapabilities(target)` — per-target capability
+  table (equipment kinds, IO data types, IO memory areas).
+- `CodegenTarget`, `TargetCapabilities`, `PreflightResult`,
+  `PreflightOptions` — public types.
+
+`READINESS_FAILED` was added to `CODEGEN_ERROR_CODES`. Eight
+new readiness codes were added to `DiagnosticCode`. No PIR
+mutation, no automatic merging or renaming, no schema bump,
+no new generated code. The CLI / web error formatters still
+work unchanged because the rolled-up message is single-line.
+
+Documented in
+[`docs/codegen-readiness-sprint-86.md`](codegen-readiness-sprint-86.md).
 
 ## Sprint 85 — Electrical graph / PIR hardening v0
 

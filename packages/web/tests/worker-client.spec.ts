@@ -257,9 +257,13 @@ describe('handleCompileRequest — round-trip', () => {
     }
   });
 
-  it('serialises CodegenError into the structured shape (sprint 39)', () => {
-    // Construct a project whose first machine has unsupported equipment
-    // — compileProject throws CodegenError('UNSUPPORTED_EQUIPMENT', …).
+  it('serialises CodegenError into the structured shape (sprint 39 / 86)', () => {
+    // Construct a project whose first machine has unsupported equipment.
+    // Sprint 86 — the codegen readiness preflight runs before
+    // `compileProject` and rolls every blocking diagnostic up into a
+    // single `READINESS_FAILED` CodegenError. The original
+    // UNSUPPORTED_EQUIPMENT throw still fires when `compileProject` is
+    // called outside the target façade (covered by codegen-core).
     const broken = clone();
     (broken.machines[0]!.stations[0]!.equipment[0]!.type as string) =
       'valve_onoff_unsupported';
@@ -272,7 +276,7 @@ describe('handleCompileRequest — round-trip', () => {
     expect(response.type).toBe('error');
     if (response.type === 'error') {
       expect(response.error.name).toBe('CodegenError');
-      expect(response.error.code).toBe('UNSUPPORTED_EQUIPMENT');
+      expect(response.error.code).toBe('READINESS_FAILED');
       expect(typeof response.error.message).toBe('string');
       // Stack stays out of the default UX.
       expect(response.error.stack).toBeUndefined();
@@ -300,7 +304,11 @@ describe('handleCompileRequest — round-trip', () => {
     }
   });
 
-  it('round-trips UNSUPPORTED_EQUIPMENT with stationId + symbol + path + hint (sprint 40)', () => {
+  it('round-trips READINESS_FAILED with stationId + symbol + path + hint (sprint 40 / 86)', () => {
+    // Sprint 86 — preflight runs before compileProject. The wrapper
+    // CodegenError carries the first blocking diagnostic's metadata
+    // (path / stationId / symbol / hint) so the existing UX surface is
+    // preserved; only the top-level `code` changed.
     const broken = clone();
     (broken.machines[0]!.stations[0]!.equipment[0]!.type as string) =
       'valve_onoff_unsupported';
@@ -312,7 +320,7 @@ describe('handleCompileRequest — round-trip', () => {
     });
     expect(response.type).toBe('error');
     if (response.type === 'error') {
-      expect(response.error.code).toBe('UNSUPPORTED_EQUIPMENT');
+      expect(response.error.code).toBe('READINESS_FAILED');
       expect(response.error.path).toBe(
         'machines[0].stations[0].equipment[0].type',
       );
@@ -460,7 +468,12 @@ describe('handleCompileRequest — round-trip', () => {
     }
   });
 
-  it('client rejects UNSUPPORTED_EQUIPMENT with formatted CompileClientError (sprint 40)', async () => {
+  it('client rejects READINESS_FAILED with formatted CompileClientError (sprint 40 / 86)', async () => {
+    // Sprint 86 — preflight wraps unsupported equipment into
+    // READINESS_FAILED before the wrapped error reaches the worker
+    // protocol. The CompileClientError formatter still produces a
+    // single-line message with the `[CODE]` prefix and `Hint: …`
+    // tail; only the top-level code changed.
     const fake = new FakeWorker();
     const client = createCompileWorkerClient({ workerFactory: () => fake });
     const broken = clone();
@@ -475,10 +488,12 @@ describe('handleCompileRequest — round-trip', () => {
     } catch (e) {
       expect(e).toBeInstanceOf(CompileClientError);
       const cce = e as CompileClientError;
-      expect(cce.serialized.code).toBe('UNSUPPORTED_EQUIPMENT');
-      expect(cce.message).toContain('[UNSUPPORTED_EQUIPMENT]');
+      expect(cce.serialized.code).toBe('READINESS_FAILED');
+      expect(cce.message).toContain('[READINESS_FAILED]');
       expect(cce.message).toMatch(/Hint: /);
-      // The formatter is single-line by contract.
+      // The formatter is single-line by contract — the rolled-up
+      // diagnostic body lives in the message *before* the path /
+      // hint suffix, so newlines must be stripped by the formatter.
       expect(cce.message.split('\n')).toHaveLength(1);
     }
   });

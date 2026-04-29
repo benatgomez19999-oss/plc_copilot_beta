@@ -81,6 +81,9 @@ export { collectAlarmDiagnostics, } from './compiler/program/alarm-diagnostics.j
 export { serializeProgramIR, } from './compiler/program/serialize.js';
 // ---------- Naming helpers (vendor-neutral) ----------
 export { toPascalCase, stationName, stationFbName, equipmentName, sanitizeSymbol, basename, } from './naming.js';
+// ---------- Sprint 86: Codegen readiness / preflight diagnostics ----------
+export { getTargetCapabilities, preflightProject, } from './readiness/codegen-readiness.js';
+export { runTargetPreflight } from './readiness/run-preflight.js';
 // ---------- Utilities ----------
 export { stableJson } from './utils/json.js';
 export { buildCsv, escapeCsvField, toCsvRow } from './utils/csv.js';
