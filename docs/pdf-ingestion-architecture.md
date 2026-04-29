@@ -1,4 +1,4 @@
-# PDF ingestion architecture — Sprint 79 → 80 → 81 → 82
+# PDF ingestion architecture — Sprint 79 → 80 → 81 → 82 → 83A
 
 > **Status: PDF address strictness + source-evidence hardening
 > (Sprint 82).** Sprint 79 landed the foundation. Sprint 80
@@ -55,6 +55,44 @@ did this fact come from?" before it can promote to PIR.
 - **No PLC codegen.** Always.
 - **No raw PDF persistence.** The Sprint 78B review-session
   snapshot does NOT carry the PDF bytes (privacy default).
+
+## Sprint 83A — what changed on top of Sprint 82
+
+Classifier hardening sprint surfaced by the Sprint 82 manual run
+on `TcECAD_Import_V2_2_x.pdf`. Sprint 81's `detectIoTableHeader`
+flagged BOM headers like
+`Benennung (BMK) Menge Bezeichnung Typnummer Hersteller Artikelnummer`
+as IO-list-shaped because `bmk → tag` + `bezeichnung → description`
+satisfied the role floor. Sprint 83A introduces a per-family
+classifier on top of the role keywords:
+
+- `classifyPdfTableHeader(text)` returns one of `'io_list' |
+  'bom_parts_list' | 'terminal_list' | 'cable_list' |
+  'contents_index' | 'legend' | 'unknown'` with strong-token
+  sets per family + auditable `reasons`.
+- `detectIoTableHeader` returns `null` for any non-IO family,
+  even when the role floor passes.
+- `detectIoTables` non-IO branch emits family-specific info
+  diagnostics (`PDF_BOM_TABLE_DETECTED`,
+  `PDF_TERMINAL_TABLE_DETECTED`, `PDF_CABLE_TABLE_DETECTED`,
+  `PDF_CONTENTS_TABLE_IGNORED`, `PDF_LEGEND_TABLE_IGNORED`,
+  `PDF_TABLE_HEADER_REJECTED`), one per `(family, page,
+  blockId)`. The Sprint 81 over-broad `PDF_TABLE_HEADER_DETECTED`
+  no longer fires for non-IO families.
+
+CSV / EPLAN / TcECAD ingestors keep using `detectPlcAddress` and
+their own classifiers; the family classifier is PDF-only.
+
+Sprint 82's address strictness gate is preserved verbatim:
+isolated `I1` / `O2` / `%I1` channel markers from PDF still
+never become buildable PIR addresses.
+
+Manual acceptance regression on `TcECAD_Import_V2_2_x.pdf`:
+pages 80–86 BOM headers no longer surface as IO-list headers;
+the rest of the diagnostic stream (Sprint 80 text-layer extraction,
+Sprint 81 page-level table-detection-not-implemented,
+Sprint 82 channel-marker warnings) is unchanged. Documented in
+[`docs/pdf-manual-acceptance-sprint-83A.md`](pdf-manual-acceptance-sprint-83A.md).
 
 ## Sprint 82 — what changed on top of Sprint 81
 
@@ -383,6 +421,13 @@ explains how the persistence layer handles them.
 | `PDF_PIR_BUILD_ADDRESS_BLOCKED` | warning | Reserved for the PIR-builder reporter (raised when an accepted PDF candidate has no buildable address) |
 | `PDF_SOURCE_SNIPPET_MISSING` | info | Reserved — flagged when a candidate landed without the Sprint 80/81 snippet |
 | `PDF_SOURCE_BBOX_MISSING` | info | Reserved — flagged when a candidate landed without the Sprint 80/81 bbox |
+| `PDF_BOM_TABLE_DETECTED` | info | **Sprint 83A** — BOM / parts / material list header recognised; ignored for IO extraction |
+| `PDF_TERMINAL_TABLE_DETECTED` | info | **Sprint 83A** — terminal-list / Klemmenplan header recognised; ignored for IO extraction |
+| `PDF_CABLE_TABLE_DETECTED` | info | **Sprint 83A** — cable-list / Kabelplan header recognised; ignored for IO extraction |
+| `PDF_CONTENTS_TABLE_IGNORED` | info | **Sprint 83A** — table-of-contents header recognised; ignored |
+| `PDF_LEGEND_TABLE_IGNORED` | info | **Sprint 83A** — legend / Strukturierungsprinzipien header recognised; ignored |
+| `PDF_TABLE_HEADER_REJECTED` | info | **Sprint 83A** — fallback when a header line passes the role floor but has no recognised family |
+| `PDF_TABLE_HEADER_CLASSIFIED` | info | Reserved for downstream callers that want to record full family classification metadata |
 
 ## Registry routing
 
@@ -480,7 +525,20 @@ Each step must keep the architectural invariant intact: every
 extracted fact carries a `SourceRef`, never auto-promotes to PIR,
 and is reviewable by a human before any downstream consumer.
 
-## Test coverage (Sprint 79 + 80 + 81 + 82)
+## Test coverage (Sprint 79 + 80 + 81 + 82 + 83A)
+
+Sprint 83A — new:
+- `packages/electrical-ingest/tests/pdf-table-family.spec.ts` —
+  35 tests: `classifyPdfTableHeader` table-driven family
+  resolution (16) covering IO-list / BOM / terminal / cable /
+  contents / legend / mixed / role-dedup / empty-input;
+  `detectIoTableHeader` family gate (6) verifying non-IO
+  families return null and IO still passes; `detectIoTables`
+  non-IO family diagnostics (9) including the deduplication
+  rule (one diagnostic per `(family, page, blockId)`);
+  `ingestPdf` end-to-end (4) with BOM-only / mixed BOM-IO /
+  Sprint 82 channel-marker regression / strict-address
+  regression.
 
 Sprint 82 — new:
 - `packages/electrical-ingest/tests/pdf-address-strictness.spec.ts`

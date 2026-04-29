@@ -188,6 +188,27 @@ takes the raw item stream and produces deterministic lines:
 The algorithm is total + side-effect-free; the same input always
 yields the same lines in the same order.
 
+### Sprint 83A — header family classifier
+
+After line-grouping, `detectIoTableHeader` runs the line text
+through `classifyPdfTableHeader` (in
+[`pdf-table-detect.ts`](../packages/electrical-ingest/src/sources/pdf-table-detect.ts)):
+
+- Headers that look like BOM / terminal / cable / contents /
+  legend lists are filtered OUT of IO-list detection — even
+  when the role floor (`address` or `tag` column present) is
+  satisfied. Those families now emit precise per-family info
+  diagnostics (`PDF_BOM_TABLE_DETECTED` etc.) instead of the
+  Sprint 81 over-broad `PDF_TABLE_HEADER_DETECTED`.
+- Strong-token sets per family are listed in
+  [`docs/pdf-manual-acceptance-sprint-83A.md`](pdf-manual-acceptance-sprint-83A.md).
+- BOM beats IO unless IO has strictly more hits AND owns the
+  `address` role; cable beats terminal on tie because `kabel`
+  / `ader` are unambiguous.
+- Non-IO family diagnostics dedupe by `(family, page, blockId)`
+  — repeated BOM headers across pages still surface, but
+  intra-page duplicates collapse.
+
 ### Sprint 82 — address strictness gate
 
 After line-grouping + IO-row regex match, `extractIoRow` runs

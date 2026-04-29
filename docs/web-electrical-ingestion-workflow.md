@@ -1,4 +1,4 @@
-# Web electrical-ingestion workflow — Sprint 77 → 78B → 79 → 80 → 81 → 82
+# Web electrical-ingestion workflow — Sprint 77 → 78B → 79 → 80 → 81 → 82 → 83A
 
 > **Status: end-to-end pipeline live in `@plccopilot/web`
 > (Sprint 77 → 78A → 78B → 79 → 80 → 81 → 82).** CSV / EPLAN XML /
@@ -14,9 +14,13 @@
 > (CSV/XML body, PDF bytes) is not persisted by default.
 >
 > Sprint 81 includes the first deterministic PDF acceptance
-> harness; Sprint 82's regression scenario for the public 86-
-> page `TcECAD_Import_V2_2_x.pdf` is documented in
+> harness; Sprint 82's regression scenario is documented in
 > [`docs/pdf-manual-acceptance-sprint-82.md`](pdf-manual-acceptance-sprint-82.md).
+> **Sprint 83A** adds a table-family classifier so BOM /
+> terminal / cable / contents / legend headers no longer surface
+> as IO-list-shaped — diagnostic stream is now precise. Sprint
+> 83A acceptance:
+> [`docs/pdf-manual-acceptance-sprint-83A.md`](pdf-manual-acceptance-sprint-83A.md).
 
 ## Run the dev server
 

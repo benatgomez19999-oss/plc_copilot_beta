@@ -272,7 +272,24 @@ export type ElectricalDiagnosticCode =
   // these; the diagnostic flags genuine layout cases where they
   // weren't recoverable):
   | 'PDF_SOURCE_SNIPPET_MISSING'
-  | 'PDF_SOURCE_BBOX_MISSING';
+  | 'PDF_SOURCE_BBOX_MISSING'
+  // ---- Sprint 83A: table-family classifier ----
+  // Sprint 81's `PDF_TABLE_HEADER_DETECTED` was over-broad — any
+  // header that named a `tag`/`description` column would fire it,
+  // even on BOM / material / terminal / cable lists. Sprint 83A
+  // splits that into per-family signals so the operator's
+  // diagnostic stream stays precise:
+  | 'PDF_BOM_TABLE_DETECTED'
+  | 'PDF_TERMINAL_TABLE_DETECTED'
+  | 'PDF_CABLE_TABLE_DETECTED'
+  | 'PDF_CONTENTS_TABLE_IGNORED'
+  | 'PDF_LEGEND_TABLE_IGNORED'
+  | 'PDF_TABLE_HEADER_REJECTED'
+  // Reserved for downstream callers that want to record the full
+  // family classification (not raised by the detector itself in
+  // Sprint 83A; the per-family codes above are the canonical
+  // surface):
+  | 'PDF_TABLE_HEADER_CLASSIFIED';
 
 export interface ElectricalDiagnostic {
   code: ElectricalDiagnosticCode;

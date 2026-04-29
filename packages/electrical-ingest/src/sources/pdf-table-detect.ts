@@ -39,6 +39,175 @@ import type {
 // ---------------------------------------------------------------------------
 
 /**
+ * Sprint 83A — table-family classification.
+ *
+ * Sprint 81's recogniser flagged any header carrying a
+ * `tag`/`description` column as "IO-list-shaped". The Sprint 82
+ * manual run on `TcECAD_Import_V2_2_x.pdf` exposed the gap: BOM
+ * pages carry headers like
+ *   "Benennung (BMK) Menge Bezeichnung Typnummer Hersteller Artikelnummer"
+ * which classify under `bmk → tag` + `bezeichnung → description`
+ * and slip through the floor — even though there is NO address /
+ * direction / signal column anywhere on the line. Sprint 83A
+ * adds a per-family classifier on top of the role keywords:
+ *
+ *   - `'io_list'`            real IO-list (address / direction / signal)
+ *   - `'bom_parts_list'`     parts list / Stückliste / Komponentenliste
+ *   - `'terminal_list'`      Klemmenplan / terminal-strip layouts
+ *   - `'cable_list'`         Kabelplan / cable schedules
+ *   - `'contents_index'`     table of contents
+ *   - `'legend'`             legend / Strukturierungsprinzipien
+ *   - `'unknown'`            line is header-shaped but doesn't fit
+ *
+ * Only `'io_list'` triggers `PdfTableCandidate` creation + IO-row
+ * extraction. Every other family lands as a precise info
+ * diagnostic and is otherwise ignored.
+ */
+export type PdfTableFamily =
+  | 'io_list'
+  | 'bom_parts_list'
+  | 'terminal_list'
+  | 'cable_list'
+  | 'contents_index'
+  | 'legend'
+  | 'unknown';
+
+export interface PdfTableHeaderClassification {
+  family: PdfTableFamily;
+  /** 0 .. 1 — confidence the family classification is correct. */
+  confidence: number;
+  /** Per-token role hits (deduplicated, in input order). */
+  roles: PdfTableColumnRole[];
+  /** Why the classifier landed where it did — one short clause per family vote. */
+  reasons: string[];
+}
+
+/**
+ * Strong indicators that a header is a real IO-list. Presence of
+ * ANY of these tokens (in addition to ≥ 2 column hits) flips the
+ * classifier into `'io_list'`. `bmk`/`bezeichnung`/`description`
+ * are NOT in this set on purpose — they're shared with BOM
+ * headers.
+ */
+const STRONG_IO_TOKENS: ReadonlySet<string> = new Set([
+  'address',
+  'addr',
+  'adresse',
+  'adr',
+  'io',
+  'i/o',
+  'e/a',
+  'ea',
+  'input',
+  'output',
+  'eingang',
+  'ausgang',
+  'direction',
+  'dir',
+  'signal',
+  'channel',
+  'kanal',
+  'sps',
+  'plc',
+  'ein',
+  'aus',
+]);
+
+/**
+ * Strong indicators that a header is a BOM / parts / material
+ * list. Presence of ANY of these wins over IO classification
+ * unless the IO vote is strictly larger AND carries an
+ * `address`-class role (defensive against headers that happen
+ * to mention both — vanishingly rare in practice).
+ */
+const STRONG_BOM_TOKENS: ReadonlySet<string> = new Set([
+  'menge',
+  'anzahl',
+  'qty',
+  'quantity',
+  'artikelnummer',
+  'artikelnr',
+  'artno',
+  'artnr',
+  'artikel',
+  'partnumber',
+  'part-number',
+  'partnr',
+  'typnummer',
+  'typenummer',
+  'typenr',
+  'typ-nr',
+  'hersteller',
+  'manufacturer',
+  'fabrikat',
+  'lieferant',
+  'supplier',
+  'bestellnummer',
+  'orderno',
+  'ordernumber',
+  'stückliste',
+  'stueckliste',
+  'teileliste',
+  'stuckliste',
+  'parts-list',
+  'partslist',
+  'material',
+  'bom',
+  'catalog',
+  'catalogue',
+]);
+
+/** Strong terminal-list indicators. */
+const STRONG_TERMINAL_TOKENS: ReadonlySet<string> = new Set([
+  'klemmenplan',
+  'klemmleistenübersicht',
+  'klemmleiste',
+  'klemmleisten',
+  'klemmen',
+  'klemme',
+  'terminal',
+  'terminal-strip',
+  'ziel',
+  'quelle',
+  'anschluss',
+  'anschlüsse',
+]);
+
+/** Strong cable-list indicators. */
+const STRONG_CABLE_TOKENS: ReadonlySet<string> = new Set([
+  'kabel',
+  'kabelplan',
+  'kabelübersicht',
+  'kabeluebersicht',
+  'kabeltyp',
+  'cable',
+  'ader',
+  'adern',
+  'conductor',
+  'wire',
+]);
+
+/** Strong contents/index indicators. */
+const STRONG_CONTENTS_TOKENS: ReadonlySet<string> = new Set([
+  'inhaltsverzeichnis',
+  'contents',
+  'seitenbeschreibung',
+  'seite',
+  'datum',
+  'bearbeiter',
+  'inhalt',
+  'index',
+]);
+
+/** Strong legend indicators. */
+const STRONG_LEGEND_TOKENS: ReadonlySet<string> = new Set([
+  'legende',
+  'legend',
+  'strukturierungsprinzipien',
+  'referenzkennzeichen',
+]);
+
+/**
  * Map of normalised header tokens (lowercased, trimmed, punctuation
  * stripped) to column roles. Multiple aliases per role keep the
  * recogniser tolerant of English, German, and abbreviated headers
@@ -114,6 +283,159 @@ function classifyHeaderToken(text: string): PdfTableColumnRole | null {
     if (HEADER_KEYWORDS[word]) return HEADER_KEYWORDS[word];
   }
   return null;
+}
+
+function tokensFromHeaderText(text: string): string[] {
+  if (typeof text !== 'string' || text.length === 0) return [];
+  const norm = normaliseToken(text);
+  if (norm.length === 0) return [];
+  return norm.split(' ').filter((t) => t.length > 0);
+}
+
+function countSetHits(
+  tokens: readonly string[],
+  set: ReadonlySet<string>,
+): number {
+  let hits = 0;
+  for (const t of tokens) if (set.has(t)) hits++;
+  return hits;
+}
+
+/**
+ * Sprint 83A — classify a header line into an IO-list / BOM /
+ * terminal-list / cable-list / contents / legend / unknown family.
+ *
+ * The classifier votes per family using the strong-token sets
+ * above plus the role-keyword map. Resolution rules are explicit
+ * (see body) so each decision is auditable from the `reasons`
+ * field.
+ *
+ * The output `roles` array is the deduplicated set of column
+ * roles the line resolves to, in input order. Callers can use
+ * it to build a `PdfTableHeaderLayout` when (and only when) the
+ * family is `'io_list'`.
+ */
+export function classifyPdfTableHeader(
+  text: string,
+): PdfTableHeaderClassification {
+  const reasons: string[] = [];
+  const tokens = tokensFromHeaderText(text);
+  if (tokens.length === 0) {
+    return {
+      family: 'unknown',
+      confidence: 0,
+      roles: [],
+      reasons: ['empty header text'],
+    };
+  }
+
+  const bomHits = countSetHits(tokens, STRONG_BOM_TOKENS);
+  const ioHits = countSetHits(tokens, STRONG_IO_TOKENS);
+  const terminalHits = countSetHits(tokens, STRONG_TERMINAL_TOKENS);
+  const cableHits = countSetHits(tokens, STRONG_CABLE_TOKENS);
+  const contentsHits = countSetHits(tokens, STRONG_CONTENTS_TOKENS);
+  const legendHits = countSetHits(tokens, STRONG_LEGEND_TOKENS);
+
+  // Collect role hits from the role-keyword map.
+  const seenRoles = new Set<PdfTableColumnRole>();
+  const roles: PdfTableColumnRole[] = [];
+  for (const t of tokens) {
+    const role = classifyHeaderToken(t);
+    if (role && !seenRoles.has(role)) {
+      seenRoles.add(role);
+      roles.push(role);
+    }
+  }
+  const hasAddressRole = roles.includes('address');
+
+  // Family resolution. Order matters — every branch returns,
+  // and earlier branches win to keep the rules auditable.
+
+  // Legend / contents are very specific surface vocabulary; they
+  // win when present, regardless of incidental BMK/Bezeichnung
+  // hits (those legends often list the very tokens we use to
+  // classify).
+  if (legendHits > 0) {
+    reasons.push(`legend: ${legendHits} strong token(s)`);
+    return {
+      family: 'legend',
+      confidence: clampConfidence(0.55 + 0.1 * legendHits),
+      roles,
+      reasons,
+    };
+  }
+  if (contentsHits >= 2) {
+    reasons.push(`contents: ${contentsHits} strong token(s)`);
+    return {
+      family: 'contents_index',
+      confidence: clampConfidence(0.55 + 0.1 * contentsHits),
+      roles,
+      reasons,
+    };
+  }
+
+  // BOM beats IO unless IO has strictly more hits AND owns the
+  // address column.
+  if (bomHits > 0 && (bomHits >= ioHits || !hasAddressRole)) {
+    reasons.push(
+      `bom_parts_list: ${bomHits} strong BOM token(s)` +
+        (ioHits > 0 ? ` (io tokens=${ioHits} but no address role)` : ''),
+    );
+    return {
+      family: 'bom_parts_list',
+      confidence: clampConfidence(0.55 + 0.1 * bomHits),
+      roles,
+      reasons,
+    };
+  }
+
+  // Terminal vs cable: cable beats terminal on tie because
+  // `kabel` / `ader` / `cable` / `conductor` / `wire` are
+  // unambiguous cable tokens, whereas `Quelle` / `Ziel` /
+  // `Anschluss` legitimately appear on cable lists too. Strict
+  // tie → cable wins.
+  if (cableHits >= terminalHits && cableHits > 0 && ioHits === 0) {
+    reasons.push(`cable_list: ${cableHits} strong token(s)`);
+    return {
+      family: 'cable_list',
+      confidence: clampConfidence(0.55 + 0.1 * cableHits),
+      roles,
+      reasons,
+    };
+  }
+  if (terminalHits > cableHits && ioHits === 0) {
+    reasons.push(`terminal_list: ${terminalHits} strong token(s)`);
+    return {
+      family: 'terminal_list',
+      confidence: clampConfidence(0.55 + 0.1 * terminalHits),
+      roles,
+      reasons,
+    };
+  }
+
+  // IO-list. Requires ≥ 1 strong IO token AND ≥ 2 column roles
+  // (so a single "address" line by itself doesn't pass).
+  if (ioHits > 0 && roles.length >= 2) {
+    reasons.push(`io_list: ${ioHits} strong IO token(s), ${roles.length} role(s)`);
+    return {
+      family: 'io_list',
+      confidence: clampConfidence(0.55 + 0.05 * ioHits + 0.05 * roles.length),
+      roles,
+      reasons,
+    };
+  }
+
+  reasons.push(
+    `unknown: io=${ioHits} bom=${bomHits} terminal=${terminalHits} cable=${cableHits} contents=${contentsHits} legend=${legendHits}`,
+  );
+  return { family: 'unknown', confidence: 0.2, roles, reasons };
+}
+
+function clampConfidence(v: number): number {
+  if (!Number.isFinite(v)) return 0;
+  if (v < 0) return 0;
+  if (v > 1) return 1;
+  return v;
 }
 
 // ---------------------------------------------------------------------------
@@ -194,6 +516,21 @@ export function detectIoTableHeader(
     (c) => c.role === 'address' || c.role === 'tag',
   );
   if (!hasAddressOrTag) return null;
+
+  // Sprint 83A — even if the role floor passes, refuse to flag the
+  // line as an IO-list header when the family classifier says it's
+  // a BOM / terminal / cable / contents / legend / unknown
+  // header. The family classifier owns the global view (presence
+  // of `Menge` / `Artikelnummer` / `Klemmenplan` / `Inhaltsverzeichnis`
+  // etc.). Returning `null` here pushes the assembler into the
+  // non-IO-family branch where it emits the precise
+  // `PDF_BOM_TABLE_DETECTED` / `PDF_TERMINAL_TABLE_DETECTED` /
+  // `PDF_CABLE_TABLE_DETECTED` / `PDF_CONTENTS_TABLE_IGNORED` /
+  // `PDF_LEGEND_TABLE_IGNORED` / `PDF_TABLE_HEADER_REJECTED`
+  // diagnostics instead of the over-broad Sprint 81
+  // `PDF_TABLE_HEADER_DETECTED` code.
+  const family = classifyPdfTableHeader(input.text);
+  if (family.family !== 'io_list') return null;
 
   return {
     columns,
@@ -286,6 +623,10 @@ export function detectIoTables(args: {
 
   let i = 0;
   let tableIndex = 1;
+  // Sprint 83A — guard against duplicate non-IO family diagnostics
+  // for the same line (e.g. a BOM header repeated across pages).
+  // Keyed by `${family}:${page}:${blockId}`.
+  const seenNonIoFamilyDiagnostic = new Set<string>();
   while (i < lines.length) {
     const line = lines[i];
     const header = detectIoTableHeader({
@@ -293,6 +634,23 @@ export function detectIoTables(args: {
       items: line.items,
     });
     if (!header) {
+      // Sprint 83A — even when `detectIoTableHeader` returns null,
+      // the line may still be a known non-IO family header (BOM /
+      // terminal / cable / contents / legend). Run the family
+      // classifier and emit a precise info diagnostic for those
+      // families so the operator's stream stays explainable. We
+      // skip the diagnostic entirely for `'unknown'` lines —
+      // those are body lines that happen to share a few keywords
+      // with header vocab; surfacing them would inflate the
+      // diagnostic stream.
+      const classification = classifyPdfTableHeader(line.block.text);
+      if (classification.family !== 'unknown' && classification.family !== 'io_list') {
+        const key = `${classification.family}:${line.pageNumber}:${line.block.id}`;
+        if (!seenNonIoFamilyDiagnostic.has(key)) {
+          seenNonIoFamilyDiagnostic.add(key);
+          diagnostics.push(buildNonIoFamilyDiagnostic(line, classification));
+        }
+      }
       i++;
       continue;
     }
@@ -402,4 +760,66 @@ export function detectIoTables(args: {
 function truncate(s: string, n: number): string {
   if (typeof s !== 'string') return '';
   return s.length > n ? `${s.slice(0, n)}…` : s;
+}
+
+/**
+ * Sprint 83A — emit the precise per-family diagnostic for a
+ * non-IO header line. Each family lands as info severity; the
+ * line is still source-traceable through `sourceRef`.
+ */
+function buildNonIoFamilyDiagnostic(
+  line: PdfTableDetectorLine,
+  classification: PdfTableHeaderClassification,
+): ElectricalDiagnostic {
+  const snippet = truncate(line.block.text, 80);
+  const reason = classification.reasons[classification.reasons.length - 1] ?? '';
+  const message =
+    `Non-IO table header on page ${line.pageNumber}: "${snippet}" classified as ` +
+    `${classification.family}` +
+    (reason ? ` (${reason})` : '') +
+    `. Ignored for IO extraction.`;
+  switch (classification.family) {
+    case 'bom_parts_list':
+      return createElectricalDiagnostic({
+        code: 'PDF_BOM_TABLE_DETECTED',
+        severity: 'info',
+        message,
+        sourceRef: line.block.sourceRef,
+      });
+    case 'terminal_list':
+      return createElectricalDiagnostic({
+        code: 'PDF_TERMINAL_TABLE_DETECTED',
+        severity: 'info',
+        message,
+        sourceRef: line.block.sourceRef,
+      });
+    case 'cable_list':
+      return createElectricalDiagnostic({
+        code: 'PDF_CABLE_TABLE_DETECTED',
+        severity: 'info',
+        message,
+        sourceRef: line.block.sourceRef,
+      });
+    case 'contents_index':
+      return createElectricalDiagnostic({
+        code: 'PDF_CONTENTS_TABLE_IGNORED',
+        severity: 'info',
+        message,
+        sourceRef: line.block.sourceRef,
+      });
+    case 'legend':
+      return createElectricalDiagnostic({
+        code: 'PDF_LEGEND_TABLE_IGNORED',
+        severity: 'info',
+        message,
+        sourceRef: line.block.sourceRef,
+      });
+    default:
+      return createElectricalDiagnostic({
+        code: 'PDF_TABLE_HEADER_REJECTED',
+        severity: 'info',
+        message,
+        sourceRef: line.block.sourceRef,
+      });
+  }
 }

@@ -267,6 +267,13 @@ export {
   looksLikeIoRow,
 } from './sources/pdf-table-detect.js';
 
+// Sprint 83A — table-family classifier.
+export type {
+  PdfTableFamily,
+  PdfTableHeaderClassification,
+} from './sources/pdf-table-detect.js';
+export { classifyPdfTableHeader } from './sources/pdf-table-detect.js';
+
 // Sprint 82 — PDF-specific address strictness.
 export type {
   PdfAddressClassification,
