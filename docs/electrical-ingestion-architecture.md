@@ -1,6 +1,6 @@
 # Electrical-plan ingestion architecture
 
-> **Status: PDF layout diagnostic rollups (Sprint 84.1B).** Sprint 72
+> **Status: Electrical graph / PIR hardening v0 (Sprint 85).** Sprint 72
 > scaffolded the architecture. Sprint 73 added the CSV ingestor.
 > Sprint 74 added the EPLAN structured XML ingestor v0. Sprint 75
 > added the Review UI v0. Sprint 76 added the PIR builder v0.
@@ -574,6 +574,56 @@ This keeps both branches of the strategic requirement — structured
 ECAD exports today and PDF documents tomorrow — funnelling through
 the same review/persist/export model. A weak prompt cannot
 override that model: it has no surface area in any of these layers.
+
+## Sprint 85 — Electrical graph / PIR hardening v0
+
+A small pure layer between the review gate and the per-item
+PIR build loop. Sprint 76's builder emitted per-item failure
+diagnostics (`PIR_BUILD_ACCEPTED_IO_INVALID_ADDRESS`,
+`PIR_BUILD_ACCEPTED_EQUIPMENT_INVALID`, …) and a generic
+`PIR_BUILD_EMPTY_ACCEPTED_INPUT` when nothing built. On
+TcECAD-style inputs that hid the *root cause* — operators saw
+the post-hoc cascade with no pointer to the unbuildable IO that
+triggered it.
+
+New module
+[`packages/electrical-ingest/src/mapping/electrical-graph-hardening.ts`](../packages/electrical-ingest/src/mapping/electrical-graph-hardening.ts)
+exports two pure helpers:
+
+- `summarizeAcceptedGraph(candidate, state)` — derives a
+  read-only graph summary (accepted IO/equipment ids, buildable
+  vs unbuildable IO, equipment→IO references, duplicates,
+  orphans).
+- `diagnoseHardenedGraph(candidate, summary)` — turns the
+  summary into a deduplicated, deterministic list of root-cause
+  `PirBuildDiagnostic`s.
+
+Eight new codes added to `PirBuildDiagnosticCode`:
+
+- `PIR_BUILD_EQUIPMENT_REFERENCES_MISSING_IO` (error)
+- `PIR_BUILD_EQUIPMENT_REFERENCES_UNACCEPTED_IO` (warning)
+- `PIR_BUILD_EQUIPMENT_REFERENCES_UNBUILDABLE_IO` (warning)
+- `PIR_BUILD_DUPLICATE_IO_ADDRESS` (warning, one per group)
+- `PIR_BUILD_DUPLICATE_IO_TAG` (info)
+- `PIR_BUILD_ACCEPTED_IO_ORPHANED` (info, single rolled-up)
+- `PIR_BUILD_ACCEPTED_EQUIPMENT_ORPHANED` (warning, one per equipment)
+- `PIR_BUILD_NO_BUILDABLE_IO_AFTER_HARDENING` (warning)
+
+`buildPirFromReviewedCandidate` runs the hardening pass after
+the gate and before the per-item loop; existing per-item codes
+keep their meaning and still fire as cascades. The Sprint 76
+gate semantics (`isReviewedCandidateReadyForPirBuild`,
+accepted-only filtering, pending/error blocking, empty-candidate
+rejection), the `sourceMap` sidecar contract, the address
+strictness rules, and every existing PIR_BUILD_* test are
+preserved verbatim.
+
+Volume / UX hardening only — no schema bump, no new
+extraction capability, no automatic merging of duplicates, no
+address synthesis, no automatic codegen.
+
+Documented in
+[`docs/electrical-graph-hardening-sprint-85.md`](electrical-graph-hardening-sprint-85.md).
 
 ## Sprint 84.1B — PDF layout diagnostic rollups
 

@@ -56,6 +56,10 @@ import type {
   SourceRef,
 } from '../types.js';
 import {
+  diagnoseHardenedGraph,
+  summarizeAcceptedGraph,
+} from './electrical-graph-hardening.js';
+import {
   getReviewedDecision,
   type PirBuildReviewState,
 } from './review-types.js';
@@ -107,7 +111,20 @@ export type PirBuildDiagnosticCode =
   | 'PIR_BUILD_SCHEMA_VALIDATION_FAILED'
   | 'PIR_BUILD_SOURCE_REFS_SIDECAR_USED'
   | 'PIR_BUILD_PLACEHOLDER_SEQUENCE_USED'
-  | 'PIR_BUILD_EMPTY_ACCEPTED_INPUT';
+  | 'PIR_BUILD_EMPTY_ACCEPTED_INPUT'
+  // ---- Sprint 85: electrical graph / PIR hardening ----
+  // Root-cause diagnostics emitted from the new hardening pass
+  // BEFORE the per-item build loops, so operators see the
+  // underlying reason for an empty/refused PIR instead of just
+  // the post-hoc cascade. See `electrical-graph-hardening.ts`.
+  | 'PIR_BUILD_EQUIPMENT_REFERENCES_UNBUILDABLE_IO'
+  | 'PIR_BUILD_EQUIPMENT_REFERENCES_UNACCEPTED_IO'
+  | 'PIR_BUILD_EQUIPMENT_REFERENCES_MISSING_IO'
+  | 'PIR_BUILD_ACCEPTED_IO_ORPHANED'
+  | 'PIR_BUILD_ACCEPTED_EQUIPMENT_ORPHANED'
+  | 'PIR_BUILD_DUPLICATE_IO_ADDRESS'
+  | 'PIR_BUILD_DUPLICATE_IO_TAG'
+  | 'PIR_BUILD_NO_BUILDABLE_IO_AFTER_HARDENING';
 
 export interface PirBuildDiagnostic {
   code: PirBuildDiagnosticCode;
@@ -675,6 +692,20 @@ export function buildPirFromReviewedCandidate(
         'review gate failed — pending items or error diagnostics present. PIR not built.',
     });
     return finaliseRefused(ctx);
+  }
+
+  // -------------------------------------------------------------
+  // Sprint 85 — hardening pass.
+  //
+  // Compute a normalised graph summary across the accepted subset,
+  // then emit root-cause diagnostics so operators see *why* a
+  // build will be empty/partial before the per-item loop fires
+  // its cascade. The summary is read-only; it never mutates the
+  // candidate or the review state.
+  // -------------------------------------------------------------
+  const hardeningSummary = summarizeAcceptedGraph(candidate, state);
+  for (const d of diagnoseHardenedGraph(candidate, hardeningSummary)) {
+    pushDiag(ctx, d);
   }
 
   // -------------------------------------------------------------
