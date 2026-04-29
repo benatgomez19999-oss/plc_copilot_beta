@@ -81,6 +81,10 @@ import {
   detectPageRotation,
   orderBlocksByLayout,
 } from './pdf-layout.js';
+import {
+  buildLayoutDiagnosticRollups,
+  type LayoutPageFinding,
+} from './pdf-layout-diagnostics.js';
 import { detectIoTables, type PdfTableDetectorLine } from './pdf-table-detect.js';
 
 // ---------------------------------------------------------------------------
@@ -1004,6 +1008,13 @@ export async function ingestPdf(
     // fires when geometry resolves ≥ 2 regions; single-region
     // pages stay unscoped (no `regionId` set).
     const allDetectorLines: PdfTableDetectorLine[] = [];
+    // Sprint 84.1B — accumulate per-page layout findings and emit
+    // a single rollup diagnostic per code at the end. Per-page
+    // emission produced dozens of layout-info rows on the 86-page
+    // TcECAD fixture and undid the Sprint 83B → 83F rollup
+    // hygiene work in a different dimension.
+    const multiColumnFindings: LayoutPageFinding[] = [];
+    const regionClusterFindings: LayoutPageFinding[] = [];
     for (const page of document.pages) {
       const orderedBlocks = orderBlocksByLayout(page.textBlocks, {
         pageWidth: page.width,
@@ -1014,18 +1025,15 @@ export async function ingestPdf(
         pageHeight: page.height,
       });
       if (layout.multiColumn) {
-        aggregated.push(
-          createElectricalDiagnostic({
-            code: 'PDF_LAYOUT_MULTI_COLUMN_DETECTED',
-            severity: 'info',
-            message:
-              `Detected ${layout.columns.length} columns on page ` +
-              `${page.pageNumber}; using column-aware reading order.`,
-          }),
-        );
+        multiColumnFindings.push({
+          page: page.pageNumber,
+          count: layout.columns.length,
+        });
       }
       const rotation = detectPageRotation(page);
       if (rotation.suspected) {
+        // Rotation stays per-page — rare and operationally
+        // important; collapsing it would lose page identity.
         aggregated.push(
           createElectricalDiagnostic({
             code: 'PDF_LAYOUT_ROTATION_SUSPECTED',
@@ -1040,15 +1048,10 @@ export async function ingestPdf(
       const regions = clusterBlocksIntoRegions(orderedBlocks);
       const regionIdByBlockId = new Map<string, string>();
       if (regions.length >= 2) {
-        aggregated.push(
-          createElectricalDiagnostic({
-            code: 'PDF_LAYOUT_REGION_CLUSTERED',
-            severity: 'info',
-            message:
-              `Clustered page ${page.pageNumber} into ${regions.length} ` +
-              `vertical region(s); IO-table walks are scoped to a single region.`,
-          }),
-        );
+        regionClusterFindings.push({
+          page: page.pageNumber,
+          count: regions.length,
+        });
         regions.forEach((region, idx) => {
           const rid = `pdf:p${page.pageNumber}:r${idx + 1}`;
           for (const b of region.blocks) {
@@ -1067,6 +1070,12 @@ export async function ingestPdf(
         allDetectorLines.push(line);
       }
     }
+    aggregated.push(
+      ...buildLayoutDiagnosticRollups({
+        multiColumnPages: multiColumnFindings,
+        regionClusterPages: regionClusterFindings,
+      }),
+    );
     const tableResult = detectIoTables({
       lines: allDetectorLines,
       sourceId: input.sourceId,
@@ -1266,6 +1275,12 @@ function buildPdfDocumentFromExtraction(
   // own info diagnostics so the operator knows the extractor took
   // a layout-aware path on that page.
   const allDetectorLines: PdfTableDetectorLine[] = [];
+  // Sprint 84.1B — accumulate per-page layout findings (multi-
+  // column + region cluster) and emit a single rollup diagnostic
+  // per code at the end. Rotation diagnostics stay per-page —
+  // they are rare and operationally important.
+  const multiColumnFindings: LayoutPageFinding[] = [];
+  const regionClusterFindings: LayoutPageFinding[] = [];
   for (let pi = 0; pi < docPages.length; pi++) {
     const lines = perPageDetectorLines[pi];
     if (!lines || lines.length === 0) continue;
@@ -1276,15 +1291,10 @@ function buildPdfDocumentFromExtraction(
       pageHeight: page.height,
     });
     if (layout.multiColumn) {
-      diagnostics.push(
-        createElectricalDiagnostic({
-          code: 'PDF_LAYOUT_MULTI_COLUMN_DETECTED',
-          severity: 'info',
-          message:
-            `Detected ${layout.columns.length} columns on page ` +
-            `${page.pageNumber}; using column-aware reading order.`,
-        }),
-      );
+      multiColumnFindings.push({
+        page: page.pageNumber,
+        count: layout.columns.length,
+      });
     }
     const rotation = detectPageRotation(page);
     if (rotation.suspected) {
@@ -1307,15 +1317,10 @@ function buildPdfDocumentFromExtraction(
     const regions = clusterBlocksIntoRegions(ordered);
     const regionIdByBlockId = new Map<string, string>();
     if (regions.length >= 2) {
-      diagnostics.push(
-        createElectricalDiagnostic({
-          code: 'PDF_LAYOUT_REGION_CLUSTERED',
-          severity: 'info',
-          message:
-            `Clustered page ${page.pageNumber} into ${regions.length} ` +
-            `vertical region(s); IO-table walks are scoped to a single region.`,
-        }),
-      );
+      regionClusterFindings.push({
+        page: page.pageNumber,
+        count: regions.length,
+      });
       regions.forEach((region, idx) => {
         const rid = `pdf:p${page.pageNumber}:r${idx + 1}`;
         for (const b of region.blocks) {
@@ -1338,6 +1343,12 @@ function buildPdfDocumentFromExtraction(
       }
     }
   }
+  diagnostics.push(
+    ...buildLayoutDiagnosticRollups({
+      multiColumnPages: multiColumnFindings,
+      regionClusterPages: regionClusterFindings,
+    }),
+  );
   if (allDetectorLines.length > 0) {
     const tableResult = detectIoTables({
       lines: allDetectorLines,

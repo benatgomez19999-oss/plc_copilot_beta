@@ -1,7 +1,7 @@
-# PDF ingestion architecture — Sprint 79 → 80 → 81 → 82 → 83A → 83B → 83C → 83D → 83E → 83F → 84 → 84.1
+# PDF ingestion architecture — Sprint 79 → 80 → 81 → 82 → 83A → 83B → 83C → 83D → 83E → 83F → 84 → 84.1 → 84.1B
 
-> **Status: PDF region-aware table walking (Sprint 84.1) on top
-> of Sprint 84 layout hardening v0.**
+> **Status: PDF layout diagnostic rollups (Sprint 84.1B) on top
+> of Sprint 84.1 region-aware table walking.**
 > Sprint 79 landed the foundation. Sprint 80 added a real
 > text-layer extractor. Sprint 81 added IO-list table extraction
 > + the first acceptance harness. Sprint 82 closed a real-world
@@ -64,6 +64,42 @@ did this fact come from?" before it can promote to PIR.
 - **No PLC codegen.** Always.
 - **No raw PDF persistence.** The Sprint 78B review-session
   snapshot does NOT carry the PDF bytes (privacy default).
+
+## Sprint 84.1B — what changed on top of Sprint 84.1
+
+Layout diagnostic rollups. Sprint 84 / 84.1 emitted
+`PDF_LAYOUT_MULTI_COLUMN_DETECTED` and `PDF_LAYOUT_REGION_CLUSTERED`
+once per page. On the 86-page TcECAD fixture this produced
+dozens of layout-info rows in the operator panel. Sprint 84.1B
+keeps the same diagnostic *codes* and emits them as compact
+rollups:
+
+- New module
+  [`pdf-layout-diagnostics.ts`](../packages/electrical-ingest/src/sources/pdf-layout-diagnostics.ts)
+  with `LayoutPageFinding` type and `buildLayoutDiagnosticRollups`
+  helper. Pure / DOM-free / total.
+- `pdf.ts` (text-mode + bytes-mode) now accumulates
+  `LayoutPageFinding`s across pages and emits a single rollup
+  per code at the end of the layout pass.
+- Messages: compact page range + count summary
+  (`(N columns)` for same-count, `Column counts ranged from MIN
+  to MAX.` / `Region counts ranged from MIN to MAX.` for
+  varying counts).
+- `PDF_LAYOUT_ROTATION_SUSPECTED` keeps per-page emission —
+  rare and operationally important; collapsing would lose page
+  identity.
+- Rollups carry no `sourceRef` (the rollup spans many pages).
+
+Sprint 82 strictness, Sprint 83A classifier, Sprint 83B hygiene
+gate, Sprint 83C cross-page call, Sprint 83D canonical keying,
+Sprint 83E rep-only fallback, Sprint 83F per-page
+`additionalSourceRefs`, Sprint 84 column-aware ordering, and
+Sprint 84.1 region barriers are all preserved verbatim. Volume /
+UX hardening only — no new extraction capability, no schema
+bump on existing consumers, no canvas rendering.
+
+Manual acceptance:
+[`docs/pdf-manual-acceptance-sprint-84-1B.md`](pdf-manual-acceptance-sprint-84-1B.md).
 
 ## Sprint 84.1 — what changed on top of Sprint 84
 

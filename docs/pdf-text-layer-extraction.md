@@ -188,6 +188,20 @@ takes the raw item stream and produces deterministic lines:
 The algorithm is total + side-effect-free; the same input always
 yields the same lines in the same order.
 
+### Sprint 84.1B — layout diagnostic rollups
+
+Sprint 84 / 84.1 emitted `PDF_LAYOUT_MULTI_COLUMN_DETECTED`
+and `PDF_LAYOUT_REGION_CLUSTERED` once per page; on real-world
+86-page PDFs this produced dozens of layout-info rows. Sprint
+84.1B accumulates per-page findings and emits one rollup
+diagnostic per code at the end of the layout pass, with a
+compressed page-range string and a count summary (or `(N
+columns)` / `Region count: N.` when counts are uniform).
+`PDF_LAYOUT_ROTATION_SUSPECTED` stays per-page —
+rare and operationally important. Sprint 84.1 region barrier
+behaviour is unchanged; only the diagnostic surface is
+collapsed.
+
 ### Sprint 84.1 — region-aware table walking
 
 Wires the Sprint 84 `clusterBlocksIntoRegions` helper into the

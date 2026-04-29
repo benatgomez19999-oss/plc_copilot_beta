@@ -1,6 +1,6 @@
 # Electrical-plan ingestion architecture
 
-> **Status: PDF region-aware table walking (Sprint 84.1).** Sprint 72
+> **Status: PDF layout diagnostic rollups (Sprint 84.1B).** Sprint 72
 > scaffolded the architecture. Sprint 73 added the CSV ingestor.
 > Sprint 74 added the EPLAN structured XML ingestor v0. Sprint 75
 > added the Review UI v0. Sprint 76 added the PIR builder v0.
@@ -574,6 +574,38 @@ This keeps both branches of the strategic requirement — structured
 ECAD exports today and PDF documents tomorrow — funnelling through
 the same review/persist/export model. A weak prompt cannot
 override that model: it has no surface area in any of these layers.
+
+## Sprint 84.1B — PDF layout diagnostic rollups
+
+Diagnostic-hygiene sprint. Sprint 84 / 84.1 emitted layout
+diagnostics per page; on the 86-page TcECAD fixture that
+produced dozens of `PDF_LAYOUT_MULTI_COLUMN_DETECTED` /
+`PDF_LAYOUT_REGION_CLUSTERED` rows. Sprint 84.1B keeps the same
+diagnostic codes and emits them as compact rollups:
+
+- New module
+  [`pdf-layout-diagnostics.ts`](../packages/electrical-ingest/src/sources/pdf-layout-diagnostics.ts)
+  with `LayoutPageFinding` and `buildLayoutDiagnosticRollups`.
+  Pure / DOM-free / total.
+- `pdf.ts` (text-mode + bytes-mode) accumulates per-page
+  findings and emits one rollup per code at the end of the
+  layout pass. Compressed page ranges via the existing
+  `compressPageRanges` helper, plus a count summary.
+- `PDF_LAYOUT_ROTATION_SUSPECTED` keeps per-page emission —
+  rare and operationally important.
+
+Sprint 82's strictness, Sprint 83A's classifier, Sprint 83B's
+hygiene gate, Sprint 83C's cross-page call, Sprint 83D's
+canonical-section-role keying, Sprint 83E's rep-only fallback,
+Sprint 83F's per-page `additionalSourceRefs`, Sprint 84's
+column-aware ordering + rotation flagging, and Sprint 84.1's
+region-aware table walking are all preserved verbatim. Volume /
+UX hardening only — no new extraction capability, no schema
+bump on existing consumers, no canvas rendering. Confidence
+still capped at 0.65.
+
+Manual acceptance:
+[`docs/pdf-manual-acceptance-sprint-84-1B.md`](pdf-manual-acceptance-sprint-84-1B.md).
 
 ## Sprint 84.1 — PDF region-aware table walking
 

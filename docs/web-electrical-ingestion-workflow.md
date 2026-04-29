@@ -1,4 +1,4 @@
-# Web electrical-ingestion workflow — Sprint 77 → 78B → 79 → 80 → 81 → 82 → 83A → 83B → 83C → 83D → 83E → 83F → 84 → 84.1
+# Web electrical-ingestion workflow — Sprint 77 → 78B → 79 → 80 → 81 → 82 → 83A → 83B → 83C → 83D → 83E → 83F → 84 → 84.1 → 84.1B
 
 > **Status: end-to-end pipeline live in `@plccopilot/web`
 > (Sprint 77 → 78A → 78B → 79 → 80 → 81 → 82).** CSV / EPLAN XML /
@@ -83,6 +83,14 @@
 > stream and per-page evidence remain identical. Sprint 84.1
 > acceptance:
 > [`docs/pdf-manual-acceptance-sprint-84-1.md`](pdf-manual-acceptance-sprint-84-1.md).
+> **Sprint 84.1B** then collapses the per-page
+> `PDF_LAYOUT_MULTI_COLUMN_DETECTED` and
+> `PDF_LAYOUT_REGION_CLUSTERED` emission into one rollup per
+> code with a compressed page-range message — diagnostic-
+> hygiene only, same codes, no schema change, no new UI.
+> `PDF_LAYOUT_ROTATION_SUSPECTED` stays per-page (rare and
+> operationally important). Sprint 84.1B acceptance:
+> [`docs/pdf-manual-acceptance-sprint-84-1B.md`](pdf-manual-acceptance-sprint-84-1B.md).
 
 ## Run the dev server
 
