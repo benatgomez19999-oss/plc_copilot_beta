@@ -30,13 +30,80 @@ This isolation matters because:
 - pdfjs's default ESM build needs `DOMMatrix` (browser-only); we
   use `pdfjs-dist/legacy/build/pdf.mjs` instead, which is
   officially the supported entry under Node.
-- Workers require browser-context APIs we don't want to ship.
-  The adapter passes `disableFontFace`, `useSystemFonts: false`,
+- The adapter passes `disableFontFace`, `useSystemFonts: false`,
   `useWorkerFetch: false`, and `isEvalSupported: false` so the
-  parser stays fully Node-friendly.
+  parser stays fully Node-friendly. Workers themselves still
+  exist — see the "Worker configuration" section below for the
+  browser path.
 - Vite-bundled web code never imports pdfjs directly — the
   adapter is dynamic-imported, so the cost is paid only when the
   ingestor is actually called.
+
+## Worker configuration (Sprint 81 post-fix)
+
+pdfjs-dist v5 always uses a worker — even from the legacy Node
+build. Two configurations matter:
+
+### Node (vitest, CLI, future codegen)
+
+`typeof window === 'undefined'`, so pdfjs falls back to a
+"fake worker" that runs in-process. The adapter does NOT set
+`GlobalWorkerOptions.workerSrc` in this path — Sprint 80's tests
+have always run this way, no setup required.
+
+### Browser (Vite-bundled web app)
+
+pdfjs throws synchronously on the first `getDocument` call when
+`GlobalWorkerOptions.workerSrc` is unset:
+
+```
+Error: No "GlobalWorkerOptions.workerSrc" specified.
+```
+
+Sprint 81 post-fix configures the worker via a Vite `?url`
+dynamic import inside the adapter:
+
+```ts
+const m = await import(
+  'pdfjs-dist/legacy/build/pdf.worker.min.mjs?url'
+);
+mod.GlobalWorkerOptions.workerSrc = m.default;
+```
+
+- The `?url` suffix is a Vite static-asset directive — at build
+  time Vite emits the worker file as a regular static asset and
+  the import resolves to its URL string. In dev, Vite serves it
+  directly.
+- Wrapped in `typeof window !== 'undefined'` so the helper is a
+  no-op in Node.
+- Wrapped in `try/catch` so a failure to resolve the worker URL
+  (custom bundlers, future packaging changes) surfaces as a
+  structured `PDF_TEXT_LAYER_EXTRACTION_FAILED` diagnostic from
+  the downstream `getDocument` try/catch — never as an Uncaught
+  promise.
+- Memoised. The configuration is attempted exactly once across
+  the lifetime of the module; subsequent extractions hit the
+  cached state.
+
+The web bundle does NOT import pdfjs directly. The `?url` import
+lives inside `electrical-ingest`, which is what Vite resolves
+through the workspace alias.
+
+### Defence in depth: synchronous getDocument failure
+
+`getDocument()` returns a `PDFDocumentLoadingTask` synchronously,
+but pdfjs may throw synchronously on worker-setup failure. Sprint
+81 post-fix moved the `getDocument` call inside the same
+try/catch that already wraps `await loadingTask.promise`, so
+either failure mode produces a `PDF_TEXT_LAYER_EXTRACTION_FAILED`
+diagnostic + `parseFailed: true` in the result.
+
+The web workspace adds one more layer: `handleIngest` is wrapped
+in a try/catch that surfaces any residual rejection as a session
+notice. The expected runtime path NEVER triggers it (the adapter
+is contracted to never reject); the catch exists so a future
+pdfjs major or unforeseen browser-side bug can't crash the React
+tree.
 
 ## Adapter API
 

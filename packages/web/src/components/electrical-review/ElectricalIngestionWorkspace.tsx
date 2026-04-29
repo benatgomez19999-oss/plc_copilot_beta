@@ -191,6 +191,18 @@ export function ElectricalIngestionWorkspace(): JSX.Element {
         contentHash: lightweightContentHash(hashSource),
         createdAtIso: nowIso(),
       });
+    } catch (err) {
+      // Sprint 81 post-fix — defence-in-depth catch. The domain
+      // layer (`ingestElectricalInput` → `ingestPdf` → adapter)
+      // is contracted to NEVER reject for ingestion-level
+      // failures; every error path lands as a structured
+      // diagnostic. If something still leaks through (e.g. a
+      // browser-side pdfjs worker setup error in a future
+      // pdfjs version), surface it to the operator as a
+      // session notice instead of an Uncaught promise.
+      const message =
+        err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+      setSessionNotice(`Ingest failed unexpectedly: ${message}`);
     } finally {
       setPending(false);
     }

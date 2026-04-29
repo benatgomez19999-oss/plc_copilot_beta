@@ -95,8 +95,10 @@ let pdfjsModulePromise:
       PasswordException?: new (...args: unknown[]) => Error;
     }>
   | null = null;
+let pdfjsModuleOverrideForTests: unknown = null;
 
 async function loadPdfjs(): Promise<unknown> {
+  if (pdfjsModuleOverrideForTests) return pdfjsModuleOverrideForTests;
   if (!pdfjsModulePromise) {
     // The legacy build is the only supported entry under Node;
     // see https://github.com/mozilla/pdf.js/issues/14807.
@@ -138,9 +140,84 @@ interface PdfJsLoadingTask {
   destroy(): Promise<void>;
 }
 
+interface PdfJsGlobalWorkerOptions {
+  workerSrc?: string;
+  workerPort?: unknown;
+}
+
 interface PdfJsModule {
   getDocument(options: unknown): PdfJsLoadingTask;
   PasswordException?: new (...args: unknown[]) => Error;
+  /**
+   * pdfjs v3+ exposes a singleton object of worker options. In
+   * Node we leave it alone — pdfjs falls back to a fake worker
+   * that runs in-process. In the browser pdfjs requires
+   * `workerSrc` to be set before the first `getDocument` call,
+   * otherwise it throws "No GlobalWorkerOptions.workerSrc
+   * specified".
+   */
+  GlobalWorkerOptions?: PdfJsGlobalWorkerOptions;
+}
+
+/**
+ * Sprint 81 post-fix — browser worker configuration.
+ *
+ * pdfjs-dist v5 requires `GlobalWorkerOptions.workerSrc` to be set
+ * before the first `getDocument` call when running in a browser
+ * (Node uses a fake-worker fallback that needs no setup; that
+ * path remains untouched).
+ *
+ * Strategy: dynamic-import the legacy worker bundle's URL via
+ * Vite's `?url` query, ONLY when `typeof window !== 'undefined'`
+ * AND `workerSrc` isn't already set. The dynamic-import literal
+ * is parsed by Vite at build time, so the worker file is emitted
+ * as a static asset and the import resolves to its absolute URL.
+ *
+ * In Node tests `typeof window === 'undefined'`, so this helper
+ * is a no-op and pdfjs's fake-worker path runs as before.
+ *
+ * Memoised: the configuration is attempted exactly once across
+ * the lifetime of the module. Failures fall through silently —
+ * the caller's getDocument try/catch will surface a
+ * PDF_TEXT_LAYER_EXTRACTION_FAILED diagnostic if the worker is
+ * still mis-configured at parse time.
+ */
+let workerConfigurePromise: Promise<void> | null = null;
+
+async function ensureBrowserWorkerConfigured(mod: PdfJsModule): Promise<void> {
+  if (workerConfigurePromise) return workerConfigurePromise;
+  workerConfigurePromise = (async () => {
+    try {
+      // `window` is browser-only; `globalThis` is universal. Probe
+      // through globalThis so this file stays usable from the
+      // electrical-ingest package's plain-Node tsconfig (no `dom`
+      // lib).
+      const hasWindow =
+        typeof globalThis !== 'undefined' &&
+        typeof (globalThis as { window?: unknown }).window !== 'undefined';
+      if (!hasWindow) return;
+      if (!mod.GlobalWorkerOptions) return;
+      if (mod.GlobalWorkerOptions.workerSrc) return;
+      // Vite resolves `?url` to the worker's static-asset URL at
+      // build time; in dev it points at the served chunk. The
+      // dynamic-import literal is intentionally a single string
+      // so Vite's static analyser picks it up. The TypeScript
+      // compiler can't resolve the `?url` suffix outside a Vite
+      // environment, so we cast through `unknown`.
+      const m = (await (import(
+        // @ts-ignore -- Vite ?url suffix; resolved at build time, may be
+        // unknown to plain Node tsconfig but is fine at runtime.
+        'pdfjs-dist/legacy/build/pdf.worker.min.mjs?url'
+      ) as Promise<unknown>)) as { default?: string };
+      const url = typeof m?.default === 'string' ? m.default : undefined;
+      if (url) mod.GlobalWorkerOptions.workerSrc = url;
+    } catch {
+      // No-op. The downstream getDocument try/catch will surface
+      // PDF_TEXT_LAYER_EXTRACTION_FAILED with the real pdfjs
+      // error message.
+    }
+  })();
+  return workerConfigurePromise;
 }
 
 /**
@@ -181,22 +258,34 @@ export async function extractPdfTextLayer(
     return result;
   }
 
+  // Sprint 81 post-fix — configure the pdfjs worker for browser
+  // contexts before the first getDocument call. No-op in Node
+  // (fake-worker path) and idempotent across calls.
+  await ensureBrowserWorkerConfigured(mod);
+
   // pdfjs reads the bytes lazily; we hand it a *copy* so the
   // caller's buffer can't be mutated.
   const data = new Uint8Array(input.bytes);
-  const loadingTask = mod.getDocument({
-    data,
-    isEvalSupported: false,
-    disableFontFace: true,
-    useSystemFonts: false,
-    // Standard fonts are needed for *rendering*, not text
-    // extraction. Skip them so Node doesn't try to fetch
-    // resources from a `standardFontDataUrl` we never set.
-    useWorkerFetch: false,
-  });
 
+  // Sprint 81 post-fix — `getDocument()` returns synchronously,
+  // but pdfjs v5 may THROW synchronously when worker setup fails
+  // (e.g. "No GlobalWorkerOptions.workerSrc specified" on a
+  // browser path that lost its worker URL). Keep the call inside
+  // the try/catch so a synchronous throw surfaces as a structured
+  // diagnostic instead of leaking out as an Uncaught promise.
+  let loadingTask: PdfJsLoadingTask;
   let doc: PdfJsDocument;
   try {
+    loadingTask = mod.getDocument({
+      data,
+      isEvalSupported: false,
+      disableFontFace: true,
+      useSystemFonts: false,
+      // Standard fonts are needed for *rendering*, not text
+      // extraction. Skip them so Node doesn't try to fetch
+      // resources from a `standardFontDataUrl` we never set.
+      useWorkerFetch: false,
+    });
     doc = await loadingTask.promise;
   } catch (err) {
     // Encrypted detection: pdfjs throws a PasswordException when
@@ -221,11 +310,10 @@ export async function extractPdfTextLayer(
           code: 'PDF_TEXT_LAYER_EXTRACTION_FAILED',
           message: `pdfjs failed to open the PDF: ${formatError(err)}`,
           hint:
-            'The bytes started with %PDF- but the document body was not parseable. The ingestor will fall back to the test-mode text path when text input is also supplied.',
+            'The bytes started with %PDF- but the document body was not parseable. If you see "No GlobalWorkerOptions.workerSrc specified", the browser worker URL is not configured — see docs/pdf-text-layer-extraction.md.',
         }),
       );
     }
-    await safeDestroy(loadingTask);
     return result;
   }
 
@@ -356,11 +444,28 @@ async function safeDestroy(task: PdfJsLoadingTask): Promise<void> {
 }
 
 /**
- * Test-only hook: clear the memoised module so a subsequent test
- * can simulate a fresh dynamic import (e.g., to verify the
- * dependency-failure path). Not part of the package's public
- * runtime API.
+ * Test-only hook: clear the memoised module + worker-config
+ * promises so a subsequent test can simulate a fresh dynamic
+ * import (e.g., to verify the dependency-failure path or the
+ * Sprint 81 post-fix browser-worker path). Not part of the
+ * package's public runtime API.
  */
 export function __resetPdfjsModuleCacheForTests(): void {
+  pdfjsModulePromise = null;
+  workerConfigurePromise = null;
+  pdfjsModuleOverrideForTests = null;
+}
+
+/**
+ * Test-only hook: substitute the cached pdfjs module reference
+ * with a synthetic stub so a test can simulate behaviours like
+ * `getDocument` throwing synchronously (the Sprint 81 post-fix
+ * regression we want to keep pinned). Pass `null` to clear.
+ * Not part of the package's public runtime API.
+ */
+export function __injectPdfjsModuleForTests(mod: unknown): void {
+  pdfjsModuleOverrideForTests = mod;
+  // Clear the real-import cache so a follow-up reset+real run
+  // doesn't return the override.
   pdfjsModulePromise = null;
 }

@@ -18,6 +18,8 @@ import {
 } from '../src/sources/pdf-text-normalize.js';
 import {
   extractPdfTextLayer,
+  __injectPdfjsModuleForTests,
+  __resetPdfjsModuleCacheForTests,
   type PdfTextLayerItem,
 } from '../src/sources/pdf-text-layer.js';
 import { ingestPdf } from '../src/sources/pdf.js';
@@ -321,5 +323,103 @@ describe('ingestPdf — Sprint 80 end-to-end with real bytes', () => {
     expect(codes.has('PDF_UNSUPPORTED_BINARY_PARSER')).toBe(false);
     expect(codes.has('PDF_TEXT_LAYER_UNAVAILABLE')).toBe(false);
     expect(codes.has('PDF_MALFORMED')).toBe(false);
+  });
+});
+
+// =============================================================================
+// Sprint 81 post-fix — regressions for the browser pdfjs worker bug
+// =============================================================================
+//
+// Manual test on a real selectable-text PDF surfaced an Uncaught
+// promise:
+//   "No GlobalWorkerOptions.workerSrc specified."
+//   at extractPdfTextLayer (pdf-text-layer.ts:187:27)
+//
+// pdfjs v5 throws synchronously from `getDocument` when its
+// browser worker isn't configured. Sprint 80's catch only wrapped
+// `await loadingTask.promise`, so the synchronous throw escaped.
+// This block pins:
+//   - extractPdfTextLayer NEVER rejects when getDocument throws
+//     synchronously (the canonical bug shape);
+//   - the failure surfaces as PDF_TEXT_LAYER_EXTRACTION_FAILED
+//     with `parseFailed: true`;
+//   - the worker-config helper is idempotent + safe to call from
+//     Node (no-op when window is undefined).
+
+const PDF_HEADER_BYTES = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d]);
+
+describe('extractPdfTextLayer — synchronous getDocument failure', () => {
+  it('1. resolves (never rejects) when mod.getDocument throws synchronously', async () => {
+    __resetPdfjsModuleCacheForTests();
+    __injectPdfjsModuleForTests({
+      getDocument: () => {
+        throw new Error('No "GlobalWorkerOptions.workerSrc" specified.');
+      },
+    });
+    let result;
+    let rejected = false;
+    try {
+      result = await extractPdfTextLayer({ bytes: PDF_HEADER_BYTES });
+    } catch {
+      rejected = true;
+    } finally {
+      __resetPdfjsModuleCacheForTests();
+    }
+    expect(rejected).toBe(false);
+    expect(result?.ok).toBe(false);
+    expect(result?.parseFailed).toBe(true);
+    expect(
+      result?.diagnostics.some(
+        (d) => d.code === 'PDF_TEXT_LAYER_EXTRACTION_FAILED',
+      ),
+    ).toBe(true);
+  });
+
+  it('2. preserves the underlying error message in the diagnostic hint trail', async () => {
+    __resetPdfjsModuleCacheForTests();
+    __injectPdfjsModuleForTests({
+      getDocument: () => {
+        const err = new Error('No "GlobalWorkerOptions.workerSrc" specified.');
+        throw err;
+      },
+    });
+    const result = await extractPdfTextLayer({ bytes: PDF_HEADER_BYTES });
+    __resetPdfjsModuleCacheForTests();
+    const fail = result.diagnostics.find(
+      (d) => d.code === 'PDF_TEXT_LAYER_EXTRACTION_FAILED',
+    );
+    expect(fail?.message).toContain('GlobalWorkerOptions.workerSrc');
+    // The hint mentions the worker-src configuration so operators
+    // looking at the production flow get a pointer.
+    expect(fail?.hint?.toLowerCase() ?? '').toMatch(/workersrc|worker/);
+  });
+
+  it('3. handles a getDocument that throws a non-Error value', async () => {
+    __resetPdfjsModuleCacheForTests();
+    __injectPdfjsModuleForTests({
+      getDocument: () => {
+        // eslint-disable-next-line no-throw-literal
+        throw 'pdfjs broke without an Error object';
+      },
+    });
+    const result = await extractPdfTextLayer({ bytes: PDF_HEADER_BYTES });
+    __resetPdfjsModuleCacheForTests();
+    expect(result.ok).toBe(false);
+    expect(result.parseFailed).toBe(true);
+  });
+
+  it('4. does NOT mark the result as encrypted when getDocument throws a non-PasswordException', async () => {
+    __resetPdfjsModuleCacheForTests();
+    __injectPdfjsModuleForTests({
+      getDocument: () => {
+        throw new Error('Some random pdfjs failure');
+      },
+    });
+    const result = await extractPdfTextLayer({ bytes: PDF_HEADER_BYTES });
+    __resetPdfjsModuleCacheForTests();
+    expect(result.encrypted).toBe(false);
+    expect(
+      result.diagnostics.some((d) => d.code === 'PDF_ENCRYPTED_NOT_SUPPORTED'),
+    ).toBe(false);
   });
 });
