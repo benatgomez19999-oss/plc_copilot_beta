@@ -1,6 +1,7 @@
-# PDF ingestion architecture — Sprint 79 → 80 → 81 → 82 → 83A → 83B → 83C → 83D
+# PDF ingestion architecture — Sprint 79 → 80 → 81 → 82 → 83A → 83B → 83C → 83D → 83E → 83F
 
-> **Status: non-IO rollup canonicalization (Sprint 83D).**
+> **Status: full per-occurrence drilldown for PDF rollup
+> diagnostics (Sprint 83F).**
 > Sprint 79 landed the foundation. Sprint 80 added a real
 > text-layer extractor. Sprint 81 added IO-list table extraction
 > + the first acceptance harness. Sprint 82 closed a real-world
@@ -63,6 +64,47 @@ did this fact come from?" before it can promote to PIR.
 - **No PLC codegen.** Always.
 - **No raw PDF persistence.** The Sprint 78B review-session
   snapshot does NOT carry the PDF bytes (privacy default).
+
+## Sprint 83F — what changed on top of Sprint 83E
+
+Per-occurrence drilldown. Sprint 83E added a "Show PDF
+evidence" toggle but multi-page rollups were
+*representative-only* — the operator UI showed the page list
+parsed from the message text but only the first page's snippet
++ bbox. Sprint 83F threads per-page `SourceRef` evidence through
+the diagnostic itself:
+
+- `ElectricalDiagnostic` gained an optional
+  `additionalSourceRefs?: ReadonlyArray<SourceRef>` field. The
+  representative ref still lives in `sourceRef`; the rest of the
+  occurrences land in the array (page-ascending). Backwards-
+  compatible: older consumers ignore the field; older
+  diagnostics omit it entirely. No diagnostic-code change.
+- `NonIoFamilyOccurrence` swapped its `Set<number>` of pages for
+  a `Map<number, SourceRef>` keyed by page number, so each page
+  in the rollup keeps its first matching line's `SourceRef`.
+  Sprint 83B intra-page dedup is preserved as a property of the
+  canonical-key grouping.
+- `buildNonIoFamilyRollupDiagnostic` populates
+  `additionalSourceRefs` from the `perPage` map (skipping the
+  representative). Single-page rollups omit the field entirely.
+- `pdf.ts` cross-page call unchanged — Sprint 83C's single
+  `detectIoTables` invocation stays.
+
+The web UI (`@plccopilot/web`) projects the new array into a
+per-page evidence list and renders each entry under its own
+`Page N` heading. The Sprint 83E representative-only notice now
+appears only when the rollup carries no per-page coverage (older
+diagnostics, partial coverage). No new pdfjs canvas rendering
+is introduced.
+
+Sprint 82's strictness gate, Sprint 83A's family classifier,
+Sprint 83B's hygiene helpers, Sprint 83C's cross-page call,
+Sprint 83D's canonical-section-role keying, and Sprint 83E's
+helper-side evidence projection are preserved verbatim.
+
+Manual acceptance:
+[`docs/pdf-manual-acceptance-sprint-83F.md`](pdf-manual-acceptance-sprint-83F.md).
 
 ## Sprint 83D — what changed on top of Sprint 83C
 

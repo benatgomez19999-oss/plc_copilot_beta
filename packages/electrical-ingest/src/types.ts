@@ -299,6 +299,23 @@ export interface ElectricalDiagnostic {
   edgeId?: string;
   sourceRef?: SourceRef;
   hint?: string;
+  /**
+   * Sprint 83F — optional per-occurrence evidence. Sprint 83C/D
+   * collapses many same-section occurrences into one rollup
+   * diagnostic with a single representative `sourceRef`; for
+   * multi-page rollups the operator UI needs *every* underlying
+   * occurrence. This array carries one extra `SourceRef` per
+   * additional occurrence the rollup represents (the first
+   * occurrence stays in `sourceRef`). Order is stable —
+   * page-ascending for PDF rollups.
+   *
+   * Backwards-compatible: callers that don't recognise the field
+   * fall back to `sourceRef`. Older diagnostics may omit it
+   * entirely (representative-only). Snippet/bbox data is the
+   * same shape the extractor already populated; no new bytes
+   * are persisted.
+   */
+  additionalSourceRefs?: ReadonlyArray<SourceRef>;
 }
 
 // ---------------------------------------------------------------------------

@@ -1,4 +1,4 @@
-# Web electrical-ingestion workflow — Sprint 77 → 78B → 79 → 80 → 81 → 82 → 83A → 83B → 83C → 83D → 83E
+# Web electrical-ingestion workflow — Sprint 77 → 78B → 79 → 80 → 81 → 82 → 83A → 83B → 83C → 83D → 83E → 83F
 
 > **Status: end-to-end pipeline live in `@plccopilot/web`
 > (Sprint 77 → 78A → 78B → 79 → 80 → 81 → 82).** CSV / EPLAN XML /
@@ -54,6 +54,16 @@
 > schema change, no new extraction capability, no page
 > preview / bbox overlay rendering yet. Sprint 83E acceptance:
 > [`docs/pdf-manual-acceptance-sprint-83E.md`](pdf-manual-acceptance-sprint-83E.md).
+> **Sprint 83F** then removes the Sprint 83E representative-only
+> cliff for multi-page rollups: an additive optional
+> `additionalSourceRefs` field on `ElectricalDiagnostic` carries
+> one `SourceRef` per non-representative page, and the web UI
+> renders them as a grouped per-page evidence list. The Sprint
+> 83E rep-only notice survives as a fallback for older
+> diagnostics or partial coverage. Backwards-compatible —
+> existing consumers ignore the new field; older diagnostics
+> omit it entirely. Sprint 83F acceptance:
+> [`docs/pdf-manual-acceptance-sprint-83F.md`](pdf-manual-acceptance-sprint-83F.md).
 
 ## Run the dev server
 

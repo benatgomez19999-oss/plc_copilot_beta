@@ -1,6 +1,6 @@
 # Electrical-plan ingestion architecture
 
-> **Status: PDF non-IO rollup canonicalization (Sprint 83D).** Sprint 72
+> **Status: PDF rollup full per-occurrence drilldown (Sprint 83F).** Sprint 72
 > scaffolded the architecture. Sprint 73 added the CSV ingestor.
 > Sprint 74 added the EPLAN structured XML ingestor v0. Sprint 75
 > added the Review UI v0. Sprint 76 added the PIR builder v0.
@@ -574,6 +574,38 @@ This keeps both branches of the strategic requirement — structured
 ECAD exports today and PDF documents tomorrow — funnelling through
 the same review/persist/export model. A weak prompt cannot
 override that model: it has no surface area in any of these layers.
+
+## Sprint 83F — PDF rollup full per-occurrence drilldown
+
+Removes the Sprint 83E representative-only cliff for
+multi-page PDF rollup diagnostics by threading per-page
+`SourceRef` evidence through the diagnostic itself.
+
+- `ElectricalDiagnostic` gained an additive optional
+  `additionalSourceRefs?: ReadonlyArray<SourceRef>` field.
+  Backwards-compatible: older consumers ignore the field; older
+  diagnostics omit it entirely. No new diagnostic codes.
+- Inside `detectIoTables`, `NonIoFamilyOccurrence.perPage` now
+  tracks one `SourceRef` per page (replacing the Sprint 83C
+  `Set<number>` of pages). Sprint 83B intra-page dedup is
+  preserved as a property of the canonical-key grouping.
+- `buildNonIoFamilyRollupDiagnostic` populates
+  `additionalSourceRefs` page-ascending (representative excluded);
+  single-page rollups omit the field.
+- The web UI projects each entry into a per-page evidence list
+  and renders it under a `Page N` heading. Sprint 83E
+  representative-only notice still appears for older
+  diagnostics or partial coverage.
+
+Sprint 82's strictness gate, Sprint 83A's family classifier,
+Sprint 83B's hygiene gates, Sprint 83C's cross-page call, and
+Sprint 83D's canonical-section-role keying are preserved
+verbatim. Volume / UX hardening only — no new extraction
+capability, no schema bump on existing consumers, no canvas
+rendering. Confidence still capped at 0.65.
+
+Manual acceptance:
+[`docs/pdf-manual-acceptance-sprint-83F.md`](pdf-manual-acceptance-sprint-83F.md).
 
 ## Sprint 83D — PDF non-IO rollup canonicalization
 

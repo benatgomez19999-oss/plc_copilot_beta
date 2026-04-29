@@ -1,20 +1,18 @@
-// Sprint 83E — PDF source-evidence helpers for the review UI.
+// Sprint 83E → 83F — PDF source-evidence helpers for the review UI.
 //
 // Pure / DOM-free / total. The Sprint 83D rollup diagnostic
 // message carries a compressed page phrase ("page 3", "pages
-// 80–86", "pages 3, 49–54"); the diagnostic's `sourceRef` only
-// points at the *representative* (first) page where the
-// canonical role appeared. To render an honest drilldown, the
-// UI needs:
+// 80–86", "pages 3, 49–54").
 //
-//   1. The full page set from the message text, so the operator
-//      sees every page the rollup covered.
-//   2. A flag indicating that the source evidence is *only*
-//      representative — clicking through opens the first page,
-//      not all of them.
-//
-// Both pieces are derived here so the component can stay a thin
-// renderer.
+// Sprint 83E surfaced the message page list + the first
+// occurrence's `sourceRef` only — multi-page rollups carried a
+// `representativeOnly` notice. Sprint 83F adds full
+// per-occurrence drilldown via the new
+// `ElectricalDiagnostic.additionalSourceRefs` array: when the
+// diagnostic carries one extra `SourceRef` per page beyond the
+// representative, we project them into a `perPageEvidence`
+// list. Older diagnostics that don't carry the array fall back
+// to the Sprint 83E representative-only path verbatim.
 
 import type {
   ElectricalDiagnostic,
@@ -101,6 +99,22 @@ export function extractPdfRollupPages(
 // Diagnostic-evidence summary
 // ---------------------------------------------------------------------------
 
+/**
+ * Sprint 83F — one entry per page covered by a rollup, when the
+ * diagnostic carries `additionalSourceRefs`. The page is the
+ * authoritative key (parsed from the SourceRef). Snippet + bbox
+ * are projected via the existing `SourceRefSummary` so the
+ * UI can re-use the Sprint 82 field rendering verbatim.
+ */
+export interface PdfPerPageEvidence {
+  /** Stable React key for the per-page row. */
+  key: string;
+  /** 1-based PDF page number this evidence belongs to. */
+  page: number;
+  /** Sprint 82 field projection (Snippet, Bounding box, Page, Symbol, …). */
+  summary: SourceRefSummary;
+}
+
 export interface PdfDiagnosticEvidenceSummary {
   /** Stable React key derived from the diagnostic identity. */
   key: string;
@@ -114,10 +128,18 @@ export interface PdfDiagnosticEvidenceSummary {
   pagesHumanLabel: string;
   /**
    * `true` when the rollup message names more pages than the
-   * single representative SourceRef. The UI must surface this
-   * honestly — clicking through only opens the first page.
+   * available SourceRef evidence can drill into. The UI must
+   * surface this honestly. Sprint 83F clears this flag when
+   * `perPageEvidence` covers every page named in the message.
    */
   representativeOnly: boolean;
+  /**
+   * Sprint 83F — per-page evidence list. Empty when the
+   * diagnostic does not carry `additionalSourceRefs` (older
+   * rollups, or single-page diagnostics where only the
+   * representative ref exists). Sorted by page ascending.
+   */
+  perPageEvidence: PdfPerPageEvidence[];
 }
 
 /**
@@ -144,13 +166,27 @@ export function summarizePdfDiagnosticEvidence(
     : refPage != null
       ? `page ${refPage}`
       : '';
-  // Representative-only when more pages are named in the message
-  // than the representative ref points at, OR when the message
-  // has no page phrase but the ref carries a single page (i.e.
-  // an older diagnostic surfaced via the rollup channel).
+
+  // Sprint 83F — project per-occurrence evidence from
+  // `additionalSourceRefs` when present. The first occurrence
+  // stays in `sourceRef`; we prepend it so the per-page list
+  // covers every page the rollup represents in one place.
+  const perPageEvidence = buildPerPageEvidence(diag, ref, sourceRef);
+
+  // Sprint 83F — clear the rep-only flag when per-page evidence
+  // covers every page named in the message (or the message has
+  // no phrase and we have at least one piece of evidence). Older
+  // diagnostics without `additionalSourceRefs` keep the Sprint
+  // 83E rep-only behaviour verbatim.
+  const perPagePages = new Set(perPageEvidence.map((e) => e.page));
+  const fullCoverage =
+    perPageEvidence.length > 0 &&
+    (pages.length === 0 || pages.every((p) => perPagePages.has(p)));
   const representativeOnly =
-    pages.length > 1 ||
-    (pageInfo != null && refPage != null && !pages.includes(refPage));
+    !fullCoverage &&
+    (pages.length > 1 ||
+      (pageInfo != null && refPage != null && !pages.includes(refPage)));
+
   const compactLabel = buildCompactLabel(diag, pages, pagesHumanLabel);
   const key = [
     diag.code,
@@ -164,7 +200,39 @@ export function summarizePdfDiagnosticEvidence(
     pages,
     pagesHumanLabel,
     representativeOnly,
+    perPageEvidence,
   };
+}
+
+function buildPerPageEvidence(
+  diag: ElectricalDiagnostic,
+  representativeRef: SourceRef,
+  representativeSummary: SourceRefSummary,
+): PdfPerPageEvidence[] {
+  const additional = diag.additionalSourceRefs;
+  if (!Array.isArray(additional) || additional.length === 0) return [];
+  const byPage = new Map<number, PdfPerPageEvidence>();
+  const repPage = pdfRefPageNumber(representativeRef);
+  if (repPage != null) {
+    byPage.set(repPage, {
+      key: `pdf-evidence:${representativeSummary.key}:${repPage}`,
+      page: repPage,
+      summary: representativeSummary,
+    });
+  }
+  for (const ref of additional) {
+    if (!ref || typeof ref !== 'object' || ref.kind !== 'pdf') continue;
+    const page = pdfRefPageNumber(ref);
+    if (page == null) continue;
+    if (byPage.has(page)) continue;
+    const summary = summarizeSourceRef(ref);
+    byPage.set(page, {
+      key: `pdf-evidence:${summary.key}:${page}`,
+      page,
+      summary,
+    });
+  }
+  return Array.from(byPage.values()).sort((a, b) => a.page - b.page);
 }
 
 function pdfRefPageNumber(ref: SourceRef): number | null {

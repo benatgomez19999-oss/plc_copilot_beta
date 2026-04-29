@@ -1023,7 +1023,15 @@ interface NonIoFamilyOccurrence {
   role: string;
   /** Sprint 83C — first-occurrence signature, kept for diagnostics. */
   signature: string;
-  pages: Set<number>;
+  /**
+   * Sprint 83F — per-page evidence map. Each page in the rollup
+   * contributes its first matching line's `SourceRef` (subsequent
+   * matches on the same page collapse via the canonical-key dedup).
+   * Replaces the Sprint 83C `Set<number>` so the diagnostic emitter
+   * can thread per-occurrence drilldown into `additionalSourceRefs`
+   * without re-walking the document.
+   */
+  perPage: Map<number, SourceRef>;
   representativeSourceRef: SourceRef;
   representativeSnippet: string;
   firstReason: string;
@@ -1074,10 +1082,13 @@ function familyDiagnosticCode(
 function buildNonIoFamilyRollupDiagnostic(
   occurrence: NonIoFamilyOccurrence,
 ): ElectricalDiagnostic {
-  const pageRange = compressPageRanges(Array.from(occurrence.pages));
+  const sortedPages = Array.from(occurrence.perPage.keys()).sort(
+    (a, b) => a - b,
+  );
+  const pageRange = compressPageRanges(sortedPages);
   const code = familyDiagnosticCode(occurrence.family);
   const label = familyHumanLabel(occurrence.family);
-  const pageCount = occurrence.pages.size;
+  const pageCount = sortedPages.length;
   const pagePhrase =
     pageCount === 1
       ? `page ${pageRange}`
@@ -1088,12 +1099,28 @@ function buildNonIoFamilyRollupDiagnostic(
     `These are not IO lists. First evidence: "${truncate(occurrence.representativeSnippet, 80)}"` +
     (reason ? ` (${reason})` : '') +
     `.`;
-  return createElectricalDiagnostic({
-    code,
-    severity: 'info',
-    message,
-    sourceRef: occurrence.representativeSourceRef,
-  });
+  // Sprint 83F — thread per-page evidence into the diagnostic.
+  // Page-ascending order; first page's SourceRef stays in
+  // `sourceRef` for backwards compatibility with Sprint 83C/D/E
+  // consumers, the rest land in `additionalSourceRefs`.
+  const additionalSourceRefs: SourceRef[] = [];
+  for (const page of sortedPages) {
+    if (page === sortedPages[0]) continue;
+    const ref = occurrence.perPage.get(page);
+    if (ref) additionalSourceRefs.push(ref);
+  }
+  const diag: ElectricalDiagnostic = {
+    ...createElectricalDiagnostic({
+      code,
+      severity: 'info',
+      message,
+      sourceRef: occurrence.representativeSourceRef,
+    }),
+  };
+  if (additionalSourceRefs.length > 0) {
+    diag.additionalSourceRefs = additionalSourceRefs;
+  }
+  return diag;
 }
 
 export function detectIoTables(args: {
@@ -1154,13 +1181,20 @@ export function detectIoTables(args: {
           });
           const existing = nonIoOccurrences.get(groupKey);
           if (existing) {
-            existing.pages.add(line.pageNumber);
+            // Sprint 83F — only record the first matching line per
+            // page; subsequent same-key matches on the same page
+            // remain collapsed (Sprint 83B intra-page dedup).
+            if (!existing.perPage.has(line.pageNumber)) {
+              existing.perPage.set(line.pageNumber, line.block.sourceRef);
+            }
           } else {
+            const perPage = new Map<number, SourceRef>();
+            perPage.set(line.pageNumber, line.block.sourceRef);
             nonIoOccurrences.set(groupKey, {
               family: classification.family,
               role,
               signature,
-              pages: new Set([line.pageNumber]),
+              perPage,
               representativeSourceRef: line.block.sourceRef,
               representativeSnippet: line.block.text,
               firstReason:
@@ -1280,8 +1314,8 @@ export function detectIoTables(args: {
     (a, b) => {
       if (a.family !== b.family) return a.family.localeCompare(b.family);
       if (a.role !== b.role) return a.role.localeCompare(b.role);
-      const ap = Math.min(...a.pages);
-      const bp = Math.min(...b.pages);
+      const ap = Math.min(...a.perPage.keys());
+      const bp = Math.min(...b.perPage.keys());
       return ap - bp;
     },
   );

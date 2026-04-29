@@ -588,6 +588,59 @@ describe('ingestPdf — Sprint 83D realistic TcECAD-shaped fixture', () => {
     expect(r.graph.nodes.filter((n) => n.kind === 'plc_channel')).toEqual([]);
   });
 
+  // Sprint 83F — full per-occurrence drilldown threading.
+  it('13b. multi-page rollup carries one additionalSourceRef per non-representative page (Sprint 83F)', async () => {
+    const text = [
+      '--- page 80 ---',
+      '=COMPONENTS&EPB/1 Teileliste BECKH_P8_Dyn_v2',
+      '--- page 81 ---',
+      '=COMPONENTS&EPB/2 Teileliste BECKH_P8_Dyn_v2',
+      '--- page 82 ---',
+      '=COMPONENTS&EPB/3 Teileliste BECKH_P8_Dyn_v2',
+    ].join('\n');
+    const r = await ingestPdf({
+      sourceId: 'tcecad-mini',
+      fileName: 'tcecad-mini.pdf',
+      text,
+    });
+    const bom = r.diagnostics.find(
+      (d) => d.code === 'PDF_BOM_TABLE_DETECTED',
+    )!;
+    expect(bom).toBeDefined();
+    expect(bom.sourceRef?.kind).toBe('pdf');
+    expect(bom.sourceRef?.page).toBe('80');
+    // Sprint 83F threads page 81 + 82 onto the diagnostic so the
+    // operator UI can render per-page evidence without re-walking
+    // the document.
+    expect(bom.additionalSourceRefs?.length).toBe(2);
+    const additionalPages = (bom.additionalSourceRefs ?? []).map(
+      (ref) => ref.page,
+    );
+    expect(additionalPages).toEqual(['81', '82']);
+    // Each additional ref carries its own snippet + bbox per page,
+    // not just a page number — the projection is full evidence.
+    const a81 = bom.additionalSourceRefs?.[0];
+    expect(a81?.snippet).toContain('=COMPONENTS&EPB/2');
+    expect(a81?.symbol).toBeDefined();
+  });
+
+  it('13c. single-page rollup omits additionalSourceRefs (no empty array noise)', async () => {
+    const r = await ingestPdf({
+      sourceId: 'single',
+      fileName: 'single.pdf',
+      text: [
+        '--- page 3 ---',
+        '=CONTENTS&EAB/1 Inhaltsverzeichnis Seitenbeschreibung Datum Bearbeiter',
+      ].join('\n'),
+    });
+    const contents = r.diagnostics.find(
+      (d) => d.code === 'PDF_CONTENTS_TABLE_IGNORED',
+    )!;
+    expect(contents).toBeDefined();
+    expect(contents.sourceRef?.page).toBe('3');
+    expect(contents.additionalSourceRefs).toBeUndefined();
+  });
+
   // Test 14 — Mixed strict-address PDF + canonicalized rollup keep IO path.
   it('14. mixed strict-address PDF + numbered BOM keeps 2 IO + 1 BOM rollup', async () => {
     const text = [

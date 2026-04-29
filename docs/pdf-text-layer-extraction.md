@@ -188,6 +188,31 @@ takes the raw item stream and produces deterministic lines:
 The algorithm is total + side-effect-free; the same input always
 yields the same lines in the same order.
 
+### Sprint 83F — full per-occurrence drilldown
+
+Sprint 83E added a representative-only "Show PDF evidence"
+toggle at the web layer; multi-page rollups still pointed at a
+single page's snippet + bbox. Sprint 83F threads per-page
+evidence through the diagnostic itself:
+
+- `ElectricalDiagnostic` gained an additive optional
+  `additionalSourceRefs?: ReadonlyArray<SourceRef>` field. The
+  representative ref stays in `sourceRef`; non-representative
+  occurrences land in the array (page-ascending). Backwards-
+  compatible — older consumers ignore it.
+- `NonIoFamilyOccurrence` now tracks evidence as a
+  `Map<number, SourceRef>` keyed by page (instead of a
+  `Set<number>` of pages). Each page in the rollup keeps its
+  first matching line's `SourceRef`; intra-page dedup is
+  preserved by the Sprint 83D canonical-key grouping.
+- `buildNonIoFamilyRollupDiagnostic` populates
+  `additionalSourceRefs` from the per-page map; single-page
+  rollups omit the field.
+
+Sprint 83A family classifier, Sprint 83B hygiene helpers,
+Sprint 83C cross-page single-call, and Sprint 83D canonical-
+section-role keying are preserved verbatim.
+
 ### Sprint 83D — non-IO rollup canonicalization
 
 Sprint 83C grouped non-IO rollups by `(family, signature)`. On
