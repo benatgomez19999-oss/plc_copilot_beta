@@ -10,7 +10,9 @@ import type {
   ElectricalDiagnosticSeverity,
 } from '@plccopilot/electrical-ingest';
 
+import { summarizePdfDiagnosticEvidence } from '../../utils/pdf-rollup-evidence.js';
 import { filterDiagnosticsBySeverity } from '../../utils/review-state.js';
+import { PdfDiagnosticEvidence } from './PdfDiagnosticEvidence.js';
 
 const SEVERITIES: ElectricalDiagnosticSeverity[] = [
   'error',
@@ -94,7 +96,14 @@ export function ElectricalDiagnosticsList({
                   {d.edgeId ? <>edge: <code>{d.edgeId}</code></> : null}
                 </p>
               ) : null}
-              {d.sourceRef ? (
+              {d.sourceRef && d.sourceRef.kind === 'pdf' ? (
+                (() => {
+                  const pdfEvidence = summarizePdfDiagnosticEvidence(d);
+                  return pdfEvidence ? (
+                    <PdfDiagnosticEvidence summary={pdfEvidence} />
+                  ) : null;
+                })()
+              ) : d.sourceRef ? (
                 <p className="diag-source muted">
                   source: <code>{d.sourceRef.kind}</code>
                   {d.sourceRef.path ? ' · ' + d.sourceRef.path : ''}

@@ -1,4 +1,4 @@
-# Web electrical-ingestion workflow — Sprint 77 → 78B → 79 → 80 → 81 → 82 → 83A → 83B → 83C → 83D
+# Web electrical-ingestion workflow — Sprint 77 → 78B → 79 → 80 → 81 → 82 → 83A → 83B → 83C → 83D → 83E
 
 > **Status: end-to-end pipeline live in `@plccopilot/web`
 > (Sprint 77 → 78A → 78B → 79 → 80 → 81 → 82).** CSV / EPLAN XML /
@@ -42,6 +42,18 @@
 > [`docs/pdf-manual-acceptance-sprint-83C.md`](pdf-manual-acceptance-sprint-83C.md).
 > Sprint 83D acceptance:
 > [`docs/pdf-manual-acceptance-sprint-83D.md`](pdf-manual-acceptance-sprint-83D.md).
+> **Sprint 83E** then adds the first operator-facing PDF
+> source-evidence UX on top of the now-stable diagnostic
+> stream: every PDF-source diagnostic gets a compact
+> "Show PDF evidence" toggle that reveals the full page list
+> from the rollup message, the representative SourceRef
+> snippet + bounding box, and an honest `representative-only`
+> notice when the rollup covers more pages than the source
+> reference can drill into. CSV / EPLAN / TcECAD flows keep
+> their existing one-liner unchanged. Volume / UX only — no
+> schema change, no new extraction capability, no page
+> preview / bbox overlay rendering yet. Sprint 83E acceptance:
+> [`docs/pdf-manual-acceptance-sprint-83E.md`](pdf-manual-acceptance-sprint-83E.md).
 
 ## Run the dev server
 
