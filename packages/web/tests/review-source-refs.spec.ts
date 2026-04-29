@@ -130,3 +130,67 @@ describe('NO_SOURCE_REFS_SUMMARY', () => {
     expect(Object.isFrozen(NO_SOURCE_REFS_SUMMARY)).toBe(true);
   });
 });
+
+// =============================================================================
+// Sprint 82 — PDF source-evidence projection (snippet + bbox)
+// =============================================================================
+
+describe('summarizeSourceRef — Sprint 82 PDF snippet + bbox projection', () => {
+  it('1. surfaces snippet as a "Snippet" field when present', () => {
+    const ref: SourceRef = {
+      sourceId: 's1',
+      kind: 'pdf',
+      path: 'plan.pdf',
+      page: '24',
+      line: 6,
+      symbol: 'pdf:page:24/line:6',
+      snippet: 'I0.0 B1 Part present',
+    };
+    const summary = summarizeSourceRef(ref);
+    const labels = summary.fields.map((f) => f.label);
+    expect(labels).toContain('Snippet');
+    const snippetField = summary.fields.find((f) => f.label === 'Snippet');
+    expect(snippetField?.value).toBe('I0.0 B1 Part present');
+  });
+
+  it('2. surfaces bbox as a single "Bounding box" field with unit', () => {
+    const ref: SourceRef = {
+      sourceId: 's1',
+      kind: 'pdf',
+      path: 'plan.pdf',
+      page: '24',
+      bbox: { x: 50, y: 700.5, width: 120.25, height: 12, unit: 'pt' },
+    };
+    const summary = summarizeSourceRef(ref);
+    const bboxField = summary.fields.find((f) => f.label === 'Bounding box');
+    expect(bboxField).toBeDefined();
+    expect(bboxField?.value).toContain('x=50.0');
+    expect(bboxField?.value).toContain('y=700.5');
+    expect(bboxField?.value).toContain('w=120.3');
+    expect(bboxField?.value).toContain('h=12.0');
+    expect(bboxField?.value).toContain('(pt)');
+  });
+
+  it('3. omits snippet/bbox cleanly when absent (no "undefined" leaks)', () => {
+    const ref: SourceRef = { sourceId: 's1', kind: 'pdf', page: '24' };
+    const summary = summarizeSourceRef(ref);
+    const labels = summary.fields.map((f) => f.label);
+    expect(labels).not.toContain('Snippet');
+    expect(labels).not.toContain('Bounding box');
+    for (const f of summary.fields) {
+      expect(f.value.toLowerCase()).not.toContain('undefined');
+    }
+  });
+
+  it('4. tolerates a malformed bbox (missing fields drop the projection)', () => {
+    const ref = {
+      sourceId: 's1',
+      kind: 'pdf' as const,
+      // bbox shape malformed: missing height + unit. The
+      // projection must NOT render a half-baked field.
+      bbox: { x: 1, y: 2, width: 3 } as never,
+    } as SourceRef;
+    const summary = summarizeSourceRef(ref);
+    expect(summary.fields.find((f) => f.label === 'Bounding box')).toBeUndefined();
+  });
+});

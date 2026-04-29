@@ -266,3 +266,14 @@ export {
   detectIoTables,
   looksLikeIoRow,
 } from './sources/pdf-table-detect.js';
+
+// Sprint 82 — PDF-specific address strictness.
+export type {
+  PdfAddressClassification,
+  PdfAddressClassificationResult,
+} from './sources/pdf-address-strictness.js';
+export {
+  classifyPdfAddress,
+  isPdfChannelMarker,
+  isStrictPdfPlcAddress,
+} from './sources/pdf-address-strictness.js';

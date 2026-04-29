@@ -188,7 +188,29 @@ takes the raw item stream and produces deterministic lines:
 The algorithm is total + side-effect-free; the same input always
 yields the same lines in the same order.
 
-### Limitations (Sprint 80 → 81)
+### Sprint 82 — address strictness gate
+
+After line-grouping + IO-row regex match, `extractIoRow` runs
+the verbatim address token through `classifyPdfAddress` (in
+[`pdf-address-strictness.ts`](../packages/electrical-ingest/src/sources/pdf-address-strictness.ts)):
+
+- **Strict** byte-bit forms (`I0.0`, `Q0.1`, `%IX0.0`, Rockwell
+  tag form) → row passes through, `plc_channel:<addr>` node and
+  edge are created.
+- **Channel markers** (`I1`, `O2`, `%I1`, `I3+`) → row preserved
+  as device evidence with `attributes.channel_marker` set, but
+  NO `plc_channel:` node and NO edge. The PIR builder cannot
+  see the row as IO.
+- **Ambiguous** addresses → same evidence-only treatment;
+  diagnostic instead of channel-marker label.
+
+Tag-column channel markers (`I1 I2` page-24 noise) reject the
+whole row.
+
+This gate is **PDF-only**. CSV / EPLAN / TcECAD continue using
+`detectPlcAddress` directly.
+
+### Limitations (Sprint 80 → 81 → 82)
 
 - **Single-column / non-rotated only.** Multi-column reading order
   and rotated pages are deferred.

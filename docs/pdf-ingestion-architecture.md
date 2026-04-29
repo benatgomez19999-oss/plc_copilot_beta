@@ -1,16 +1,20 @@
-# PDF ingestion architecture — Sprint 79 → 80 → 81
+# PDF ingestion architecture — Sprint 79 → 80 → 81 → 82
 
-> **Status: IO/table extraction v0 (Sprint 81).** Sprint 79
-> landed the foundation. Sprint 80 added a real text-layer
-> extractor (`pdfjs-dist` legacy build, isolated adapter).
-> **Sprint 81** improves line grouping, recognises IO-list-shaped
-> tables, supports address-first / tag-first / direction-word
-> row variants (English + German), and adds the first
-> deterministic acceptance harness so the closeout can prove
-> something useful actually came out of a real-bytes path. Still
-> no OCR, no symbol recognition, no multi-column / rotated
-> support, no wire tracing, no automatic PIR/codegen.
-> Confidence on PDF-derived nodes stays capped at `0.65`.
+> **Status: PDF address strictness + source-evidence hardening
+> (Sprint 82).** Sprint 79 landed the foundation. Sprint 80
+> added a real text-layer extractor. Sprint 81 added IO-list
+> table extraction + the first acceptance harness. **Sprint 82**
+> closes a real-world safety gap surfaced by manual testing on
+> the public 86-page `TcECAD_Import_V2_2_x.pdf`: isolated
+> Beckhoff-style channel markers (`I1`, `O2`, `%I1`) were being
+> promoted to buildable `%I1` PIR addresses. Sprint 82 introduces
+> a PDF-specific strictness classifier and refuses to synthesise
+> a buildable address from a channel marker — even when
+> `detectPlcAddress` would accept it. Source evidence now
+> surfaces `snippet` + `bbox` in the review drilldown. Confidence
+> still capped at `0.65`. Still no OCR, symbol recognition,
+> multi-column / rotated support, wire tracing, or automatic
+> PIR/codegen.
 
 ## Why PDF support is strategic
 
@@ -51,6 +55,84 @@ did this fact come from?" before it can promote to PIR.
 - **No PLC codegen.** Always.
 - **No raw PDF persistence.** The Sprint 78B review-session
   snapshot does NOT carry the PDF bytes (privacy default).
+
+## Sprint 82 — what changed on top of Sprint 81
+
+Safety / hardening sprint. No new feature; one new safety
+classifier, two new files, one regression scenario.
+
+### `classifyPdfAddress(token)` — PDF-only strictness
+
+Lives in
+[`packages/electrical-ingest/src/sources/pdf-address-strictness.ts`](../packages/electrical-ingest/src/sources/pdf-address-strictness.ts).
+Returns `'strict_plc_address' | 'channel_marker' | 'ambiguous' |
+'invalid'`:
+
+- **Strict** — explicit byte-bit notation (`I0.0`, `Q0.1`,
+  `%I0.0`, `%Q0.1`, `I 0.0`), explicit IEC `%IX0.0` / `%QX0.0`
+  / `%MX0.0`, or Rockwell `Local:1:I.Data[0].0`.
+- **Channel marker** — bare `I\d+` / `O\d+` / `Q\d+`
+  (with or without `%` prefix, with or without `+` / `-`
+  modifier). On a Beckhoff EL1004 / EL2004 hardware-overview
+  page these are *module channels*, NOT byte/bit addresses.
+- **Ambiguous** — anything else address-shaped.
+
+CSV / EPLAN / TcECAD ingestors keep using `detectPlcAddress`
+unchanged. The strictness classifier is invoked from PDF-row
+extraction only.
+
+### `extractIoRow` strictness gate
+
+After the row regex matches:
+
+1. If the **tag column** is itself a channel marker, the whole
+   row is rejected (the `I1 I2` page-24 noise case).
+2. The **address column** is classified.
+3. **Strict** → row passes through with `address` set. Same
+   diagnostics as Sprint 81 (`PDF_IO_ROW_EXTRACTED` info).
+4. **Channel marker** → row preserved as evidence with
+   `address: undefined` and `addressClassification:
+   'channel_marker'`. Diagnostics:
+   - `PDF_MODULE_CHANNEL_MARKER_DETECTED` (info)
+   - `PDF_CHANNEL_MARKER_NOT_PLC_ADDRESS` (warning)
+5. **Ambiguous** → row preserved as evidence. Diagnostics:
+   - `PDF_IO_ROW_REQUIRES_STRICT_ADDRESS` (warning)
+   - `PDF_IO_ROW_AMBIGUOUS_ADDRESS` (warning)
+
+Confidence on non-strict rows takes a `-0.05` penalty, capped
+between 0.5 and 0.65.
+
+### `buildGraphFromIoRows` non-strict branch
+
+Strict rows still produce `pdf_device:<tag>` + `plc_channel:<addr>`
++ direction-aware edge as before. Non-strict rows produce only
+the device evidence node, with two new attributes:
+
+- `attributes.channel_marker` — verbatim raw token (`'I1'`,
+  `'%Q1'`, etc.).
+- `attributes.address_classification` — `'channel_marker' |
+  'ambiguous'`.
+
+The `plc_channel:` node is NOT created. The PIR builder never
+sees the row as IO → `%I1` will never appear in a built PIR.
+
+### Web — source-evidence drilldown surfaces snippet + bbox
+
+`packages/web/src/utils/review-source-refs.ts` projection now
+includes:
+
+- `Snippet` — the verbatim row text the extractor captured.
+- `Bounding box` — `x=… y=… w=… h=… (pt)` in PDF point space.
+
+Sprint 79–81 already populated these fields on the `SourceRef`,
+but the UI dropped them. Sprint 81's manual TcECAD run confirmed
+the gap; Sprint 82 closes it.
+
+### Manual acceptance regression
+
+`TcECAD_Import_V2_2_x.pdf`'s page-24 channel markers no longer
+become buildable `%I1` / `%I3` PIR IO addresses. Documented in
+[`docs/pdf-manual-acceptance-sprint-82.md`](pdf-manual-acceptance-sprint-82.md).
 
 ## Sprint 81 — what changed on top of Sprint 80
 
@@ -294,6 +376,13 @@ explains how the persistence layer handles them.
 | `PDF_COLUMN_LAYOUT_UNSUPPORTED` | warning | Reserved (multi-column / rotated) |
 | `PDF_MULTI_COLUMN_ORDER_UNCERTAIN` | warning | Reserved |
 | `PDF_MANUAL_REVIEW_REQUIRED` | info | **Sprint 81** — at least one PDF-derived candidate exists; review required before promotion to PIR |
+| `PDF_CHANNEL_MARKER_NOT_PLC_ADDRESS` | warning | **Sprint 82** — row's address column was a channel marker; row preserved as evidence but NOT promoted to a buildable PLC address |
+| `PDF_MODULE_CHANNEL_MARKER_DETECTED` | info | **Sprint 82** — channel marker recognised in row (per-row companion to the warning above) |
+| `PDF_IO_ROW_REQUIRES_STRICT_ADDRESS` | warning | **Sprint 82** — row's address column is ambiguous; strict byte-bit notation required |
+| `PDF_IO_ROW_AMBIGUOUS_ADDRESS` | warning | **Sprint 82** — sibling diagnostic to strict-address-required |
+| `PDF_PIR_BUILD_ADDRESS_BLOCKED` | warning | Reserved for the PIR-builder reporter (raised when an accepted PDF candidate has no buildable address) |
+| `PDF_SOURCE_SNIPPET_MISSING` | info | Reserved — flagged when a candidate landed without the Sprint 80/81 snippet |
+| `PDF_SOURCE_BBOX_MISSING` | info | Reserved — flagged when a candidate landed without the Sprint 80/81 bbox |
 
 ## Registry routing
 
@@ -348,9 +437,24 @@ binary text-layer parser…") so operators are never surprised.
 ## Future roadmap
 
 Each step is an independent sprint; nothing is required to land
-together with Sprint 81.
+together with Sprint 82.
 
-1. **Sprint 82 — PDF extraction hardening.** Multi-column
+1. **Sprint 83 — PDF source-evidence UX.** Optional page
+   preview with bbox overlays, click-through from a candidate
+   to its source region on the rendered PDF page, better
+   operator trust during review. Pick this if Sprint 82's
+   strictness gate behaves correctly on real-world PDFs.
+
+2. **Sprint 83A (alt) — PDF layout hardening.** Multi-column
+   ordering, rotated pages, coordinate normalisation, region
+   clustering, better column-position detection from real
+   geometry. Pick this if real-world PDFs surface more layout
+   shape problems than evidence-UX problems.
+
+3. **Older planned items kept for reference (will be sequenced
+   into the schedule once the PDF UX direction is set):**
+
+   **PDF extraction hardening (folded into 83A above).** Multi-column
    ordering, rotated pages, coordinate normalisation, better
    column-position detection from real geometry, row/column
    confidence scoring, richer UI for the source-ref drilldown
@@ -376,7 +480,20 @@ Each step must keep the architectural invariant intact: every
 extracted fact carries a `SourceRef`, never auto-promotes to PIR,
 and is reviewable by a human before any downstream consumer.
 
-## Test coverage (Sprint 79 + 80 + 81)
+## Test coverage (Sprint 79 + 80 + 81 + 82)
+
+Sprint 82 — new:
+- `packages/electrical-ingest/tests/pdf-address-strictness.spec.ts`
+  — 42 tests: classifier table over strict / channel-marker /
+  ambiguous / invalid tokens (33), strictness gate inside
+  `ingestPdf` (8), `PdfDraftCandidate` integration confirming
+  channel-marker rows produce zero IO candidates (1).
+- `packages/web/tests/review-source-refs.spec.ts` — 4 new
+  tests pinning that PDF `snippet` + `bbox` are surfaced in
+  the source-ref drilldown (with `(pt)` unit), and that
+  malformed bbox shapes are dropped cleanly.
+
+
 
 Sprint 81 — new:
 - `packages/electrical-ingest/tests/pdf-table-detect.spec.ts` —

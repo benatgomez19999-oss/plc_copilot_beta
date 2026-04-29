@@ -61,6 +61,32 @@ export function summarizeSourceRef(ref: SourceRef): SourceRefSummary {
       ref.symbol,
     );
   }
+  // Sprint 82 — surface the PDF source snippet + bbox the
+  // extractor populates (Sprint 80/81). Earlier sprints had the
+  // data in the SourceRef but no UI projection; the manual
+  // acceptance run on TcECAD_Import_V2_2_x.pdf showed snippets
+  // missing from the source-ref drilldown.
+  if (typeof ref.snippet === 'string' && ref.snippet.length > 0) {
+    pushField(fields, 'snippet', 'Snippet', ref.snippet);
+  }
+  if (
+    ref.bbox &&
+    typeof ref.bbox === 'object' &&
+    Number.isFinite(ref.bbox.x) &&
+    Number.isFinite(ref.bbox.y) &&
+    Number.isFinite(ref.bbox.width) &&
+    Number.isFinite(ref.bbox.height)
+  ) {
+    const unit = typeof ref.bbox.unit === 'string' ? ref.bbox.unit : '';
+    pushField(
+      fields,
+      'bbox',
+      'Bounding box',
+      `x=${ref.bbox.x.toFixed(1)} y=${ref.bbox.y.toFixed(1)} ` +
+        `w=${ref.bbox.width.toFixed(1)} h=${ref.bbox.height.toFixed(1)}` +
+        (unit.length > 0 ? ` (${unit})` : ''),
+    );
+  }
 
   const oneLiner = buildOneLiner(ref);
   const key = [
@@ -112,6 +138,11 @@ const KIND_ORDER: ReadonlyArray<SourceRef['kind']> = [
   'eplan-export',
   'csv',
   'xml',
+  // Sprint 78A — Beckhoff/TwinCAT ECAD lives next to its sibling
+  // ECAD-export sources; Sprint 82 added it to the projection
+  // ordering so its drilldown groups under the structured-source
+  // family rather than falling through to "unknown".
+  'twincat_ecad',
   'pdf',
   'manual',
   'unknown',

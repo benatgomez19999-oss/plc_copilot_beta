@@ -1,6 +1,6 @@
 # Electrical-plan ingestion architecture
 
-> **Status: PDF IO/table extraction v0 (Sprint 81).** Sprint 72
+> **Status: PDF address strictness + source-evidence hardening (Sprint 82).** Sprint 72
 > scaffolded the architecture. Sprint 73 added the CSV ingestor.
 > Sprint 74 added the EPLAN structured XML ingestor v0. Sprint 75
 > added the Review UI v0. Sprint 76 added the PIR builder v0.
@@ -575,6 +575,44 @@ ECAD exports today and PDF documents tomorrow — funnelling through
 the same review/persist/export model. A weak prompt cannot
 override that model: it has no surface area in any of these layers.
 
+## Sprint 82 — PDF address strictness + source-evidence hardening
+
+Safety/hardening sprint surfaced by manual testing on the public
+86-page `TcECAD_Import_V2_2_x.pdf`. Sprint 81's IO-row extractor
+was promoting Beckhoff-style channel markers (`I1`, `O2`, `%I1`)
+to buildable PIR addresses (`%I1`, `%I3`) — schema-valid PIR but
+semantically wrong. Sprint 82 closes that gap with:
+
+- New `classifyPdfAddress(token)` (in
+  [`pdf-address-strictness.ts`](../packages/electrical-ingest/src/sources/pdf-address-strictness.ts))
+  returning `'strict_plc_address' | 'channel_marker' |
+  'ambiguous' | 'invalid'`. Strict requires explicit byte-bit
+  notation (`I0.0`, `%Q0.1`, `%IX0.0`, Rockwell tag form).
+- `extractIoRow` rejects rows whose **tag column** is itself a
+  channel marker (the `I1 I2` page-24 noise shape). Non-strict
+  **address columns** are preserved as evidence but not promoted
+  to buildable addresses.
+- `buildGraphFromIoRows` skips the `plc_channel:` node + edge for
+  non-strict rows. Device evidence is preserved with
+  `attributes.channel_marker` + `attributes.address_classification`
+  so the operator can audit during review.
+- 8 new `PDF_*` diagnostic codes (channel-marker / ambiguous /
+  strict-required / build-blocked / source-snippet-missing /
+  source-bbox-missing).
+- CSV / EPLAN / TcECAD ingestors are NOT affected. The
+  strictness classifier is invoked from PDF row extraction only.
+
+Web side: `review-source-refs.ts` projection now surfaces the
+PDF `snippet` and `bbox` fields the extractor populates. Earlier
+sprints had the data on the `SourceRef` but the UI dropped it.
+The Sprint 81 manual TcECAD run confirmed the gap. `'twincat_ecad'`
+also added to the projection's `KIND_ORDER` so its drilldown
+groups under the structured-source family.
+
+Full reference + manual-acceptance regression:
+[`docs/pdf-ingestion-architecture.md`](pdf-ingestion-architecture.md),
+[`docs/pdf-manual-acceptance-sprint-82.md`](pdf-manual-acceptance-sprint-82.md).
+
 ## Sprint 81 — PDF IO/table extraction v0
 
 Sprint 81 stays inside `@plccopilot/electrical-ingest`. No new
@@ -746,10 +784,11 @@ encodes this by:
 | 78B | Web review-session persistence + downloadable artefacts. New web utils: `electrical-review-session`, `electrical-review-storage`, `electrical-review-export`. New components: `ReviewSessionPanel`, `ExportArtifactsPanel`. Snapshot schema `electrical-review-session.v1` (raw source content NOT persisted by default). Single-slot localStorage; defensive restore; per-artefact JSON downloads + ZIP bundle. **No backend, no auth, no upload, no codegen.** 85 new web tests. |
 | 79 | PDF ingestion architecture v0. `'pdf'` source kind activated; `PdfDocument`/`PdfPage`/`PdfTextBlock`/`PdfTableCandidate` model + `PdfBoundingBox`. `SourceRef` extended with `bbox` + `snippet`. 12 `PDF_*` diagnostics. Honest binary stub + deterministic test-mode text path. Registry: CSV → TcECAD → EPLAN → PDF → unsupported (5 ingestors). Web: `'pdf'` `DetectedInputKind`, bytes upload via `arrayBuffer()`, snapshot `inputKind` extended. Raw PDF bytes NEVER persisted. 40 electrical-ingest tests + 13 web tests. |
 | 80 | PDF text-layer extraction v0. `pdfjs-dist@^5.7.284` (legacy Node build) added as runtime dep of `@plccopilot/electrical-ingest`. Isolated adapter + line-grouping. `ingestPdf` is now async. 5 new diagnostics. Sprint 79 stub codes retired on the success path. 22 domain tests + 2 web tests. |
-| **81** (this sprint) | **PDF IO/table extraction v0.** New `sources/pdf-table-detect.ts` (header-keyword classifier + per-page assembler). `extractIoRow` is now multi-pattern (address-first / tag-first / tag+direction+address / address+tag+direction). Address direction wins on conflict (`PDF_IO_ROW_ADDRESS_DIRECTION_CONFLICT` warning). 13 new `PDF_*` diagnostics. New `buildTabularPdfFixture` test helper. First deterministic PDF acceptance harness (`pdf-acceptance.spec.ts` — 4 cases). 36 new domain tests. |
-| 82 (planned) | PDF extraction hardening — multi-column ordering, rotated pages, coordinate normalisation, better column-position detection from real geometry, row/column confidence scoring, richer UI for the source-ref drilldown (bbox overlays). |
-| 82A (alt) | PDF layout architecture — explicit `PdfLayoutRegion` model, region clustering, optional page-preview component with bbox overlays. |
-| 82B (alt) | More structured-source hardening — XML namespaces, EDZ/EPDZ archive extraction, additional TcECAD/EPLAN schema variants. |
+| 81 | PDF IO/table extraction v0. New `sources/pdf-table-detect.ts`. `extractIoRow` multi-pattern. 13 new `PDF_*` diagnostics. First deterministic PDF acceptance harness (`pdf-acceptance.spec.ts` — 4 cases). 36 new domain tests. |
+| **82** (this sprint) | **PDF address strictness + source-evidence hardening.** New `sources/pdf-address-strictness.ts` (classifier returning strict / channel-marker / ambiguous / invalid). `extractIoRow` rejects channel-marker tags; non-strict addresses are preserved as evidence but never promoted. `buildGraphFromIoRows` skips `plc_channel:` + edges for non-strict rows. 8 new `PDF_*` diagnostics. Web `review-source-refs.ts` now surfaces `snippet` + `bbox` (regression fix from the Sprint 81 manual run). 42 new domain tests + 4 new web tests. **Manual TcECAD regression: `%I1`/`%I3` PIR builds no longer reproduce.** |
+| 83 (planned) | PDF source-evidence UX — optional page preview with bbox overlays, click-through from candidate to source region, better operator trust during review. |
+| 83A (alt) | PDF layout hardening — multi-column ordering, rotated pages, coordinate normalisation, region clustering, better column-position detection. |
+| 83B (alt) | More structured-source hardening — XML namespaces, EDZ/EPDZ archive extraction, additional TcECAD/EPLAN schema variants. |
 | later | OCR fallback (only as a flagged opt-in), symbol/connection-graph recognition, cross-page references, Siemens TIA hardware-config import, controlled codegen preview gated on accepted PIR. |
 
 Each future sprint stays narrow: a single concrete source format
@@ -780,14 +819,17 @@ review-session/storage/export/workflow specs. Sprint 79 added 40
 electrical-ingest tests (`pdf.spec.ts`) + 13 web tests (PDF
 detection + flow + session round-trip + privacy). Sprint 80 added 22 electrical-ingest tests (`pdf-text-layer.spec.ts`) +
 2 web tests (real-bytes path through `runElectricalIngestion`).
-**Sprint 81 adds 36 electrical-ingest tests** (32 in
-`pdf-table-detect.spec.ts` covering header classification, IO-row
-predicates, the per-page assembler, and end-to-end with the new
-`buildTabularPdfFixture` helper; 4 in `pdf-acceptance.spec.ts`
-covering the deterministic acceptance cases).
-`electrical-ingest`: 363 → 399 (+36). Web: 785 → 785 (no change).
-Repo total: 3029 → 3065 (+36). Existing codegen tests are
-unchanged.
+Sprint 81 added 36 electrical-ingest tests across
+`pdf-table-detect.spec.ts` + `pdf-acceptance.spec.ts`. The
+Sprint 81 post-fixes added 8 web tests (`canIngestElectricalSource`
+helper) + 4 electrical-ingest tests (pdfjs worker regression).
+**Sprint 82 adds 42 electrical-ingest tests** (the strictness
+classifier table + the gate inside `ingestPdf` + the
+`PdfDraftCandidate` channel-marker regression) **+ 4 web tests**
+(source-ref drilldown surfacing PDF snippet / bbox / malformed-
+bbox / "undefined" leak guard).
+`electrical-ingest`: 399 → 445 (+46). Web: 793 → 797 (+4). Repo
+total: 3073 → 3123 (+50). Existing codegen tests are unchanged.
 
 The review workflow + PIR-builder gate semantics live in
 [`docs/electrical-review-workflow.md`](electrical-review-workflow.md);

@@ -40,6 +40,11 @@ import { createElectricalDiagnostic } from '../diagnostics.js';
 import { confidenceFromEvidence } from '../confidence.js';
 import { detectPlcAddress } from '../normalize.js';
 import { KIND_ALIASES } from '../mapping/kind-aliases.js';
+import {
+  classifyPdfAddress,
+  isPdfChannelMarker,
+  type PdfAddressClassification,
+} from './pdf-address-strictness.js';
 import type {
   ElectricalDiagnostic,
   ElectricalEdge,
@@ -497,7 +502,19 @@ function inferKindFromLabel(text: string): ElectricalNodeKind {
 interface ExtractedIoRow {
   pageNumber: number;
   block: PdfTextBlock;
-  address: string;
+  /**
+   * Sprint 82 — `address` is `undefined` when the row's address
+   * column was a channel marker (e.g. `I1` on a Beckhoff EL1004
+   * overview) or otherwise non-strict. The row is still kept as
+   * source evidence; `buildGraphFromIoRows` will NOT create a
+   * `plc_channel:` node + edge for it.
+   */
+  address?: string;
+  /**
+   * Sprint 82 — verbatim address token even when it didn't pass
+   * the strictness gate. Stored for review in `attributes.channel_marker`.
+   */
+  rawAddressToken: string;
   tag: string;
   label: string;
   direction: 'input' | 'output' | 'unknown';
@@ -510,6 +527,15 @@ interface ExtractedIoRow {
    * into the document-level diagnostics list.
    */
   diagnostics: ElectricalDiagnostic[];
+  /**
+   * Sprint 82 — PDF-specific strictness classification of the
+   * row's address column. `'strict_plc_address'` rows are
+   * promoted to a `plc_channel:` node + edge as before; every
+   * other classification is preserved as evidence only and
+   * raises `PDF_CHANNEL_MARKER_NOT_PLC_ADDRESS` /
+   * `PDF_IO_ROW_AMBIGUOUS_ADDRESS`.
+   */
+  addressClassification: PdfAddressClassification;
 }
 
 function extractIoRow(
@@ -565,6 +591,14 @@ function extractIoRow(
   }
   if (!pattern) return null;
 
+  // Sprint 82 — page-24-style noise: lines like "I1 I2" on a
+  // Beckhoff module overview match the regex (addr=I1, tag=I2)
+  // but neither side is a real address+tag pair. Reject the
+  // whole row when the tag column is itself a channel marker.
+  if (isPdfChannelMarker(tag)) {
+    return null;
+  }
+
   // Normalize: detectPlcAddress's Siemens regex requires the `%`
   // prefix; PDF rows often write `I0.0` instead. Prefix when
   // missing, then validate.
@@ -572,6 +606,14 @@ function extractIoRow(
   const detected = detectPlcAddress(probe);
   if (!detected) return null;
 
+  // Sprint 82 — PDF-specific strictness gate. `detectPlcAddress`
+  // accepts Siemens forms where the bit is OPTIONAL (`%I1`), which
+  // is correct for CSV / EPLAN but unsafe for PDF: an isolated
+  // `I1` on a module overview is a channel marker, not an
+  // address. Classify the verbatim raw token (not the
+  // `%`-prefixed probe) so the operator-facing diagnostic
+  // matches what the PDF actually printed.
+  const classification = classifyPdfAddress(rawAddress);
   const reasons: string[] = [`pdf-row-pattern:${pattern}`];
   const diagnostics: ElectricalDiagnostic[] = [];
 
@@ -612,22 +654,87 @@ function extractIoRow(
     confidence += 0.02;
     reasons.push('header-aware-pattern');
   }
-  // Conservative: PDF-derived rows never exceed 0.65.
+  // Sprint 82 — channel-marker / ambiguous addresses cap one
+  // notch lower. They land as evidence-only; downstream graph
+  // construction will refuse to synthesise a buildable PLC
+  // address from them.
+  if (
+    classification.classification === 'channel_marker' ||
+    classification.classification === 'ambiguous'
+  ) {
+    confidence -= 0.05;
+    reasons.push(`pdf-address-${classification.classification}`);
+  }
+  // Conservative: PDF-derived rows never exceed 0.65 (and never
+  // dip below 0.5 — a cap on both sides keeps the review UI's
+  // confidence badge legible).
   if (confidence > 0.65) confidence = 0.65;
+  if (confidence < 0.5) confidence = 0.5;
 
-  diagnostics.push(
-    createElectricalDiagnostic({
-      code: 'PDF_IO_ROW_EXTRACTED',
-      severity: 'info',
-      message: `IO row extracted (${pattern}): ${detected.raw} ${tag}${label ? ' ' + label : ''}`,
-      sourceRef: block.sourceRef,
-    }),
-  );
+  // Sprint 82 — strictness diagnostics. The row is preserved as
+  // evidence either way; the diagnostics tell the operator why
+  // a buildable PIR address was (or wasn't) produced.
+  if (classification.classification === 'strict_plc_address') {
+    diagnostics.push(
+      createElectricalDiagnostic({
+        code: 'PDF_IO_ROW_EXTRACTED',
+        severity: 'info',
+        message: `IO row extracted (${pattern}): ${detected.raw} ${tag}${label ? ' ' + label : ''}`,
+        sourceRef: block.sourceRef,
+      }),
+    );
+  } else {
+    // `PDF_MODULE_CHANNEL_MARKER_DETECTED` (info) records that
+    // we saw the marker; `PDF_CHANNEL_MARKER_NOT_PLC_ADDRESS`
+    // (warning) explains why nothing was promoted to a buildable
+    // PLC address. `PDF_IO_ROW_REQUIRES_STRICT_ADDRESS` (warning)
+    // covers the ambiguous case.
+    if (classification.classification === 'channel_marker') {
+      diagnostics.push(
+        createElectricalDiagnostic({
+          code: 'PDF_MODULE_CHANNEL_MARKER_DETECTED',
+          severity: 'info',
+          message: `Channel marker "${rawAddress}" recognised in row (${classification.reason}).`,
+          sourceRef: block.sourceRef,
+        }),
+      );
+      diagnostics.push(
+        createElectricalDiagnostic({
+          code: 'PDF_CHANNEL_MARKER_NOT_PLC_ADDRESS',
+          severity: 'warning',
+          message: `Row "${truncatePdfRow(block.text, 80)}": "${rawAddress}" looks like a module channel marker, not a strict PLC address. The row is preserved as evidence but will NOT be promoted to a buildable PIR IO address.`,
+          sourceRef: block.sourceRef,
+          hint: 'Strict PLC address forms required from PDF: %I0.0 / %Q0.1 / I 0.0 / Q 1.2 / %IX0.0 / Local:1:I.Data[0].0.',
+        }),
+      );
+    } else {
+      diagnostics.push(
+        createElectricalDiagnostic({
+          code: 'PDF_IO_ROW_REQUIRES_STRICT_ADDRESS',
+          severity: 'warning',
+          message: `Row "${truncatePdfRow(block.text, 80)}": address "${rawAddress}" did not match a strict PLC-address shape (${classification.reason}). The row is preserved as evidence but will NOT be promoted to a buildable PIR IO address.`,
+          sourceRef: block.sourceRef,
+        }),
+      );
+      diagnostics.push(
+        createElectricalDiagnostic({
+          code: 'PDF_IO_ROW_AMBIGUOUS_ADDRESS',
+          severity: 'warning',
+          message: `Ambiguous address column on row "${truncatePdfRow(block.text, 80)}".`,
+          sourceRef: block.sourceRef,
+        }),
+      );
+    }
+  }
 
   return {
     pageNumber,
     block,
-    address: detected.raw,
+    address:
+      classification.classification === 'strict_plc_address'
+        ? detected.raw
+        : undefined,
+    rawAddressToken: rawAddress,
     tag,
     label,
     direction,
@@ -635,6 +742,7 @@ function extractIoRow(
     confidence,
     reasons,
     diagnostics,
+    addressClassification: classification.classification,
   };
 }
 
@@ -648,6 +756,8 @@ function buildGraphFromIoRows(
   sourceId: string,
   fileName: string | undefined,
 ): { nodes: ElectricalNode[]; edges: ElectricalEdge[] } {
+  void sourceId;
+  void fileName;
   const nodes: ElectricalNode[] = [];
   const edges: ElectricalEdge[] = [];
   const seenChannel = new Set<string>();
@@ -664,7 +774,6 @@ function buildGraphFromIoRows(
             : 'unknown'
         : labelKind;
     const deviceId = `pdf_device:${r.tag}`;
-    const channelId = `plc_channel:${r.address}`;
     nodes.push({
       id: deviceId,
       kind: deviceKind,
@@ -676,8 +785,28 @@ function buildGraphFromIoRows(
       attributes: {
         tag: r.tag,
         ...(r.label ? { label: r.label } : {}),
+        // Sprint 82 — when the row's address column was a
+        // channel marker / ambiguous, preserve the verbatim
+        // token so the operator can audit it during review,
+        // but DO NOT promote it to a buildable PLC address.
+        ...(r.addressClassification !== 'strict_plc_address'
+          ? {
+              channel_marker: r.rawAddressToken,
+              address_classification: r.addressClassification,
+            }
+          : {}),
       },
     });
+
+    // Sprint 82 — `plc_channel:` + edge are ONLY emitted for
+    // strict PLC addresses. Channel-marker / ambiguous rows are
+    // kept as device evidence above; the PIR builder never sees
+    // them as IO and therefore can never synthesise an `%I1`
+    // address from a Beckhoff module overview.
+    if (r.addressClassification !== 'strict_plc_address' || !r.address) {
+      continue;
+    }
+    const channelId = `plc_channel:${r.address}`;
     if (!seenChannel.has(channelId)) {
       nodes.push({
         id: channelId,

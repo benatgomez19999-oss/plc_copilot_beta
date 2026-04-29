@@ -257,7 +257,22 @@ export type ElectricalDiagnosticCode =
   | 'PDF_MULTI_COLUMN_ORDER_UNCERTAIN'
   // Operator hint emitted when extraction succeeds but human
   // judgment is needed before the candidate can promote to PIR:
-  | 'PDF_MANUAL_REVIEW_REQUIRED';
+  | 'PDF_MANUAL_REVIEW_REQUIRED'
+  // ---- Sprint 82: PDF address strictness + source-evidence hardening ----
+  // Channel-marker / strict-address gate (PDF-only — CSV/EPLAN
+  // /TcECAD address parsing is unchanged):
+  | 'PDF_CHANNEL_MARKER_NOT_PLC_ADDRESS'
+  | 'PDF_MODULE_CHANNEL_MARKER_DETECTED'
+  | 'PDF_IO_ROW_REQUIRES_STRICT_ADDRESS'
+  | 'PDF_IO_ROW_AMBIGUOUS_ADDRESS'
+  | 'PDF_PIR_BUILD_ADDRESS_BLOCKED'
+  // SourceRef richness — info-level reminders when a PDF
+  // candidate landed without a snippet/bbox the operator could
+  // use during review (the extractor SHOULD always populate
+  // these; the diagnostic flags genuine layout cases where they
+  // weren't recoverable):
+  | 'PDF_SOURCE_SNIPPET_MISSING'
+  | 'PDF_SOURCE_BBOX_MISSING';
 
 export interface ElectricalDiagnostic {
   code: ElectricalDiagnosticCode;
