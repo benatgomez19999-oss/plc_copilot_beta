@@ -284,6 +284,13 @@ export {
 // Sprint 83C — non-IO family diagnostic rollups.
 export { compressPageRanges } from './sources/pdf-table-detect.js';
 
+// Sprint 83D — non-IO rollup canonicalization helpers.
+export {
+  canonicalizeNonIoFamilyRollupKey,
+  canonicalizeNonIoHeaderRole,
+  normalizeNumberedPdfSectionMarker,
+} from './sources/pdf-table-detect.js';
+
 // Sprint 82 — PDF-specific address strictness.
 export type {
   PdfAddressClassification,

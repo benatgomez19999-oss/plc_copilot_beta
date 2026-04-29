@@ -1,4 +1,4 @@
-# Web electrical-ingestion workflow — Sprint 77 → 78B → 79 → 80 → 81 → 82 → 83A → 83B → 83C
+# Web electrical-ingestion workflow — Sprint 77 → 78B → 79 → 80 → 81 → 82 → 83A → 83B → 83C → 83D
 
 > **Status: end-to-end pipeline live in `@plccopilot/web`
 > (Sprint 77 → 78A → 78B → 79 → 80 → 81 → 82).** CSV / EPLAN XML /
@@ -22,18 +22,26 @@
 > diagnostic stream — repeated footers, vendor-metadata lines,
 > and body rows that incidentally hit a strong family token are
 > now suppressed; identical headers within a page collapse to
-> one diagnostic. **Sprint 83C** then aggregates the surviving
+> one diagnostic. Sprint 83C then aggregates the surviving
 > non-IO family diagnostics across pages into a single rollup
-> per `(family, signature)` group with a compressed page range
-> — pages 80–86 of an 86-page TcECAD PDF now produce one
-> `PDF_BOM_TABLE_DETECTED` info instead of seven. Volume / UX
-> only — no schema change, no loosened safety. Sprint 83A
-> acceptance:
+> per `(family, signature)` group with a compressed page range.
+> **Sprint 83D** replaces that signature-based key with a
+> *canonical section role* per family — numbered TcECAD markers
+> (`=COMPONENTS&EPB/1..7`, `=CABLE&EMB/1..24`,
+> `=CONTENTS&EAB/1..3`, `=LEGEND&ETL/1..6`,
+> `=TERMINAL&EMA/1..7`) and sibling BOM table headers across
+> pages 80–86 collapse into one rollup per family/role. Volume /
+> UX only — no schema change, no UI work, no loosened safety.
+> Source-evidence drilldown UX (page preview, bbox overlays,
+> click-through into all pages a rollup covered) remains a
+> future sprint. Sprint 83A acceptance:
 > [`docs/pdf-manual-acceptance-sprint-83A.md`](pdf-manual-acceptance-sprint-83A.md).
 > Sprint 83B acceptance:
 > [`docs/pdf-manual-acceptance-sprint-83B.md`](pdf-manual-acceptance-sprint-83B.md).
 > Sprint 83C acceptance:
 > [`docs/pdf-manual-acceptance-sprint-83C.md`](pdf-manual-acceptance-sprint-83C.md).
+> Sprint 83D acceptance:
+> [`docs/pdf-manual-acceptance-sprint-83D.md`](pdf-manual-acceptance-sprint-83D.md).
 
 ## Run the dev server
 

@@ -854,8 +854,174 @@ export function compressPageRanges(pages: ReadonlyArray<number | string>): strin
   return parts.join(', ');
 }
 
+// ---------------------------------------------------------------------------
+// Sprint 83D — non-IO rollup canonicalization
+// ---------------------------------------------------------------------------
+//
+// Sprint 83C grouped non-IO family rollups by `(family, signature)`,
+// where `signature` is the Sprint 83B normalised line text. On
+// real-world PDFs that key was still too granular: numbered TcECAD
+// section markers (`=COMPONENTS&EPB/1` … `/7`, `=CABLE&EMB/1` …
+// `/24`) gave each occurrence a distinct signature, and BOM pages
+// 80–86 produced separate rollups for "Teileliste / Stückliste …",
+// "Benennung (BMK) …", "Schaltplan / Position …" — three different
+// signatures of the same logical section.
+//
+// Sprint 83D replaces the signature-based key with a *canonical
+// section role* per family. Role determination is text-based and
+// pure; it never widens the Sprint 83B hygiene gate (lines that
+// were suppressed under 83B stay suppressed under 83D). The
+// representative `SourceRef` and first-evidence snippet still
+// come from the first occurrence, and page ranges still appear in
+// the rollup message via `compressPageRanges`.
+
+/**
+ * Canonical TcECAD numbered section markers
+ * (`=COMPONENTS&EPB/N`, `=CABLE&EMB/N`, etc.).
+ */
+const NUMBERED_SECTION_MARKERS: ReadonlyArray<{
+  re: RegExp;
+  marker: string;
+  family: Exclude<PdfTableFamily, 'unknown' | 'io_list'>;
+}> = [
+  {
+    re: /=\s*COMPONENTS\s*&\s*EPB\s*\/\s*\d+(?:\.\d+)?/i,
+    marker: 'COMPONENTS_EPB',
+    family: 'bom_parts_list',
+  },
+  {
+    re: /=\s*CABLE\s*&\s*EMB\s*\/\s*\d+(?:\.\d+)?/i,
+    marker: 'CABLE_EMB',
+    family: 'cable_list',
+  },
+  {
+    re: /=\s*CONTENTS\s*&\s*EAB\s*\/\s*\d+(?:\.\d+)?/i,
+    marker: 'CONTENTS_EAB',
+    family: 'contents_index',
+  },
+  {
+    re: /=\s*LEGEND\s*&\s*ETL\s*\/\s*\d+(?:\.\d+)?/i,
+    marker: 'LEGEND_ETL',
+    family: 'legend',
+  },
+  {
+    re: /=\s*TERMINAL\s*&\s*EMA\s*\/\s*\d+(?:\.\d+)?/i,
+    marker: 'TERMINAL_EMA',
+    family: 'terminal_list',
+  },
+];
+
+/**
+ * Sprint 83D — recognise a numbered TcECAD section marker
+ * (`=COMPONENTS&EPB/3`, `=CABLE&EMB/24`, `=CONTENTS&EAB/1`,
+ * `=LEGEND&ETL/6`, `=TERMINAL&EMA/7`, etc.). The numbered suffix
+ * is intentionally discarded — `/1` and `/24` collapse to the
+ * same marker so rollups can group across the whole numbered
+ * series. Pure / DOM-free / total. Returns `null` when no marker
+ * is present.
+ */
+export function normalizeNumberedPdfSectionMarker(
+  text: unknown,
+): { marker: string; family: PdfTableFamily } | null {
+  if (typeof text !== 'string' || text.length === 0) return null;
+  for (const entry of NUMBERED_SECTION_MARKERS) {
+    if (entry.re.test(text)) {
+      return { marker: entry.marker, family: entry.family };
+    }
+  }
+  return null;
+}
+
+type CanonicalSectionRole =
+  | 'bom_parts_list'
+  | 'cable_overview'
+  | 'cable_plan'
+  | 'cable_index'
+  | 'terminal_overview'
+  | 'terminal_plan'
+  | 'terminal_index'
+  | 'contents_index'
+  | 'legend';
+
+const CABLE_OVERVIEW_RE = /\bkabel[üu]bersicht\b|\bcable[ -]?overview\b/i;
+const CABLE_PLAN_RE = /\bkabelplan\b|\bcable[ -]?plan\b/i;
+const TERMINAL_OVERVIEW_RE =
+  /\bklemmleisten[üu]bersicht\b|\bterminal[ -]?overview\b/i;
+const TERMINAL_PLAN_RE =
+  /\bklemmenplan\b|\bklemmleistenplan\b|\bklemmleiste\b|\bterminal[ -]?plan\b|\bterminal[ -]?list\b/i;
+
+/**
+ * Sprint 83D — derive the canonical *section role* for a non-IO
+ * family header line. The role is the dedup unit for rollups —
+ * two lines with the same `(family, role)` collapse into one
+ * rollup regardless of trailing differences (numbered TcECAD
+ * suffixes, vendor strings, column reorderings).
+ *
+ * - BOM family → always `bom_parts_list` (parts-list table headers
+ *   and `=COMPONENTS&EPB/N` markers are the same logical section).
+ * - Cable family → `cable_overview` (Kabelübersicht), `cable_plan`
+ *   (Kabelplan) or `cable_index` (everything else, e.g. raw
+ *   `=CABLE&EMB/N` markers).
+ * - Terminal family → `terminal_overview` (Klemmleistenübersicht),
+ *   `terminal_plan` (Klemmenplan / Klemmleiste / Klemmen-style
+ *   pages) or `terminal_index` (raw markers).
+ * - Contents family → `contents_index` (single bucket).
+ * - Legend family → `legend` (single bucket).
+ */
+export function canonicalizeNonIoHeaderRole(
+  text: unknown,
+  family: PdfTableFamily,
+): CanonicalSectionRole | null {
+  if (typeof text !== 'string') return null;
+  switch (family) {
+    case 'bom_parts_list':
+      return 'bom_parts_list';
+    case 'cable_list':
+      if (CABLE_OVERVIEW_RE.test(text)) return 'cable_overview';
+      if (CABLE_PLAN_RE.test(text)) return 'cable_plan';
+      return 'cable_index';
+    case 'terminal_list':
+      if (TERMINAL_OVERVIEW_RE.test(text)) return 'terminal_overview';
+      if (TERMINAL_PLAN_RE.test(text)) return 'terminal_plan';
+      return 'terminal_index';
+    case 'contents_index':
+      return 'contents_index';
+    case 'legend':
+      return 'legend';
+    default:
+      return null;
+  }
+}
+
+/**
+ * Sprint 83D — produce the `(family, role)` rollup key for a
+ * non-IO header line. The numbered-marker normaliser is consulted
+ * first so `=CABLE&EMB/1` … `/24` collapse to the same key even
+ * before the canonical role keyword is examined. The returned
+ * `role` is empty when neither path resolves a role — callers
+ * fall back to a per-line bucket in that case (rare on
+ * hygiene-gated lines).
+ */
+export function canonicalizeNonIoFamilyRollupKey(args: {
+  family: PdfTableFamily;
+  text: string;
+}): { key: string; role: string } {
+  const { family, text } = args;
+  const role = canonicalizeNonIoHeaderRole(text, family);
+  if (role) return { key: `${family}:${role}`, role };
+  // Fallback path — should not fire under the current family set
+  // (every non-IO family above resolves a role), but keep a
+  // deterministic per-signature bucket so future families don't
+  // silently merge into one rollup.
+  const sig = nonIoFamilyDiagnosticSignature(text);
+  return { key: `${family}:_sig:${sig}`, role: '' };
+}
+
 interface NonIoFamilyOccurrence {
   family: PdfTableFamily;
+  /** Sprint 83D — canonical `(family, role)` rollup role string. */
+  role: string;
+  /** Sprint 83C — first-occurrence signature, kept for diagnostics. */
   signature: string;
   pages: Set<number>;
   representativeSourceRef: SourceRef;
@@ -945,15 +1111,19 @@ export function detectIoTables(args: {
 
   let i = 0;
   let tableIndex = 1;
-  // Sprint 83C — collect non-IO family occurrences during the
-  // scan, then emit aggregated rollup diagnostics at the end. The
-  // Sprint 83B per-page-per-signature dedup is preserved as the
-  // *grouping key*: same canonical header repeated within a page
-  // contributes once; same header on multiple pages contributes
-  // once per page. After the scan, all pages for a given
-  // `(family, signature)` collapse into one rollup diagnostic
-  // with a coalesced page-range string ("80–86", "3, 49–54",
-  // etc.).
+  // Sprint 83C → 83D — collect non-IO family occurrences during
+  // the scan, then emit aggregated rollup diagnostics at the end.
+  // Sprint 83C used `(family, signature)` as the dedup key, which
+  // still produced distinct rollups for numbered TcECAD section
+  // markers (`=CABLE&EMB/1` vs `/2`) and for the three sibling
+  // BOM table headers on the same page series. Sprint 83D switches
+  // the key to a *canonical section role* via
+  // `canonicalizeNonIoFamilyRollupKey`, so all numbered cable-plan
+  // entries collapse to one `cable_list:cable_plan` rollup, all
+  // BOM table headers across pages 80–86 collapse to one
+  // `bom_parts_list:bom_parts_list` rollup, etc. The hygiene gate
+  // is unchanged — lines suppressed under Sprint 83B stay
+  // suppressed under 83D.
   const nonIoOccurrences = new Map<string, NonIoFamilyOccurrence>();
   while (i < lines.length) {
     const line = lines[i];
@@ -974,13 +1144,21 @@ export function detectIoTables(args: {
       if (classification.family !== 'unknown' && classification.family !== 'io_list') {
         if (passesNonIoFamilyHeaderShapeGate(line.block.text, classification)) {
           const signature = nonIoFamilyDiagnosticSignature(line.block.text);
-          const groupKey = `${classification.family}:${signature}`;
+          // Sprint 83D — canonical `(family, role)` key. Numbered
+          // TcECAD markers and sibling BOM table-header lines map
+          // to the same role; all such lines collapse into a
+          // single rollup at the end of the scan.
+          const { key: groupKey, role } = canonicalizeNonIoFamilyRollupKey({
+            family: classification.family,
+            text: line.block.text,
+          });
           const existing = nonIoOccurrences.get(groupKey);
           if (existing) {
             existing.pages.add(line.pageNumber);
           } else {
             nonIoOccurrences.set(groupKey, {
               family: classification.family,
+              role,
               signature,
               pages: new Set([line.pageNumber]),
               representativeSourceRef: line.block.sourceRef,
@@ -1094,13 +1272,14 @@ export function detectIoTables(args: {
     i = j;
   }
 
-  // Sprint 83C — emit one rollup diagnostic per (family, signature)
-  // group. Sorted by family for stable diagnostic order; tied
-  // families sort by representative page so the operator's stream
-  // reads roughly top-to-bottom of the document.
+  // Sprint 83C → 83D — emit one rollup diagnostic per
+  // `(family, role)` group. Sorted by family then role then
+  // earliest page so the operator's stream reads stably across
+  // runs and roughly top-to-bottom of the document.
   const orderedOccurrences = Array.from(nonIoOccurrences.values()).sort(
     (a, b) => {
       if (a.family !== b.family) return a.family.localeCompare(b.family);
+      if (a.role !== b.role) return a.role.localeCompare(b.role);
       const ap = Math.min(...a.pages);
       const bp = Math.min(...b.pages);
       return ap - bp;

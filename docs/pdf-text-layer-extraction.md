@@ -188,6 +188,32 @@ takes the raw item stream and produces deterministic lines:
 The algorithm is total + side-effect-free; the same input always
 yields the same lines in the same order.
 
+### Sprint 83D — non-IO rollup canonicalization
+
+Sprint 83C grouped non-IO rollups by `(family, signature)`. On
+`TcECAD_Import_V2_2_x.pdf` the signature was still too granular:
+numbered TcECAD markers (`=COMPONENTS&EPB/1..7`,
+`=CABLE&EMB/1..24`, `=CONTENTS&EAB/1..3`, `=LEGEND&ETL/1..6`,
+`=TERMINAL&EMA/1..7`) each produced a distinct signature, and
+the BOM page series emitted three separate rollups for sibling
+table headers. Sprint 83D switches the dedup key to
+`(family, canonical-section-role)`:
+
+- `normalizeNumberedPdfSectionMarker(text)` — recognises the
+  five canonical TcECAD marker shapes and returns
+  `{ marker, family }` with the numeric suffix discarded.
+- `canonicalizeNonIoHeaderRole(text, family)` — one canonical
+  role per family (BOM / contents / legend each map to a single
+  bucket; cable and terminal split into overview / plan / index
+  by keyword).
+- `canonicalizeNonIoFamilyRollupKey({ family, text })` —
+  composes the rollup key. `detectIoTables` consumes this key
+  in place of the Sprint 83C `(family, signature)` key.
+
+The Sprint 83A family classifier, Sprint 83B hygiene helpers,
+Sprint 83C cross-page single-call, and Sprint 82 strictness
+gate are preserved verbatim. Sprint 83D is volume / UX only.
+
 ### Sprint 83C — non-IO family diagnostic rollups
 
 Sprint 83B kept per-page-per-signature granularity, so identical

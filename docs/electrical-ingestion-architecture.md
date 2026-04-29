@@ -1,6 +1,6 @@
 # Electrical-plan ingestion architecture
 
-> **Status: PDF non-IO diagnostic rollups (Sprint 83C).** Sprint 72
+> **Status: PDF non-IO rollup canonicalization (Sprint 83D).** Sprint 72
 > scaffolded the architecture. Sprint 73 added the CSV ingestor.
 > Sprint 74 added the EPLAN structured XML ingestor v0. Sprint 75
 > added the Review UI v0. Sprint 76 added the PIR builder v0.
@@ -574,6 +574,50 @@ This keeps both branches of the strategic requirement — structured
 ECAD exports today and PDF documents tomorrow — funnelling through
 the same review/persist/export model. A weak prompt cannot
 override that model: it has no surface area in any of these layers.
+
+## Sprint 83D — PDF non-IO rollup canonicalization
+
+Volume / UX hardening sprint on top of Sprint 83C's cross-page
+rollups. Sprint 83C grouped non-IO diagnostics by `(family,
+signature)`, which still produced distinct rollups for numbered
+TcECAD section markers (`=COMPONENTS&EPB/1` vs `/2`, …) and for
+the three sibling BOM table headers across pages 80–86. Sprint
+83D replaces the signature-based key with a *canonical section
+role* per family:
+
+- `normalizeNumberedPdfSectionMarker(text)` — recognises
+  `=COMPONENTS&EPB/N`, `=CABLE&EMB/N`, `=CONTENTS&EAB/N`,
+  `=LEGEND&ETL/N`, `=TERMINAL&EMA/N` (incl. `/N.M`) and returns
+  `{ marker, family }` with the numeric suffix discarded.
+- `canonicalizeNonIoHeaderRole(text, family)` — derives the
+  per-family role: BOM / contents / legend each map to a single
+  bucket; cable splits `cable_overview` / `cable_plan` /
+  `cable_index`; terminal splits
+  `terminal_overview` / `terminal_plan` / `terminal_index`.
+- `canonicalizeNonIoFamilyRollupKey({ family, text })` —
+  composes the rollup key. `detectIoTables` keys its
+  `Map<key, NonIoFamilyOccurrence>` by this canonical key
+  instead of the Sprint 83C `(family, signature)` key.
+- Diagnostic codes (`PDF_BOM_TABLE_DETECTED`,
+  `PDF_TERMINAL_TABLE_DETECTED`, `PDF_CABLE_TABLE_DETECTED`,
+  `PDF_CONTENTS_TABLE_IGNORED`, `PDF_LEGEND_TABLE_IGNORED`,
+  `PDF_TABLE_HEADER_REJECTED`) are unchanged. No schema bump.
+
+Sprint 82's address strictness, Sprint 83A's family classifier,
+Sprint 83B's hygiene helpers, and Sprint 83C's cross-page
+`detectIoTables` call from `pdf.ts` are all preserved verbatim.
+Sprint 83D is volume / UX only — no new extraction capability,
+no UI work.
+
+For the realistic TcECAD-shape mock (numbered EPB / EMB / EAB /
+ETL / EMA markers across all five sections + canonical headers
++ footer noise) Sprint 83D emits exactly **5** family rollups:
+BOM, contents, terminal, cable overview, cable plan. Hard cap
+is **12**; preferred target is 6–10. Sprint 83C on the same
+shape produced 7+.
+
+Manual acceptance:
+[`docs/pdf-manual-acceptance-sprint-83D.md`](pdf-manual-acceptance-sprint-83D.md).
 
 ## Sprint 83C — PDF non-IO diagnostic rollups
 

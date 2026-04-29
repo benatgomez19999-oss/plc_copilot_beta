@@ -1,6 +1,6 @@
-# PDF ingestion architecture — Sprint 79 → 80 → 81 → 82 → 83A → 83B → 83C
+# PDF ingestion architecture — Sprint 79 → 80 → 81 → 82 → 83A → 83B → 83C → 83D
 
-> **Status: non-IO family diagnostic rollups (Sprint 83C).**
+> **Status: non-IO rollup canonicalization (Sprint 83D).**
 > Sprint 79 landed the foundation. Sprint 80 added a real
 > text-layer extractor. Sprint 81 added IO-list table extraction
 > + the first acceptance harness. Sprint 82 closed a real-world
@@ -8,15 +8,21 @@
 > hardened the family classifier so BOM / terminal / cable /
 > contents / legend headers stop slipping through the IO gate.
 > Sprint 83B suppressed footer / weak-token / body-row noise and
-> collapsed within-page duplicates. **Sprint 83C** keeps every
-> Sprint 82 / 83A / 83B safety guarantee verbatim and aggregates
-> the surviving non-IO family diagnostics across pages: instead
-> of 7 `PDF_BOM_TABLE_DETECTED` infos for an 86-page TcECAD PDF,
-> the operator sees 1 rollup with `pages 80–86`. Volume / UX
-> change only — no schema bump, no new extraction capability,
-> no loosened safety. Confidence still capped at `0.65`. Still
-> no OCR, symbol recognition, multi-column / rotated support,
-> wire tracing, or automatic PIR/codegen.
+> collapsed within-page duplicates. Sprint 83C aggregated the
+> surviving non-IO family diagnostics across pages by `(family,
+> signature)`. **Sprint 83D** replaces the signature-based key
+> with a *canonical section role* per family: numbered TcECAD
+> markers (`=COMPONENTS&EPB/1..7`, `=CABLE&EMB/1..24`,
+> `=CONTENTS&EAB/1..3`, `=LEGEND&ETL/1..6`,
+> `=TERMINAL&EMA/1..7`) and sibling BOM table headers across
+> pages 80–86 collapse into a single rollup per family/role.
+> Volume / UX change only — no schema bump, no new extraction
+> capability, no loosened Sprint 82 strictness or Sprint 83A/83B
+> safety. Confidence still capped at `0.65`. Still no OCR,
+> symbol recognition, multi-column / rotated support, wire
+> tracing, or automatic PIR/codegen. Source-evidence UX
+> remains a future sprint — the rollup's representative
+> `SourceRef` still only points at the first page.
 
 ## Why PDF support is strategic
 
@@ -57,6 +63,56 @@ did this fact come from?" before it can promote to PIR.
 - **No PLC codegen.** Always.
 - **No raw PDF persistence.** The Sprint 78B review-session
   snapshot does NOT carry the PDF bytes (privacy default).
+
+## Sprint 83D — what changed on top of Sprint 83C
+
+Volume / UX hardening sprint. No new extraction capability; the
+Sprint 82 strictness gate, Sprint 83A family classifier, Sprint
+83B hygiene helpers, and Sprint 83C cross-page single-call from
+`pdf.ts` are all preserved verbatim.
+
+The Sprint 83C dedup key was `(family, signature)`, where
+`signature` is the Sprint 83B normalised line text. On
+`TcECAD_Import_V2_2_x.pdf` that key was still too granular:
+numbered markers (`=COMPONENTS&EPB/1` vs `/2`) gave each
+occurrence a different signature, and the three sibling BOM
+table headers across pages 80–86 (`Teileliste / Stückliste …`,
+`Benennung (BMK) …`, `Schaltplan / Position …`) emitted three
+separate rollups for the same logical section. Sprint 83D
+switches the key to `(family, canonical-section-role)`:
+
+- `normalizeNumberedPdfSectionMarker(text)` — recognises
+  `=COMPONENTS&EPB/N`, `=CABLE&EMB/N`, `=CONTENTS&EAB/N`,
+  `=LEGEND&ETL/N`, `=TERMINAL&EMA/N` (incl. `/N.M`) and returns
+  `{ marker, family }` with the numeric suffix discarded. Pure
+  / DOM-free / total.
+- `canonicalizeNonIoHeaderRole(text, family)` — derives the
+  section role per family. One bucket each for BOM / contents /
+  legend; cable + terminal split overview / plan / index by
+  keyword (`Kabelübersicht` / `Kabelplan`,
+  `Klemmleistenübersicht` / `Klemmenplan`).
+- `canonicalizeNonIoFamilyRollupKey({ family, text })` —
+  composes the rollup key as `${family}:${role}`, with a
+  defensive fallback to `${family}:_sig:${signature}` if no
+  role resolves (does not fire under the current family set).
+- `detectIoTables` non-IO branch — keys the
+  `Map<key, NonIoFamilyOccurrence>` by the canonical key. All
+  numbered marker series and sibling header lines collapse into
+  a single rollup per `(family, role)`. Diagnostic codes
+  (`PDF_BOM_TABLE_DETECTED`, `PDF_TERMINAL_TABLE_DETECTED`,
+  `PDF_CABLE_TABLE_DETECTED`, `PDF_CONTENTS_TABLE_IGNORED`,
+  `PDF_LEGEND_TABLE_IGNORED`, `PDF_TABLE_HEADER_REJECTED`) are
+  unchanged. No schema bump.
+
+For the realistic TcECAD-shape mock (numbered EPB / EMB / EAB /
+ETL / EMA markers across all five sections + canonical headers
++ footer noise) Sprint 83D emits exactly **5** family rollups:
+BOM, contents, terminal, cable overview, cable plan. Sprint 83C
+on the same shape produced 7+. The hard cap is **12**; preferred
+target is 6–10.
+
+Manual acceptance: documented in
+[`docs/pdf-manual-acceptance-sprint-83D.md`](pdf-manual-acceptance-sprint-83D.md).
 
 ## Sprint 83C — what changed on top of Sprint 83B
 
