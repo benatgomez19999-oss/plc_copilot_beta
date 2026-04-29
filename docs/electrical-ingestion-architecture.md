@@ -1,6 +1,6 @@
 # Electrical-plan ingestion architecture
 
-> **Status: PDF rollup full per-occurrence drilldown (Sprint 83F).** Sprint 72
+> **Status: PDF layout hardening v0 (Sprint 84).** Sprint 72
 > scaffolded the architecture. Sprint 73 added the CSV ingestor.
 > Sprint 74 added the EPLAN structured XML ingestor v0. Sprint 75
 > added the Review UI v0. Sprint 76 added the PIR builder v0.
@@ -574,6 +574,43 @@ This keeps both branches of the strategic requirement — structured
 ECAD exports today and PDF documents tomorrow — funnelling through
 the same review/persist/export model. A weak prompt cannot
 override that model: it has no surface area in any of these layers.
+
+## Sprint 84 — PDF layout hardening v0
+
+Layout-analysis helpers on top of the Sprint 80 line-grouper.
+New module
+[`packages/electrical-ingest/src/sources/pdf-layout.ts`](../packages/electrical-ingest/src/sources/pdf-layout.ts):
+
+- `detectColumnLayout(blocks, options)` — clusters block
+  centerlines from `bbox.x + bbox.width/2`. Returns
+  `{ columns, multiColumn, orientation }`.
+- `orderBlocksByLayout(blocks, options)` — column-by-column
+  reading order; no-op for blocks without geometry (Sprint 79
+  test-mode preserved).
+- `clusterBlocksIntoRegions(blocks, options)` — vertical-gap
+  clustering. Exposed in v0 for tests + future v1 wiring; not
+  yet consumed by `detectIoTables`.
+- `detectPageRotation(page)` — heuristic flag; v0 does NOT
+  un-rotate.
+
+Two new info-only diagnostic codes — `PDF_LAYOUT_MULTI_COLUMN_DETECTED`,
+`PDF_LAYOUT_ROTATION_SUSPECTED` — surface the layout signals
+to the operator. `pdf.ts` (text-mode + bytes-mode) now reorders
+blocks per page through `orderBlocksByLayout` before forwarding
+detector lines to the existing single cross-page
+`detectIoTables` call from Sprint 83C.
+
+Sprint 82's strictness, Sprint 83A's classifier, Sprint 83B's
+hygiene gate, Sprint 83C's single cross-page call, Sprint 83D's
+canonical-section-role keying, Sprint 83E's helper-side
+evidence projection, and Sprint 83F's per-page
+`additionalSourceRefs` are all preserved verbatim. Volume / UX
+hardening only — no new extraction capability, no schema bump
+on existing consumers, no canvas rendering. Confidence still
+capped at 0.65.
+
+Manual acceptance:
+[`docs/pdf-manual-acceptance-sprint-84.md`](pdf-manual-acceptance-sprint-84.md).
 
 ## Sprint 83F — PDF rollup full per-occurrence drilldown
 

@@ -289,7 +289,15 @@ export type ElectricalDiagnosticCode =
   // family classification (not raised by the detector itself in
   // Sprint 83A; the per-family codes above are the canonical
   // surface):
-  | 'PDF_TABLE_HEADER_CLASSIFIED';
+  | 'PDF_TABLE_HEADER_CLASSIFIED'
+  // ---- Sprint 84: PDF layout hardening v0 ----
+  // Layout-analysis info diagnostics. Both are emitted from
+  // `pdf.ts` per page when the new `pdf-layout.ts` helpers
+  // recognise the relevant signal. They are non-fatal info
+  // messages — the extractor still proceeds with column-aware
+  // ordering. No new buildable evidence comes out of either.
+  | 'PDF_LAYOUT_MULTI_COLUMN_DETECTED'
+  | 'PDF_LAYOUT_ROTATION_SUSPECTED';
 
 export interface ElectricalDiagnostic {
   code: ElectricalDiagnosticCode;

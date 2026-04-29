@@ -291,6 +291,22 @@ export {
   normalizeNumberedPdfSectionMarker,
 } from './sources/pdf-table-detect.js';
 
+// Sprint 84 — PDF layout hardening v0.
+export type {
+  ClusterBlocksIntoRegionsOptions,
+  DetectColumnLayoutOptions,
+  PdfColumn,
+  PdfColumnLayout,
+  PdfRegion,
+  PdfRotationSignal,
+} from './sources/pdf-layout.js';
+export {
+  clusterBlocksIntoRegions,
+  detectColumnLayout,
+  detectPageRotation,
+  orderBlocksByLayout,
+} from './sources/pdf-layout.js';
+
 // Sprint 82 — PDF-specific address strictness.
 export type {
   PdfAddressClassification,

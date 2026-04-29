@@ -75,6 +75,11 @@ import {
   groupItemsIntoLines,
   type PdfTextLayerLine,
 } from './pdf-text-normalize.js';
+import {
+  detectColumnLayout,
+  detectPageRotation,
+  orderBlocksByLayout,
+} from './pdf-layout.js';
 import { detectIoTables, type PdfTableDetectorLine } from './pdf-table-detect.js';
 
 // ---------------------------------------------------------------------------
@@ -983,9 +988,47 @@ export async function ingestPdf(
     // Sprint 83C — call `detectIoTables` ONCE over all pages so
     // non-IO family diagnostics can roll up across page ranges
     // (e.g. "BOM on pages 80–86") instead of one per page.
+    //
+    // Sprint 84 — when blocks carry geometry, reorder per page
+    // by column-aware reading order so multi-column pages don't
+    // interleave unrelated columns into the detector input.
+    // No-op for test-mode (no bboxes) — Sprint 79/81 ordering
+    // is preserved verbatim.
     const allDetectorLines: PdfTableDetectorLine[] = [];
     for (const page of document.pages) {
-      for (const block of page.textBlocks) {
+      const orderedBlocks = orderBlocksByLayout(page.textBlocks, {
+        pageWidth: page.width,
+        pageHeight: page.height,
+      });
+      const layout = detectColumnLayout(page.textBlocks, {
+        pageWidth: page.width,
+        pageHeight: page.height,
+      });
+      if (layout.multiColumn) {
+        aggregated.push(
+          createElectricalDiagnostic({
+            code: 'PDF_LAYOUT_MULTI_COLUMN_DETECTED',
+            severity: 'info',
+            message:
+              `Detected ${layout.columns.length} columns on page ` +
+              `${page.pageNumber}; using column-aware reading order.`,
+          }),
+        );
+      }
+      const rotation = detectPageRotation(page);
+      if (rotation.suspected) {
+        aggregated.push(
+          createElectricalDiagnostic({
+            code: 'PDF_LAYOUT_ROTATION_SUSPECTED',
+            severity: 'info',
+            message:
+              `Page ${page.pageNumber} looks rotated ` +
+              `(${rotation.reason}); deterministic extraction may be ` +
+              `unreliable on this page.`,
+          }),
+        );
+      }
+      for (const block of orderedBlocks) {
         allDetectorLines.push({
           block,
           items: undefined,
@@ -1185,9 +1228,55 @@ function buildPdfDocumentFromExtraction(
   // Sprint 83C — call `detectIoTables` ONCE over all pages so
   // non-IO family diagnostics can roll up across page ranges
   // (e.g. "BOM on pages 80–86") instead of one per page.
+  //
+  // Sprint 84 — reorder detector lines per page by column-aware
+  // reading order before forwarding them to `detectIoTables`.
+  // Multi-column pages and pages flagged as rotated emit their
+  // own info diagnostics so the operator knows the extractor took
+  // a layout-aware path on that page.
   const allDetectorLines: PdfTableDetectorLine[] = [];
-  for (const lines of perPageDetectorLines) {
-    if (lines && lines.length > 0) allDetectorLines.push(...lines);
+  for (let pi = 0; pi < docPages.length; pi++) {
+    const lines = perPageDetectorLines[pi];
+    if (!lines || lines.length === 0) continue;
+    const page = docPages[pi];
+    const pageBlocks = lines.map((l) => l.block);
+    const layout = detectColumnLayout(pageBlocks, {
+      pageWidth: page.width,
+      pageHeight: page.height,
+    });
+    if (layout.multiColumn) {
+      diagnostics.push(
+        createElectricalDiagnostic({
+          code: 'PDF_LAYOUT_MULTI_COLUMN_DETECTED',
+          severity: 'info',
+          message:
+            `Detected ${layout.columns.length} columns on page ` +
+            `${page.pageNumber}; using column-aware reading order.`,
+        }),
+      );
+    }
+    const rotation = detectPageRotation(page);
+    if (rotation.suspected) {
+      diagnostics.push(
+        createElectricalDiagnostic({
+          code: 'PDF_LAYOUT_ROTATION_SUSPECTED',
+          severity: 'info',
+          message:
+            `Page ${page.pageNumber} looks rotated ` +
+            `(${rotation.reason}); deterministic extraction may be ` +
+            `unreliable on this page.`,
+        }),
+      );
+    }
+    const ordered = orderBlocksByLayout(pageBlocks, {
+      pageWidth: page.width,
+      pageHeight: page.height,
+    });
+    const lineByBlockId = new Map(lines.map((l) => [l.block.id, l]));
+    for (const block of ordered) {
+      const line = lineByBlockId.get(block.id);
+      if (line) allDetectorLines.push(line);
+    }
   }
   if (allDetectorLines.length > 0) {
     const tableResult = detectIoTables({

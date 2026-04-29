@@ -1,7 +1,7 @@
-# PDF ingestion architecture — Sprint 79 → 80 → 81 → 82 → 83A → 83B → 83C → 83D → 83E → 83F
+# PDF ingestion architecture — Sprint 79 → 80 → 81 → 82 → 83A → 83B → 83C → 83D → 83E → 83F → 84
 
-> **Status: full per-occurrence drilldown for PDF rollup
-> diagnostics (Sprint 83F).**
+> **Status: PDF layout hardening v0 (Sprint 84) on top of
+> Sprint 83F per-occurrence drilldown.**
 > Sprint 79 landed the foundation. Sprint 80 added a real
 > text-layer extractor. Sprint 81 added IO-list table extraction
 > + the first acceptance harness. Sprint 82 closed a real-world
@@ -64,6 +64,48 @@ did this fact come from?" before it can promote to PIR.
 - **No PLC codegen.** Always.
 - **No raw PDF persistence.** The Sprint 78B review-session
   snapshot does NOT carry the PDF bytes (privacy default).
+
+## Sprint 84 — what changed on top of Sprint 83F
+
+PDF layout hardening v0. New pure helpers in
+[`pdf-layout.ts`](../packages/electrical-ingest/src/sources/pdf-layout.ts):
+
+- `detectColumnLayout(blocks, options)` — multi-column
+  detection from `bbox.x` centerlines. Single-column fallback
+  when too few blocks carry geometry.
+- `orderBlocksByLayout(blocks, options)` — column-by-column
+  left-to-right, top-to-bottom (descending `bbox.y +
+  bbox.height` since PDF origin is bottom-left). No-op for
+  blocks without geometry — Sprint 79/81 test-mode preserved.
+- `clusterBlocksIntoRegions(blocks, options)` — vertical-gap
+  clustering for v1 region-aware table walking. Exposed as a
+  helper in v0; not yet wired into `detectIoTables`.
+- `detectPageRotation(page)` — heuristic rotation flag from
+  `page.rotation` and median block aspect ratio. v0 *flags*
+  but does NOT un-rotate.
+
+Two new info-only diagnostic codes:
+
+- `PDF_LAYOUT_MULTI_COLUMN_DETECTED` — fires per page when
+  `detectColumnLayout` returns ≥ 2 columns.
+- `PDF_LAYOUT_ROTATION_SUSPECTED` — fires per page when
+  `detectPageRotation` returns `suspected: true`.
+
+`pdf.ts` reorders blocks per page through `orderBlocksByLayout`
+before constructing detector lines (text-mode + bytes-mode).
+`detectIoTables` itself is unchanged — the v0 wins come from
+*ordering* before detection, not from changing the detector.
+
+Sprint 82's strictness gate, Sprint 83A's family classifier,
+Sprint 83B's hygiene gate, Sprint 83C's cross-page call, Sprint
+83D's canonical key, Sprint 83E's helper-side projection, and
+Sprint 83F's `additionalSourceRefs` per-page evidence are all
+preserved verbatim. Volume / UX hardening only — no new
+extraction capability, no schema bump on existing consumers,
+no canvas rendering.
+
+Manual acceptance:
+[`docs/pdf-manual-acceptance-sprint-84.md`](pdf-manual-acceptance-sprint-84.md).
 
 ## Sprint 83F — what changed on top of Sprint 83E
 

@@ -188,6 +188,28 @@ takes the raw item stream and produces deterministic lines:
 The algorithm is total + side-effect-free; the same input always
 yields the same lines in the same order.
 
+### Sprint 84 — layout hardening v0
+
+Sprint 84 adds [`pdf-layout.ts`](../packages/electrical-ingest/src/sources/pdf-layout.ts):
+pure helpers operating on `PdfTextBlock[]` geometry produced by
+the Sprint 80 line-grouper.
+
+- `detectColumnLayout` clusters block centerlines and returns a
+  multi-column / single-column verdict.
+- `orderBlocksByLayout` sorts blocks column-by-column top-to-
+  bottom; no-op when blocks have no `bbox` (Sprint 79/81 path
+  preserved).
+- `clusterBlocksIntoRegions` is exposed for v1; not yet wired
+  into `detectIoTables`.
+- `detectPageRotation` flags suspect pages (rotation tag /
+  block aspect-ratio); v0 does NOT un-rotate.
+
+`pdf.ts` reorders blocks per page through `orderBlocksByLayout`
+before forwarding detector lines to `detectIoTables`. Two new
+info-only diagnostic codes (`PDF_LAYOUT_MULTI_COLUMN_DETECTED`,
+`PDF_LAYOUT_ROTATION_SUSPECTED`) surface the layout signals.
+The detector itself is unchanged.
+
 ### Sprint 83F — full per-occurrence drilldown
 
 Sprint 83E added a representative-only "Show PDF evidence"

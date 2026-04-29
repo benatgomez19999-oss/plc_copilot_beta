@@ -1,4 +1,4 @@
-# Web electrical-ingestion workflow — Sprint 77 → 78B → 79 → 80 → 81 → 82 → 83A → 83B → 83C → 83D → 83E → 83F
+# Web electrical-ingestion workflow — Sprint 77 → 78B → 79 → 80 → 81 → 82 → 83A → 83B → 83C → 83D → 83E → 83F → 84
 
 > **Status: end-to-end pipeline live in `@plccopilot/web`
 > (Sprint 77 → 78A → 78B → 79 → 80 → 81 → 82).** CSV / EPLAN XML /
@@ -64,6 +64,15 @@
 > existing consumers ignore the new field; older diagnostics
 > omit it entirely. Sprint 83F acceptance:
 > [`docs/pdf-manual-acceptance-sprint-83F.md`](pdf-manual-acceptance-sprint-83F.md).
+> **Sprint 84** then adds layout-analysis helpers in the
+> ingestor (column-aware reading order, region clustering,
+> rotation heuristic) and surfaces two new info diagnostics
+> (`PDF_LAYOUT_MULTI_COLUMN_DETECTED`,
+> `PDF_LAYOUT_ROTATION_SUSPECTED`). Multi-column pages now read
+> column-by-column instead of interleaving by y-coordinate. v0
+> only reorders + flags — no new extraction capability, no UI
+> change, no canvas rendering. Sprint 84 acceptance:
+> [`docs/pdf-manual-acceptance-sprint-84.md`](pdf-manual-acceptance-sprint-84.md).
 
 ## Run the dev server
 
