@@ -70,6 +70,7 @@ import {
   groupItemsIntoLines,
   type PdfTextLayerLine,
 } from './pdf-text-normalize.js';
+import { detectIoTables } from './pdf-table-detect.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -86,12 +87,70 @@ const DEFAULT_MIN_TEXT_CONFIDENCE = 0;
 //   - case-insensitive on the word "page"
 const PAGE_DELIMITER_RE = /^[\s​]*-{3,}\s*page\s+(\d+)\s*-{3,}[\s​]*$/i;
 
-// Conservative IO-row pattern:  address  tag  [label]
+// Sprint 79 IO-row pattern: `address tag [label]`. Sprint 81
+// adds the tag-first and tag+direction-word variants below — kept
+// as separate regexes so each pattern can be tested in isolation
+// and the source pattern that matched is preserved on the
+// `ExtractedIoRow` reasons trail.
 //   - address: matched by `detectPlcAddress` (Siemens %I/%Q forms)
 //   - tag: short alphanumeric token (B1, Y2, M3, …) capped at 16
 //   - label: rest of the line, optional, kept verbatim
 const IO_ROW_RE =
   /^\s*(?<addr>%?[IQM][WDB]?\d+(?:[.\/]\d+)?)\s+(?<tag>[A-Za-z][A-Za-z0-9_.+\-]{0,15})(?:\s+(?<label>.+?))?\s*$/;
+
+/**
+ * Sprint 81 — tag-first variant: `<tag> <address> [label]`.
+ *
+ * The tag is constrained to alphanumeric tokens whose leading char
+ * is a letter that does NOT already look like a PLC-address prefix
+ * (`I` / `Q` / `M` with or without `%`), so the regex doesn't
+ * accidentally swallow address-first rows where the address starts
+ * with a single uppercase letter.
+ */
+const IO_ROW_TAG_FIRST_RE =
+  /^\s*(?<tag>(?!%?[IQM][WDB]?\d)[A-Za-z][A-Za-z0-9_.+\-]{0,15})\s+(?<addr>%?[IQM][WDB]?\d+(?:[.\/]\d+)?)(?:\s+(?<label>.+?))?\s*$/;
+
+/**
+ * Sprint 81 — tag + direction-word + address: `<tag> <direction>
+ * <address> [label]`. Direction keywords cover English + German +
+ * the very short forms (`i` / `o` / `e` / `a`) some industrial
+ * sites use in column headers.
+ */
+const IO_ROW_TAG_DIR_ADDR_RE =
+  /^\s*(?<tag>(?!%?[IQM][WDB]?\d)[A-Za-z][A-Za-z0-9_.+\-]{0,15})\s+(?<dir>input|output|in|out|eingang|ausgang|i|o|e|a)\s+(?<addr>%?[IQM][WDB]?\d+(?:[.\/]\d+)?)(?:\s+(?<label>.+?))?\s*$/i;
+
+/**
+ * Sprint 81 — direction-word table where the address is in a
+ * separate column from the direction word: `<address> <tag>
+ * <direction> [label]`. The direction column may explicitly say
+ * `input` / `output` / `eingang` / `ausgang`.
+ */
+const IO_ROW_ADDR_TAG_DIR_RE =
+  /^\s*(?<addr>%?[IQM][WDB]?\d+(?:[.\/]\d+)?)\s+(?<tag>(?!%?[IQM][WDB]?\d)[A-Za-z][A-Za-z0-9_.+\-]{0,15})\s+(?<dir>input|output|in|out|eingang|ausgang)\s*(?<label>.*)?$/i;
+
+function normaliseDirectionWord(
+  s: string | undefined | null,
+): 'input' | 'output' | null {
+  if (typeof s !== 'string') return null;
+  const norm = s.trim().toLowerCase();
+  if (
+    norm === 'input' ||
+    norm === 'in' ||
+    norm === 'eingang' ||
+    norm === 'i' ||
+    norm === 'e'
+  )
+    return 'input';
+  if (
+    norm === 'output' ||
+    norm === 'out' ||
+    norm === 'ausgang' ||
+    norm === 'o' ||
+    norm === 'a'
+  )
+    return 'output';
+  return null;
+}
 
 // ---------------------------------------------------------------------------
 // Detection
@@ -445,42 +504,143 @@ interface ExtractedIoRow {
   signalType: 'bool' | 'int' | 'real' | 'unknown';
   confidence: number;
   reasons: string[];
+  /**
+   * Sprint 81 — per-row diagnostics produced during extraction
+   * (e.g. address-direction conflict). Aggregated by the caller
+   * into the document-level diagnostics list.
+   */
+  diagnostics: ElectricalDiagnostic[];
 }
 
 function extractIoRow(
   pageNumber: number,
   block: PdfTextBlock,
 ): ExtractedIoRow | null {
-  const m = IO_ROW_RE.exec(block.text);
-  if (!m || !m.groups) return null;
-  const rawAddress = (m.groups['addr'] ?? '').trim();
-  const tag = m.groups['tag'] ?? '';
-  const label = m.groups['label']?.trim() ?? '';
+  // Sprint 81 — try each pattern in order. Every successful match
+  // produces a normalised tuple `(address, tag, label, direction)`
+  // plus the regex name in `reasons` so the source pattern is
+  // preserved end-to-end.
+  let rawAddress = '';
+  let tag = '';
+  let label = '';
+  let directionWord: 'input' | 'output' | null = null;
+  let pattern: 'addr-tag' | 'tag-addr' | 'tag-dir-addr' | 'addr-tag-dir' | null =
+    null;
+
+  let m = IO_ROW_TAG_DIR_ADDR_RE.exec(block.text);
+  if (m && m.groups) {
+    rawAddress = (m.groups['addr'] ?? '').trim();
+    tag = m.groups['tag'] ?? '';
+    label = m.groups['label']?.trim() ?? '';
+    directionWord = normaliseDirectionWord(m.groups['dir']);
+    pattern = 'tag-dir-addr';
+  }
+  if (!pattern) {
+    m = IO_ROW_ADDR_TAG_DIR_RE.exec(block.text);
+    if (m && m.groups) {
+      rawAddress = (m.groups['addr'] ?? '').trim();
+      tag = m.groups['tag'] ?? '';
+      label = m.groups['label']?.trim() ?? '';
+      directionWord = normaliseDirectionWord(m.groups['dir']);
+      pattern = 'addr-tag-dir';
+    }
+  }
+  if (!pattern) {
+    m = IO_ROW_RE.exec(block.text);
+    if (m && m.groups) {
+      rawAddress = (m.groups['addr'] ?? '').trim();
+      tag = m.groups['tag'] ?? '';
+      label = m.groups['label']?.trim() ?? '';
+      pattern = 'addr-tag';
+    }
+  }
+  if (!pattern) {
+    m = IO_ROW_TAG_FIRST_RE.exec(block.text);
+    if (m && m.groups) {
+      rawAddress = (m.groups['addr'] ?? '').trim();
+      tag = m.groups['tag'] ?? '';
+      label = m.groups['label']?.trim() ?? '';
+      pattern = 'tag-addr';
+    }
+  }
+  if (!pattern) return null;
+
   // Normalize: detectPlcAddress's Siemens regex requires the `%`
   // prefix; PDF rows often write `I0.0` instead. Prefix when
   // missing, then validate.
   const probe = rawAddress.startsWith('%') ? rawAddress : `%${rawAddress}`;
   const detected = detectPlcAddress(probe);
   if (!detected) return null;
-  const reasons: string[] = ['pdf-row-pattern-match'];
+
+  const reasons: string[] = [`pdf-row-pattern:${pattern}`];
+  const diagnostics: ElectricalDiagnostic[] = [];
+
+  // Resolve direction. The address direction is the structural
+  // signal (I→input, Q→output, M→unknown). When a column word is
+  // also present, prefer the address direction but flag a conflict
+  // so the operator sees it during review.
+  let direction: 'input' | 'output' | 'unknown' = detected.direction;
+  if (directionWord && direction !== 'unknown' && directionWord !== direction) {
+    diagnostics.push(
+      createElectricalDiagnostic({
+        code: 'PDF_IO_ROW_ADDRESS_DIRECTION_CONFLICT',
+        severity: 'warning',
+        message: `Row "${truncatePdfRow(block.text, 80)}": address direction (${direction}) does not match column direction (${directionWord}). Address wins.`,
+        sourceRef: block.sourceRef,
+      }),
+    );
+    reasons.push('direction-conflict');
+  } else if (directionWord && direction === 'unknown') {
+    direction = directionWord;
+    reasons.push('direction-from-column');
+  }
+
+  // Confidence ladder. Same shape Sprint 79/80 used; Sprint 81
+  // bumps the explicit-direction-column case slightly because
+  // direction-aware extraction is more reliable than a bare
+  // `address tag` pattern.
   let confidence = 0.55;
   if (label.length > 0) {
     confidence += 0.05;
     reasons.push('label-present');
   }
-  // Conservative: PDF-derived rows never start higher than 0.65.
+  if (directionWord) {
+    confidence += 0.02;
+    reasons.push('direction-column-present');
+  }
+  if (pattern === 'tag-dir-addr' || pattern === 'addr-tag-dir') {
+    confidence += 0.02;
+    reasons.push('header-aware-pattern');
+  }
+  // Conservative: PDF-derived rows never exceed 0.65.
   if (confidence > 0.65) confidence = 0.65;
+
+  diagnostics.push(
+    createElectricalDiagnostic({
+      code: 'PDF_IO_ROW_EXTRACTED',
+      severity: 'info',
+      message: `IO row extracted (${pattern}): ${detected.raw} ${tag}${label ? ' ' + label : ''}`,
+      sourceRef: block.sourceRef,
+    }),
+  );
+
   return {
     pageNumber,
     block,
     address: detected.raw,
     tag,
     label,
-    direction: detected.direction,
+    direction,
     signalType: 'bool',
     confidence,
     reasons,
+    diagnostics,
   };
+}
+
+function truncatePdfRow(s: string, n: number): string {
+  if (typeof s !== 'string') return '';
+  return s.length > n ? `${s.slice(0, n)}…` : s;
 }
 
 function buildGraphFromIoRows(
@@ -685,26 +845,58 @@ export async function ingestPdf(
       : parsed.document;
     aggregated.push(...parsed.diagnostics);
 
+    // Sprint 81 — run table detection over each page's lines
+    // before flat IO extraction. Tables are a strictly additive
+    // signal: lines absorbed into a table still go through
+    // `extractIoRow`, but the table candidate is preserved on
+    // the page and the per-table diagnostics are surfaced.
+    const updatedPages: PdfPage[] = [];
     const rows: ExtractedIoRow[] = [];
     for (const page of document.pages) {
+      const detectorLines = page.textBlocks.map((b) => ({
+        block: b,
+        items: undefined,
+        pageNumber: page.pageNumber,
+      }));
+      const tableResult = detectIoTables({
+        lines: detectorLines,
+        sourceId: input.sourceId,
+        fileName: input.fileName,
+      });
+      aggregated.push(...tableResult.diagnostics);
       for (const block of page.textBlocks) {
         const row = extractIoRow(page.pageNumber, block);
-        if (row) rows.push(row);
+        if (row) {
+          rows.push(row);
+          aggregated.push(...row.diagnostics);
+        }
       }
+      updatedPages.push({
+        ...page,
+        tableCandidates: tableResult.tables,
+      });
     }
+    document = { ...document, pages: updatedPages };
     if (rows.length === 0 && document.pages.some((p) => p.textBlocks.length > 0)) {
       aggregated.push(
         createElectricalDiagnostic({
           code: 'PDF_ELECTRICAL_EXTRACTION_NOT_IMPLEMENTED',
           severity: 'info',
           message:
-            'No deterministic IO-list rows were detected in the text layer. Sprint 80 v0 only recognises simple "<address> <tag> [<label>]" patterns.',
+            'No deterministic IO-list rows were detected in the text layer. Sprint 81 recognises address-first / tag-first / direction-word IO row variants only.',
         }),
       );
     } else if (rows.length > 0) {
       const built = buildGraphFromIoRows(rows, input.sourceId, input.fileName);
       nodes = built.nodes;
       edges = built.edges;
+      aggregated.push(
+        createElectricalDiagnostic({
+          code: 'PDF_MANUAL_REVIEW_REQUIRED',
+          severity: 'info',
+          message: `${rows.length} PDF-derived IO row(s) extracted; review required before promotion to PIR.`,
+        }),
+      );
     }
   } else if (
     !bytesExtractionSucceeded &&
@@ -752,9 +944,25 @@ function buildPdfDocumentFromExtraction(
   const opts = withDefaultOptions(input.options);
   const docPages: PdfPage[] = [];
   let totalBlocks = 0;
+  // Sprint 81 — keep per-page item streams alongside the line
+  // blocks so the table detector can use real x positions for
+  // header column mapping (instead of falling back to whitespace
+  // splitting like the test-mode path does).
+  const perPageDetectorLines: Array<
+    Array<{
+      block: PdfTextBlock;
+      items?: Array<{ text: string; x: number; width: number }>;
+      pageNumber: number;
+    }>
+  > = [];
   for (const p of extraction.pages) {
     const lines = groupItemsIntoLines(p.items);
     const blocks: PdfTextBlock[] = [];
+    const detectorLines: Array<{
+      block: PdfTextBlock;
+      items?: Array<{ text: string; x: number; width: number }>;
+      pageNumber: number;
+    }> = [];
     for (let i = 0; i < lines.length; i++) {
       const block = makeTextBlockFromLine(
         lines[i],
@@ -763,9 +971,21 @@ function buildPdfDocumentFromExtraction(
         input.sourceId,
         input.fileName,
       );
-      if (block.confidence >= opts.minTextConfidence) blocks.push(block);
+      if (block.confidence >= opts.minTextConfidence) {
+        blocks.push(block);
+        detectorLines.push({
+          block,
+          items: lines[i].items.map((it) => ({
+            text: it.text,
+            x: it.x,
+            width: it.width,
+          })),
+          pageNumber: p.pageNumber,
+        });
+      }
     }
     totalBlocks += blocks.length;
+    perPageDetectorLines.push(detectorLines);
     docPages.push({
       pageNumber: p.pageNumber,
       width: p.width,
@@ -802,7 +1022,7 @@ function buildPdfDocumentFromExtraction(
       code: 'PDF_TABLE_DETECTION_NOT_IMPLEMENTED',
       severity: 'info',
       message:
-        'Layout-aware table detection is not implemented in Sprint 80 v0. See docs/pdf-ingestion-architecture.md.',
+        'Layout-aware table detection beyond Sprint 81 v0 is not implemented yet. Sprint 81 recognises single-column IO-list tables only; multi-column / rotated layouts remain deferred.',
     }),
   );
   if (input.options?.allowOcr) {
@@ -811,19 +1031,38 @@ function buildPdfDocumentFromExtraction(
         code: 'PDF_OCR_NOT_ENABLED',
         severity: 'info',
         message:
-          'allowOcr=true was passed, but Sprint 80 v0 does not run OCR. The flag is reserved for a future opt-in.',
+          'allowOcr=true was passed, but Sprint 81 v0 does not run OCR. The flag is reserved for a future opt-in.',
       }),
     );
   }
 
-  // Try the same conservative IO-row extraction over real text-layer
-  // blocks. Sprint 80 keeps the regex unchanged; line-grouping is the
-  // only new layer.
+  // Sprint 81 — run table detection per page with real x geometry,
+  // attach the candidates to the page, then run the IO-row regex
+  // over every block (table + non-table, since tables don't change
+  // the per-row contract — they just provide context).
+  for (let pi = 0; pi < docPages.length; pi++) {
+    const detectorLines = perPageDetectorLines[pi];
+    if (!detectorLines || detectorLines.length === 0) continue;
+    const tableResult = detectIoTables({
+      lines: detectorLines,
+      sourceId: input.sourceId,
+      fileName: input.fileName,
+    });
+    docPages[pi] = {
+      ...docPages[pi],
+      tableCandidates: tableResult.tables,
+    };
+    diagnostics.push(...tableResult.diagnostics);
+  }
+
   const rows: ExtractedIoRow[] = [];
   for (const page of docPages) {
     for (const block of page.textBlocks) {
       const row = extractIoRow(page.pageNumber, block);
-      if (row) rows.push(row);
+      if (row) {
+        rows.push(row);
+        diagnostics.push(...row.diagnostics);
+      }
     }
   }
   let nodes: ElectricalNode[] = [];
@@ -834,13 +1073,20 @@ function buildPdfDocumentFromExtraction(
         code: 'PDF_ELECTRICAL_EXTRACTION_NOT_IMPLEMENTED',
         severity: 'info',
         message:
-          'No deterministic IO-list rows were detected in the extracted text layer. Sprint 80 v0 only recognises simple "<address> <tag> [<label>]" patterns.',
+          'No deterministic IO-list rows were detected in the extracted text layer. Sprint 81 recognises address-first / tag-first / direction-word IO row variants only.',
       }),
     );
   } else if (rows.length > 0) {
     const built = buildGraphFromIoRows(rows, input.sourceId, input.fileName);
     nodes = built.nodes;
     edges = built.edges;
+    diagnostics.push(
+      createElectricalDiagnostic({
+        code: 'PDF_MANUAL_REVIEW_REQUIRED',
+        severity: 'info',
+        message: `${rows.length} PDF-derived IO row(s) extracted; review required before promotion to PIR.`,
+      }),
+    );
   }
 
   const document: PdfDocument = {

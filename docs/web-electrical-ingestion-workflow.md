@@ -1,21 +1,19 @@
-# Web electrical-ingestion workflow — Sprint 77 → 78B → 79 → 80
+# Web electrical-ingestion workflow — Sprint 77 → 78B → 79 → 80 → 81
 
 > **Status: end-to-end pipeline live in `@plccopilot/web`
-> (Sprint 77 → 78A → 78B → 79 → 80).** CSV / EPLAN XML /
-> TcECAD XML / **PDF (real text-layer, v0)** → review → PIR preview
-> → **local persistence + downloadable artefacts**, all inside the
-> existing dev-mode app. **Sprint 80** swaps Sprint 79's binary
-> stub for a real `pdfjs-dist`-backed text-layer extractor —
-> uploading a selectable-text PDF now produces populated review
-> sessions where Sprint 79 returned only diagnostics.
-> **No automatic PLC codegen.** Codegen still requires explicit
-> operator action and is not wired into this flow. **No backend,
-> no auth, no upload, no OCR.** Raw source content (CSV/XML body,
-> PDF bytes) is not persisted by default.
+> (Sprint 77 → 78A → 78B → 79 → 80 → 81).** CSV / EPLAN XML /
+> TcECAD XML / **PDF (real text-layer + IO-list table extraction)**
+> → review → PIR preview → **local persistence + downloadable
+> artefacts**, all inside the existing dev-mode app. **Sprint 81**
+> adds IO-list table detection (English + German headers,
+> address-first / tag-first / direction-word row variants) on top
+> of Sprint 80's text-layer extractor. **No automatic PLC
+> codegen. No backend, no auth, no upload, no OCR.** Raw source
+> content (CSV/XML body, PDF bytes) is not persisted by default.
 >
-> **Manual product PDF verification is explicitly deferred until
-> Sprint 81 finishes.** Sprint 80's tests use hand-crafted minimal
-> PDFs only.
+> Sprint 81 includes the first deterministic PDF acceptance
+> harness; the operator-side web upload checklist lives at
+> [`docs/pdf-manual-acceptance-sprint-81.md`](pdf-manual-acceptance-sprint-81.md).
 
 ## Run the dev server
 

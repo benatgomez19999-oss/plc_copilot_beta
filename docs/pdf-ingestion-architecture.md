@@ -1,20 +1,16 @@
-# PDF ingestion architecture — Sprint 79 → 80
+# PDF ingestion architecture — Sprint 79 → 80 → 81
 
-> **Status: text-layer extraction v0 (Sprint 80).** Sprint 79
-> landed the foundation: source kind, document/page/block model,
-> page/bbox-capable `SourceRef`s, structured diagnostics, an
-> honest binary stub, and a deterministic test-mode text path.
-> **Sprint 80** replaces the binary stub with a real text-layer
-> extractor backed by `pdfjs-dist` (legacy Node build), behind an
-> isolated adapter that the rest of the codebase never imports
-> directly. Confidence stays conservative; review-first stays
-> load-bearing; OCR / symbol recognition / wire tracing remain
-> deferred.
->
-> **Manual product validation with real PDFs is explicitly
-> deferred until Sprint 81 finishes.** Sprint 80's tests use
-> hand-crafted minimal PDFs generated at runtime; the suite is
-> deterministic and DOM-free.
+> **Status: IO/table extraction v0 (Sprint 81).** Sprint 79
+> landed the foundation. Sprint 80 added a real text-layer
+> extractor (`pdfjs-dist` legacy build, isolated adapter).
+> **Sprint 81** improves line grouping, recognises IO-list-shaped
+> tables, supports address-first / tag-first / direction-word
+> row variants (English + German), and adds the first
+> deterministic acceptance harness so the closeout can prove
+> something useful actually came out of a real-bytes path. Still
+> no OCR, no symbol recognition, no multi-column / rotated
+> support, no wire tracing, no automatic PIR/codegen.
+> Confidence on PDF-derived nodes stays capped at `0.65`.
 
 ## Why PDF support is strategic
 
@@ -55,6 +51,86 @@ did this fact come from?" before it can promote to PIR.
 - **No PLC codegen.** Always.
 - **No raw PDF persistence.** The Sprint 78B review-session
   snapshot does NOT carry the PDF bytes (privacy default).
+
+## Sprint 81 — what changed on top of Sprint 80
+
+Sprint 81 extends the producer side; the snapshot/export contract
+is unchanged.
+
+### IO-row extraction is multi-pattern
+
+`extractIoRow` (in `pdf.ts`) now tries four patterns in priority
+order and records which one matched in the row's `reasons` trail
+(`pdf-row-pattern:<name>`):
+
+1. **`tag-dir-addr`** — `<tag> <direction-word> <address> [label]`.
+   Direction words: `input`/`in`/`output`/`out` + `eingang`/
+   `ausgang` + the very-short forms (`i`/`o`/`e`/`a`).
+2. **`addr-tag-dir`** — `<address> <tag> <direction-word> [label]`.
+3. **`addr-tag`** — Sprint 79 baseline.
+4. **`tag-addr`** — tag-first variant for EPLAN-style exports.
+
+### Address direction wins on conflict
+
+When a row supplies both an explicit direction word and an address
+whose family already implies a direction (`I` / `Q`), the address
+direction wins and `PDF_IO_ROW_ADDRESS_DIRECTION_CONFLICT`
+(warning) is raised so the operator sees the mismatch during
+review. Confidence is not lowered — PDF-derived rows are already
+capped at 0.65.
+
+### Table detection v0
+
+[`packages/electrical-ingest/src/sources/pdf-table-detect.ts`](../packages/electrical-ingest/src/sources/pdf-table-detect.ts)
+walks each page's lines top-to-bottom and:
+
+1. Looks for an IO-list-shaped header (`detectIoTableHeader`):
+   ≥ 2 known keywords AND at least one of them maps to `address`
+   or `tag`. Keyword map covers English + German + abbreviated
+   forms (Address / Adresse / Addr / E/A / Eingang / Ausgang /
+   BMK / Bezeichnung / Funktion / Channel / Kanal / etc.).
+2. Treats subsequent lines as data rows while they match
+   `looksLikeIoRow` (any of the four IO-row patterns above).
+3. Closes the table on the first non-row line.
+4. Emits `PDF_TABLE_HEADER_DETECTED` + `PDF_TABLE_CANDIDATE_DETECTED`
+   + one `PDF_TABLE_ROW_EXTRACTED` per data row.
+
+Each row stores its parent line block in `cells`, the verbatim
+text in `rawText`, the row kind (`'header' | 'data' | 'unknown'`),
+and the same `SourceRef` (`kind: 'pdf'`, `page`, `bbox`,
+`snippet`). The detector populates `headerLayout.columns` with
+real x positions when geometry is available — the bytes path
+seeds them from the pdfjs items, the test-mode text path
+synthesises proportional bands (Sprint 81's hard requirement of
+≥ 2 known keywords protects the fallback against false
+positives).
+
+### Confidence ladder (Sprint 81)
+
+| Pattern | Base | Adjustments |
+| --- | --- | --- |
+| `addr-tag` | 0.55 | `+0.05` if label present |
+| `tag-addr` | 0.55 | `+0.05` if label present |
+| `tag-dir-addr` | 0.55 | `+0.05` label, `+0.02` direction column, `+0.02` header-aware pattern |
+| `addr-tag-dir` | 0.55 | `+0.05` label, `+0.02` direction column, `+0.02` header-aware pattern |
+
+Hard cap remains `0.65`. PDF-derived nodes never read higher than
+a structured CSV/XML row.
+
+### Manual acceptance harness
+
+The first deterministic acceptance harness lives in
+[`packages/electrical-ingest/tests/pdf-acceptance.spec.ts`](../packages/electrical-ingest/tests/pdf-acceptance.spec.ts).
+Four cases (tabular IO list, tag-first + direction column,
+narrative no-IO, malformed bytes). Run with:
+
+```sh
+pnpm --filter @plccopilot/electrical-ingest test -- pdf-acceptance
+```
+
+Detailed expected outcomes + operator-side web-upload
+instructions:
+[`docs/pdf-manual-acceptance-sprint-81.md`](pdf-manual-acceptance-sprint-81.md).
 
 ## Sprint 80 supported behaviour
 
@@ -204,7 +280,20 @@ explains how the persistence layer handles them.
 | `PDF_ELECTRICAL_EXTRACTION_NOT_IMPLEMENTED` | info | Text recovered but no IO-row matched |
 | `PDF_NO_TEXT_BLOCKS` | warning | Text path: input was all whitespace; Bytes path: extraction OK but every page empty |
 | `PDF_TEXT_BLOCK_EXTRACTED` | info | Test-mode-text per-parse summary count |
-| `PDF_AMBIGUOUS_IO_ROW` | warning | Reserved for future use (not raised in Sprint 80) |
+| `PDF_AMBIGUOUS_IO_ROW` | warning | Reserved for future use (not raised in Sprint 81) |
+| `PDF_TABLE_HEADER_DETECTED` | info | **Sprint 81** — IO-list header recognised on a page |
+| `PDF_TABLE_HEADER_UNSUPPORTED` | warning | Reserved (header shape was not recognisable) |
+| `PDF_TABLE_CANDIDATE_DETECTED` | info | **Sprint 81** — a table with ≥ 1 data row was assembled |
+| `PDF_TABLE_ROW_EXTRACTED` | info | **Sprint 81** — per data-row info diagnostic |
+| `PDF_TABLE_ROW_AMBIGUOUS` | warning | Reserved (row matched header but values were ambiguous) |
+| `PDF_IO_ROW_EXTRACTED` | info | **Sprint 81** — IO row extracted, with the matched pattern in the message |
+| `PDF_IO_ROW_AMBIGUOUS` | warning | Reserved |
+| `PDF_IO_ROW_ADDRESS_DIRECTION_CONFLICT` | warning | **Sprint 81** — address direction mismatched a direction-column word; address wins |
+| `PDF_IO_ROW_MISSING_TAG` | warning | Reserved |
+| `PDF_IO_ROW_MISSING_ADDRESS` | warning | Reserved |
+| `PDF_COLUMN_LAYOUT_UNSUPPORTED` | warning | Reserved (multi-column / rotated) |
+| `PDF_MULTI_COLUMN_ORDER_UNCERTAIN` | warning | Reserved |
+| `PDF_MANUAL_REVIEW_REQUIRED` | info | **Sprint 81** — at least one PDF-derived candidate exists; review required before promotion to PIR |
 
 ## Registry routing
 
@@ -259,33 +348,52 @@ binary text-layer parser…") so operators are never surprised.
 ## Future roadmap
 
 Each step is an independent sprint; nothing is required to land
-together with Sprint 80.
+together with Sprint 81.
 
-1. **Sprint 81 — IO/table extraction + manual PDF acceptance pass.**
-   Improve line/table grouping; detect simple IO-list tables; better
-   column heuristics; validate against real public/sample PDFs;
-   first explicit manual product validation pass for PDF — Sprint
-   80's tests use hand-crafted minimal PDFs only.
-2. **OCR fallback (opt-in).** Only when `allowOcr: true` AND a
+1. **Sprint 82 — PDF extraction hardening.** Multi-column
+   ordering, rotated pages, coordinate normalisation, better
+   column-position detection from real geometry, row/column
+   confidence scoring, richer UI for the source-ref drilldown
+   (bbox overlays).
+2. **Sprint 82A (alt) — PDF layout architecture.** Explicit
+   `PdfLayoutRegion` model, region clustering, optional
+   page-preview component with bbox overlays. Pick this if
+   Sprint 81's manual-acceptance reveals more layout-shape
+   problems than column-detection problems.
+3. **OCR fallback (opt-in).** Only when `allowOcr: true` AND a
    sandboxed OCR service is configured. The output still flows
    through the same review gate; OCR-derived blocks must be
    labelled (`SourceRef.snippet` + a dedicated diagnostic).
-3. **Symbol / connection-graph recognition.** Beyond text — actual
+4. **Symbol / connection-graph recognition.** Beyond text — actual
    geometry of schematic symbols. Will need a deterministic
    pattern library and a lower default confidence than text-row
    extraction.
-4. **Cross-page references.** Tag-level deduplication when the
+5. **Cross-page references.** Tag-level deduplication when the
    same device appears on multiple sheets. Likely shared with the
    EPLAN XML side.
-5. **Rotated / multi-column hardening.** Vertical text, rotated
-   pages, multi-column reading order — Sprint 80's grouping is
-   single-column / non-rotated only.
 
 Each step must keep the architectural invariant intact: every
 extracted fact carries a `SourceRef`, never auto-promotes to PIR,
 and is reviewable by a human before any downstream consumer.
 
-## Test coverage (Sprint 79 + 80)
+## Test coverage (Sprint 79 + 80 + 81)
+
+Sprint 81 — new:
+- `packages/electrical-ingest/tests/pdf-table-detect.spec.ts` —
+  32 tests: header-keyword classifier, `looksLikeIoRow` predicate,
+  per-page table assembler (incl. multi-table on a page),
+  `ingestPdf` IO-row variants (text-mode), `ingestPdf` end-to-end
+  with a column-aligned tabular real-bytes PDF.
+- `packages/electrical-ingest/tests/pdf-acceptance.spec.ts` —
+  4 acceptance cases (tabular IO list, tag-first + direction
+  column, narrative no-IO, malformed bytes) — see
+  [`docs/pdf-manual-acceptance-sprint-81.md`](pdf-manual-acceptance-sprint-81.md).
+- `packages/electrical-ingest/tests/fixtures/pdf/build-fixture.ts`
+  gained `buildTabularPdfFixture` (places labelled cells at exact
+  `(x, y)` PDF point positions so the line-grouper sees real
+  geometry).
+
+
 
 Sprint 79:
 - `packages/electrical-ingest/tests/pdf.spec.ts` — 40 tests

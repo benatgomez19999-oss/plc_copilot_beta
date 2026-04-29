@@ -1,16 +1,21 @@
-# PDF text-layer extraction — Sprint 80 v0
+# PDF text-layer extraction — Sprint 80 → 81 v0
 
-> **Status: real text-layer extraction live in
-> `@plccopilot/electrical-ingest` (Sprint 80).** Backed by
-> `pdfjs-dist` (legacy Node build) behind an isolated adapter.
-> Produces deterministic, line-grouped `PdfTextBlock`s with
-> PDF-point bboxes and verbatim snippets. **No OCR, no symbol
-> recognition, no rotated-page or multi-column hardening.**
+> **Status: real text-layer extraction + IO-list table detection
+> live in `@plccopilot/electrical-ingest` (Sprint 81).** Sprint
+> 80 added the `pdfjs-dist`-backed text-layer extractor behind an
+> isolated adapter. **Sprint 81** adds `pdf-table-detect.ts` on
+> top of the same line-grouped output: it recognises IO-list-
+> shaped headers (English + German + abbreviations), assembles
+> `PdfTableCandidate`s, and feeds the new multi-pattern IO-row
+> extractor (address-first / tag-first / tag+direction+address /
+> address+tag+direction). **No OCR, no symbol recognition, no
+> rotated-page or multi-column hardening.**
 >
-> **Manual product validation with real-world PDFs is deferred
-> until Sprint 81 finishes** — Sprint 80's tests use hand-crafted
-> minimal PDFs generated at runtime by
-> [`packages/electrical-ingest/tests/fixtures/pdf/build-fixture.ts`](../packages/electrical-ingest/tests/fixtures/pdf/build-fixture.ts).
+> Sprint 81's first deterministic acceptance harness lives at
+> [`packages/electrical-ingest/tests/pdf-acceptance.spec.ts`](../packages/electrical-ingest/tests/pdf-acceptance.spec.ts);
+> the captured outcomes + operator-side web upload checklist
+> live at
+> [`docs/pdf-manual-acceptance-sprint-81.md`](pdf-manual-acceptance-sprint-81.md).
 
 ## Why an adapter?
 
@@ -116,14 +121,22 @@ takes the raw item stream and produces deterministic lines:
 The algorithm is total + side-effect-free; the same input always
 yields the same lines in the same order.
 
-### Limitations (Sprint 80)
+### Limitations (Sprint 80 → 81)
 
 - **Single-column / non-rotated only.** Multi-column reading order
   and rotated pages are deferred.
 - **Vertical text** is not handled specially.
 - **Hyphenation continuation** across lines is not joined.
 - **Font kerning heuristic** is conservative — extreme kerning
-  may insert extra spaces. Sprint 81 will tune.
+  may insert extra spaces.
+- **Table detection (Sprint 81)** is single-band only. A header
+  line followed by ≥ 1 IO-row-shaped data lines forms a table.
+  Borderless multi-row headers, repeated headers across page
+  breaks, and merged cells are deferred.
+- **Header keyword classifier (Sprint 81)** covers English +
+  German + the most common abbreviated forms. New keyword
+  variants land as a constant addition to `HEADER_KEYWORDS` in
+  `pdf-table-detect.ts` — no schema or regex change.
 
 ## Failure paths
 

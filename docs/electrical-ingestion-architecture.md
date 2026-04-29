@@ -1,6 +1,6 @@
 # Electrical-plan ingestion architecture
 
-> **Status: PDF text-layer extraction v0 (Sprint 80).** Sprint 72
+> **Status: PDF IO/table extraction v0 (Sprint 81).** Sprint 72
 > scaffolded the architecture. Sprint 73 added the CSV ingestor.
 > Sprint 74 added the EPLAN structured XML ingestor v0. Sprint 75
 > added the Review UI v0. Sprint 76 added the PIR builder v0.
@@ -9,18 +9,21 @@
 > empty-candidate UX fix. Sprint 78B layered local review-session
 > persistence + downloadable artefacts. Sprint 79 opened the
 > second strategic source category — PDF — with architecture +
-> types + an honest binary stub. **Sprint 80** replaces that stub
+> types + an honest binary stub. Sprint 80 replaced that stub
 > with a real text-layer extractor backed by `pdfjs-dist` (legacy
 > Node build), behind an isolated adapter that's the only file in
-> the codebase importing pdfjs. The extractor produces
-> deterministic line-grouped `PdfTextBlock`s with PDF-point
-> bboxes; the conservative Sprint 79 IO-row regex now runs over
-> real text-layer output. Confidence stays ≤ 0.65, review-first
-> stays load-bearing, and OCR / symbol recognition / wire
-> tracing / multi-column / rotated-page support stay deferred.
-> **Manual product validation with real-world PDFs is deferred
-> until Sprint 81 finishes.** Raw PDF bytes are NEVER persisted
-> in the snapshot (privacy).
+> the codebase importing pdfjs. **Sprint 81** adds the first
+> usable IO/table extraction layer on top: a per-page table
+> detector that recognises IO-list-shaped headers (English +
+> German), assembles `PdfTableCandidate`s, and feeds a multi-
+> pattern IO-row extractor (address-first / tag-first /
+> tag+direction+address / address+tag+direction). Confidence on
+> PDF-derived nodes stays ≤ 0.65, review-first stays load-bearing,
+> and OCR / symbol recognition / wire tracing / multi-column /
+> rotated-page support stay deferred. Sprint 81 also includes
+> the first deterministic acceptance harness — see
+> [`docs/pdf-manual-acceptance-sprint-81.md`](pdf-manual-acceptance-sprint-81.md).
+> Raw PDF bytes are NEVER persisted in the snapshot (privacy).
 
 ## Why this matters
 
@@ -572,6 +575,40 @@ ECAD exports today and PDF documents tomorrow — funnelling through
 the same review/persist/export model. A weak prompt cannot
 override that model: it has no surface area in any of these layers.
 
+## Sprint 81 — PDF IO/table extraction v0
+
+Sprint 81 stays inside `@plccopilot/electrical-ingest`. No new
+runtime deps; `pdfjs-dist` is already there from Sprint 80. Two
+files added:
+
+- [`src/sources/pdf-table-detect.ts`](../packages/electrical-ingest/src/sources/pdf-table-detect.ts)
+  — header-keyword classifier (English + German + abbreviated
+  forms), `looksLikeIoRow` predicate, and the per-page assembler
+  `detectIoTables` that turns a list of line blocks into
+  `PdfTableCandidate` records.
+- [`tests/pdf-acceptance.spec.ts`](../packages/electrical-ingest/tests/pdf-acceptance.spec.ts)
+  — first deterministic PDF acceptance harness, paired with
+  [`docs/pdf-manual-acceptance-sprint-81.md`](pdf-manual-acceptance-sprint-81.md).
+
+`extractIoRow` (in `pdf.ts`) is now multi-pattern: address-first,
+tag-first, tag+direction+address, address+tag+direction. The
+matched pattern is recorded in the row's `reasons` trail, and an
+explicit-direction column that conflicts with the address
+direction raises `PDF_IO_ROW_ADDRESS_DIRECTION_CONFLICT`
+(warning) — address direction wins.
+
+Sprint 81 also extended the test fixture builder with
+`buildTabularPdfFixture(pages)` so tests can place labelled cells
+at exact `(x, y)` PDF-point positions. The bytes path uses real
+pdfjs item geometry; the test-mode text path falls back to
+whitespace-split tokens (with a hard ≥ 2 keyword floor to block
+false positives).
+
+The snapshot/export contract is unchanged. New optional fields
+on `PdfTableRowCandidate` (`rawText`, `kind`, `sourceRef`) and
+`PdfTableCandidate.headerLayout` are additive — Sprint 80
+snapshots load cleanly.
+
 ## Sprint 80 — PDF text-layer extraction v0
 
 Sprint 80 replaces Sprint 79's binary stub with a real text-layer
@@ -708,10 +745,11 @@ encodes this by:
 | 78A | Beckhoff/TwinCAT ECAD Import XML recognizer + empty-candidate UX fix. New diagnostics: 10 `TCECAD_XML_*` codes. Domain + web gates aligned: empty candidate is no longer "ready". `runElectricalIngestion` routes through the default registry so TcECAD claims XML first; EPLAN unchanged. 41 new electrical-ingest tests + 2 new web tests. |
 | 78B | Web review-session persistence + downloadable artefacts. New web utils: `electrical-review-session`, `electrical-review-storage`, `electrical-review-export`. New components: `ReviewSessionPanel`, `ExportArtifactsPanel`. Snapshot schema `electrical-review-session.v1` (raw source content NOT persisted by default). Single-slot localStorage; defensive restore; per-artefact JSON downloads + ZIP bundle. **No backend, no auth, no upload, no codegen.** 85 new web tests. |
 | 79 | PDF ingestion architecture v0. `'pdf'` source kind activated; `PdfDocument`/`PdfPage`/`PdfTextBlock`/`PdfTableCandidate` model + `PdfBoundingBox`. `SourceRef` extended with `bbox` + `snippet`. 12 `PDF_*` diagnostics. Honest binary stub + deterministic test-mode text path. Registry: CSV → TcECAD → EPLAN → PDF → unsupported (5 ingestors). Web: `'pdf'` `DetectedInputKind`, bytes upload via `arrayBuffer()`, snapshot `inputKind` extended. Raw PDF bytes NEVER persisted. 40 electrical-ingest tests + 13 web tests. |
-| **80** (this sprint) | **PDF text-layer extraction v0.** `pdfjs-dist@^5.7.284` (legacy Node build) added as runtime dep of `@plccopilot/electrical-ingest`. Isolated adapter at `sources/pdf-text-layer.ts` + line-grouping at `sources/pdf-text-normalize.ts`. `ingestPdf` is now async; bytes path uses real extraction; 5 new diagnostics (`PDF_TEXT_LAYER_EXTRACTED`, `PDF_TEXT_LAYER_EMPTY_PAGE`, `PDF_TEXT_LAYER_BBOX_APPROXIMATED`, `PDF_TEXT_LAYER_EXTRACTION_FAILED`, `PDF_DEPENDENCY_LOAD_FAILED`). Sprint 79 stub codes retired on the success path. Hand-crafted minimal PDF builder for tests (no committed binaries). 22 new domain tests + 2 new web tests. **Manual product PDF validation deferred to Sprint 81.** |
-| 81 (planned) | PDF IO/table extraction + manual PDF acceptance pass — improve line/table grouping, detect simple IO-list tables, validate against real public/sample PDFs, first explicit manual product validation pass for PDF. |
-| 81A (alt) | PDF extraction hardening — worker config, coordinate normalisation, font/text-item edge cases, rotated pages, multi-column ordering. |
-| 81B (alt) | More real-world structured-source hardening — XML namespaces, EDZ/EPDZ archive extraction, additional TcECAD/EPLAN schema variants. |
+| 80 | PDF text-layer extraction v0. `pdfjs-dist@^5.7.284` (legacy Node build) added as runtime dep of `@plccopilot/electrical-ingest`. Isolated adapter + line-grouping. `ingestPdf` is now async. 5 new diagnostics. Sprint 79 stub codes retired on the success path. 22 domain tests + 2 web tests. |
+| **81** (this sprint) | **PDF IO/table extraction v0.** New `sources/pdf-table-detect.ts` (header-keyword classifier + per-page assembler). `extractIoRow` is now multi-pattern (address-first / tag-first / tag+direction+address / address+tag+direction). Address direction wins on conflict (`PDF_IO_ROW_ADDRESS_DIRECTION_CONFLICT` warning). 13 new `PDF_*` diagnostics. New `buildTabularPdfFixture` test helper. First deterministic PDF acceptance harness (`pdf-acceptance.spec.ts` — 4 cases). 36 new domain tests. |
+| 82 (planned) | PDF extraction hardening — multi-column ordering, rotated pages, coordinate normalisation, better column-position detection from real geometry, row/column confidence scoring, richer UI for the source-ref drilldown (bbox overlays). |
+| 82A (alt) | PDF layout architecture — explicit `PdfLayoutRegion` model, region clustering, optional page-preview component with bbox overlays. |
+| 82B (alt) | More structured-source hardening — XML namespaces, EDZ/EPDZ archive extraction, additional TcECAD/EPLAN schema variants. |
 | later | OCR fallback (only as a flagged opt-in), symbol/connection-graph recognition, cross-page references, Siemens TIA hardware-config import, controlled codegen preview gated on accepted PIR. |
 
 Each future sprint stays narrow: a single concrete source format
@@ -740,14 +778,16 @@ tests (`twincat-ecad-xml.spec.ts`) + 2 web tests (empty-candidate
 UX). Sprint 78B added 85 web tests across the four new
 review-session/storage/export/workflow specs. Sprint 79 added 40
 electrical-ingest tests (`pdf.spec.ts`) + 13 web tests (PDF
-detection + flow + session round-trip + privacy). **Sprint 80 adds
-22 electrical-ingest tests** (`pdf-text-layer.spec.ts` covering
-the real adapter + line-grouping helpers + end-to-end real-bytes
-ingestion) **+ 2 web tests** (real-bytes path through
-`runElectricalIngestion` produces extracted candidates with
-`SourceRef.bbox.unit === 'pt'`).
-`electrical-ingest`: 341 → 363 (+22). Web: 783 → 785 (+2). Repo
-total: 3005 → 3029 (+24). Existing codegen tests are unchanged.
+detection + flow + session round-trip + privacy). Sprint 80 added 22 electrical-ingest tests (`pdf-text-layer.spec.ts`) +
+2 web tests (real-bytes path through `runElectricalIngestion`).
+**Sprint 81 adds 36 electrical-ingest tests** (32 in
+`pdf-table-detect.spec.ts` covering header classification, IO-row
+predicates, the per-page assembler, and end-to-end with the new
+`buildTabularPdfFixture` helper; 4 in `pdf-acceptance.spec.ts`
+covering the deterministic acceptance cases).
+`electrical-ingest`: 363 → 399 (+36). Web: 785 → 785 (no change).
+Repo total: 3029 → 3065 (+36). Existing codegen tests are
+unchanged.
 
 The review workflow + PIR-builder gate semantics live in
 [`docs/electrical-review-workflow.md`](electrical-review-workflow.md);

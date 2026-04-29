@@ -237,7 +237,27 @@ export type ElectricalDiagnosticCode =
   // back to the Sprint 79 test-mode text path when text was also
   // supplied):
   | 'PDF_TEXT_LAYER_EXTRACTION_FAILED'
-  | 'PDF_DEPENDENCY_LOAD_FAILED';
+  | 'PDF_DEPENDENCY_LOAD_FAILED'
+  // ---- Sprint 81: PDF IO/table extraction ----
+  // Table detection (per page / per table):
+  | 'PDF_TABLE_HEADER_DETECTED'
+  | 'PDF_TABLE_HEADER_UNSUPPORTED'
+  | 'PDF_TABLE_CANDIDATE_DETECTED'
+  | 'PDF_TABLE_ROW_EXTRACTED'
+  | 'PDF_TABLE_ROW_AMBIGUOUS'
+  // IO-row extraction (per row, granular):
+  | 'PDF_IO_ROW_EXTRACTED'
+  | 'PDF_IO_ROW_AMBIGUOUS'
+  | 'PDF_IO_ROW_ADDRESS_DIRECTION_CONFLICT'
+  | 'PDF_IO_ROW_MISSING_TAG'
+  | 'PDF_IO_ROW_MISSING_ADDRESS'
+  // Layout-shape diagnostics — Sprint 81 v0 only handles single-
+  // column tables; multi-column / rotated layouts surface these:
+  | 'PDF_COLUMN_LAYOUT_UNSUPPORTED'
+  | 'PDF_MULTI_COLUMN_ORDER_UNCERTAIN'
+  // Operator hint emitted when extraction succeeds but human
+  // judgment is needed before the candidate can promote to PIR:
+  | 'PDF_MANUAL_REVIEW_REQUIRED';
 
 export interface ElectricalDiagnostic {
   code: ElectricalDiagnosticCode;

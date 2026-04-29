@@ -80,15 +80,70 @@ export interface PdfTextBlock {
 }
 
 export interface PdfTableRowCandidate {
+  /**
+   * Underlying text-layer items that make up this row's cells. Empty
+   * when the producer only had line-level granularity (Sprint 81 v0
+   * mostly populates this from the parent line's items).
+   */
   cells: PdfTextBlock[];
   confidence: number;
+  /**
+   * Sprint 81 — verbatim row text. When the row originated from a
+   * single line block, this matches the line's text. Snippet length
+   * is bounded by the same per-block snippet cap.
+   */
+  rawText?: string;
+  /**
+   * Sprint 81 — discriminator of header vs data vs unknown rows. The
+   * header row always appears first inside its parent table.
+   */
+  kind?: 'header' | 'data' | 'unknown';
+  /**
+   * Sprint 81 — source-trace for the row. Carries the same
+   * `kind: 'pdf'` SourceRef the parent line block had (page, line,
+   * snippet, bbox, symbol).
+   */
+  sourceRef?: SourceRef;
+}
+
+/**
+ * Sprint 81 — column role tags. The header detector tries to map
+ * each header label to one of these roles. `'unknown'` means the
+ * detector saw a column but couldn't classify it; that column is
+ * preserved so the operator can still see it during review.
+ */
+export type PdfTableColumnRole =
+  | 'address'
+  | 'tag'
+  | 'direction'
+  | 'description'
+  | 'channel'
+  | 'comment'
+  | 'signal_type'
+  | 'unknown';
+
+export interface PdfTableColumn {
+  role: PdfTableColumnRole;
+  /** Verbatim header text (the operator's label). */
+  headerLabel: string;
+  /** Approximate left-edge x of the column in PDF point space. */
+  xMin: number;
+  /** Approximate right-edge x of the column in PDF point space. */
+  xMax: number;
+}
+
+export interface PdfTableHeaderLayout {
+  columns: PdfTableColumn[];
+  /** Verbatim header line text. */
+  rawText: string;
 }
 
 export interface PdfTableCandidate {
   /**
    * Deterministic id of the form `pdf:<sourceId>:p<page>:t<index>`.
-   * Sprint 79 v0 does NOT detect tables; the type is here so future
-   * sprints can land table extraction without a schema bump.
+   * Sprint 81 populates this for the IO-list-shaped tables it can
+   * recognise; future sprints will broaden the recogniser without
+   * a schema bump.
    */
   id: string;
   pageNumber: number;
@@ -96,6 +151,12 @@ export interface PdfTableCandidate {
   rows: PdfTableRowCandidate[];
   confidence: number;
   sourceRef: SourceRef;
+  /**
+   * Sprint 81 — header layout, when the table started with a header
+   * line the detector could classify. Absent when the rows look
+   * IO-list-shaped but have no recognisable header.
+   */
+  headerLayout?: PdfTableHeaderLayout;
 }
 
 export interface PdfPage {

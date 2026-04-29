@@ -211,8 +211,8 @@ export {
   parseTcecadXml,
 } from './sources/twincat-ecad-xml.js';
 
-// Sprint 79 → 80 — PDF ingestion architecture + real text-layer
-// extraction.
+// Sprint 79 → 80 → 81 — PDF ingestion architecture + real text-
+// layer extraction + IO-list table detection.
 export type {
   PdfBoundingBox,
   PdfDocument,
@@ -222,6 +222,9 @@ export type {
   PdfPage,
   PdfParseResult,
   PdfTableCandidate,
+  PdfTableColumn,
+  PdfTableColumnRole,
+  PdfTableHeaderLayout,
   PdfTableRowCandidate,
   PdfTextBlock,
 } from './sources/pdf-types.js';
@@ -252,3 +255,14 @@ export {
   combineBbox,
   groupItemsIntoLines,
 } from './sources/pdf-text-normalize.js';
+
+// Sprint 81 — IO-list table detection helpers.
+export type {
+  PdfTableDetectionResult,
+  PdfTableDetectorLine,
+} from './sources/pdf-table-detect.js';
+export {
+  detectIoTableHeader,
+  detectIoTables,
+  looksLikeIoRow,
+} from './sources/pdf-table-detect.js';

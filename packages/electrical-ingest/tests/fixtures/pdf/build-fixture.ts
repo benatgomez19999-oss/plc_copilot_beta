@@ -122,3 +122,109 @@ export function buildMinimalPdfFixture(
 function escapePdfString(s: string): string {
   return s.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
 }
+
+// =============================================================================
+// Sprint 81 — tabular fixture builder
+// =============================================================================
+
+export interface TabularCell {
+  /** Verbatim text for this cell. */
+  text: string;
+  /** Absolute x position in PDF points for the start of the text. */
+  x: number;
+}
+
+export interface TabularRow {
+  /** Y position of the row in PDF points. */
+  y: number;
+  cells: TabularCell[];
+}
+
+export interface BuildTabularPdfFixtureInputPage {
+  rows: TabularRow[];
+}
+
+export interface BuildTabularPdfFixtureInput {
+  pages: BuildTabularPdfFixtureInputPage[];
+}
+
+/**
+ * Build a PDF whose content streams are full table layouts: each
+ * row on its own Y, with explicit x positions per cell. Sprint 81
+ * uses this to feed the line-grouper + table-detector real
+ * geometry without depending on font metrics.
+ */
+export function buildTabularPdfFixture(
+  input: BuildTabularPdfFixtureInput,
+): Uint8Array {
+  const enc = new TextEncoder();
+  const pages = input.pages;
+  if (!Array.isArray(pages) || pages.length === 0) {
+    throw new Error('buildTabularPdfFixture: pages must be a non-empty array.');
+  }
+  const n = pages.length;
+  const fontId = 3 + 2 * n;
+  const totalObjects = fontId;
+  const bodies: string[] = new Array(totalObjects + 1).fill('');
+  bodies[1] = `<< /Type /Catalog /Pages 2 0 R >>`;
+  const pageObjIds = pages.map((_, i) => 3 + i);
+  bodies[2] = `<< /Type /Pages /Kids [ ${pageObjIds.map((id) => `${id} 0 R`).join(' ')} ] /Count ${n} >>`;
+  for (let i = 0; i < n; i++) {
+    const pageId = 3 + i;
+    const streamId = 3 + n + i;
+    bodies[pageId] =
+      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] ` +
+      `/Contents ${streamId} 0 R ` +
+      `/Resources << /Font << /F1 ${fontId} 0 R >> >> >>`;
+  }
+  for (let i = 0; i < n; i++) {
+    const streamId = 3 + n + i;
+    const ops: string[] = [];
+    ops.push('BT');
+    ops.push('/F1 12 Tf');
+    for (const row of pages[i].rows) {
+      // Each cell uses its own absolute Td so the text item lands
+      // at the requested (x, y) in PDF point space.
+      for (const cell of row.cells) {
+        ops.push(`1 0 0 1 ${cell.x} ${row.y} Tm`);
+        ops.push(`(${escapePdfString(cell.text)}) Tj`);
+      }
+    }
+    ops.push('ET');
+    const stream = ops.join('\n');
+    bodies[streamId] =
+      `<< /Length ${enc.encode(stream).length} >>\nstream\n${stream}\nendstream`;
+  }
+  bodies[fontId] =
+    `<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>`;
+
+  const offsets: number[] = new Array(totalObjects + 1).fill(0);
+  const headerBytes = enc.encode('%PDF-1.4\n%\xC4\xE5\xF2\xE5\n');
+  let cursor = headerBytes.length;
+  const chunks: Uint8Array[] = [headerBytes];
+  for (let id = 1; id <= totalObjects; id++) {
+    offsets[id] = cursor;
+    const objBytes = enc.encode(`${id} 0 obj\n${bodies[id]}\nendobj\n`);
+    chunks.push(objBytes);
+    cursor += objBytes.length;
+  }
+  const xrefOffset = cursor;
+  const xrefHeader = `xref\n0 ${totalObjects + 1}\n0000000000 65535 f \n`;
+  const xrefBody = offsets
+    .slice(1)
+    .map((off) => `${String(off).padStart(10, '0')} 00000 n \n`)
+    .join('');
+  const trailer =
+    `trailer\n<< /Size ${totalObjects + 1} /Root 1 0 R >>\n` +
+    `startxref\n${xrefOffset}\n%%EOF\n`;
+  const xrefBytes = enc.encode(xrefHeader + xrefBody + trailer);
+  chunks.push(xrefBytes);
+  const total = cursor + xrefBytes.length;
+  const out = new Uint8Array(total);
+  let pos = 0;
+  for (const c of chunks) {
+    out.set(c, pos);
+    pos += c.length;
+  }
+  return out;
+}
