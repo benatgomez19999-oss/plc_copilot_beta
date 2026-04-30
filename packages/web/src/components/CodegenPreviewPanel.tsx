@@ -47,6 +47,12 @@ import {
   type CodegenPreviewDiffView,
   type CodegenPreviewTargetDiff,
 } from '../utils/codegen-preview-diff.js';
+import {
+  buildCodegenPreviewDiffBundle,
+  createCodegenPreviewDiffFilename,
+  isPreviewDiffDownloadable,
+  serializeCodegenPreviewDiffBundle,
+} from '../utils/codegen-preview-diff-download.js';
 import { downloadText } from '../utils/download.js';
 import type { Project } from '@plccopilot/pir';
 
@@ -147,6 +153,22 @@ export function CodegenPreviewPanel({
     const bundle = buildCodegenPreviewBundle(view);
     const text = serializeCodegenPreviewBundle(bundle);
     const filename = makeCodegenPreviewBundleFilename(view.selection);
+    downloadText(filename, text, 'application/json');
+  };
+
+  const onDownloadDiffBundle = (
+    previousView: CodegenPreviewView,
+    currentView: CodegenPreviewView,
+  ): void => {
+    // Sprint 91 — diff bundle is built from the already-computed
+    // Sprint 90B diff. No vendor pipeline re-run, no full artifact
+    // content copied. Same browser adapter as the preview bundle.
+    const bundle = buildCodegenPreviewDiffBundle({
+      previousView,
+      currentView,
+    });
+    const text = serializeCodegenPreviewDiffBundle(bundle);
+    const filename = createCodegenPreviewDiffFilename(bundle);
     downloadText(filename, text, 'application/json');
   };
 
@@ -252,6 +274,7 @@ export function CodegenPreviewPanel({
           view={phase.view}
           stale={phase.kind === 'stale'}
           diffSlots={diffSlots}
+          onDownloadDiffBundle={onDownloadDiffBundle}
         />
       )}
     </section>
@@ -262,10 +285,15 @@ function PreviewBody({
   view,
   stale,
   diffSlots,
+  onDownloadDiffBundle,
 }: {
   view: CodegenPreviewView;
   stale: boolean;
   diffSlots: DiffSlots;
+  onDownloadDiffBundle: (
+    previousView: CodegenPreviewView,
+    currentView: CodegenPreviewView,
+  ) => void;
 }): JSX.Element {
   return (
     <>
@@ -287,6 +315,7 @@ function PreviewBody({
         view={view}
         stale={stale}
         diffSlots={diffSlots}
+        onDownloadDiffBundle={onDownloadDiffBundle}
       />
     </>
   );
@@ -296,10 +325,15 @@ function PreviewDiffSection({
   view,
   stale,
   diffSlots,
+  onDownloadDiffBundle,
 }: {
   view: CodegenPreviewView;
   stale: boolean;
   diffSlots: DiffSlots;
+  onDownloadDiffBundle: (
+    previousView: CodegenPreviewView,
+    currentView: CodegenPreviewView,
+  ) => void;
 }): JSX.Element | null {
   // Stale views deliberately do not recompute a diff — the
   // operator must refresh first. The text gives them an honest
@@ -310,7 +344,8 @@ function PreviewDiffSection({
         <h4>Preview diff</h4>
         <p className="muted">
           Diff is paused while the preview is stale. Refresh the
-          preview to re-compare against the previous successful run.
+          preview to re-compare against the previous successful run
+          and download an up-to-date diff bundle.
         </p>
       </section>
     );
@@ -327,9 +362,29 @@ function PreviewDiffSection({
     currentForDiff ?? diffSlots.current,
   );
 
+  const canDownloadDiff = isPreviewDiffDownloadable({
+    previousView: diffSlots.previous,
+    currentView: currentForDiff,
+    stale: false,
+  });
+
   return (
     <section className="codegen-preview-diff" aria-label="Preview diff">
-      <h4>Preview diff</h4>
+      <header className="codegen-preview-diff-header">
+        <h4>Preview diff</h4>
+        {canDownloadDiff && diffSlots.previous && currentForDiff ? (
+          <button
+            type="button"
+            className="btn"
+            onClick={() =>
+              onDownloadDiffBundle(diffSlots.previous!, currentForDiff)
+            }
+            aria-label="Download diff bundle"
+          >
+            Download diff bundle
+          </button>
+        ) : null}
+      </header>
       <p
         className={`codegen-preview-diff-summary codegen-preview-diff-state--${diff.state}`}
       >

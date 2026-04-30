@@ -1,9 +1,11 @@
 # Electrical-plan ingestion architecture
 
-> **Status: controlled codegen preview diff UX in `@plccopilot/web`
-> (Sprint 90B); controlled codegen preview download bundle in
-> `@plccopilot/web` (Sprint 90A); controlled codegen preview UX in
-> `@plccopilot/web` (Sprint 89); structured EPLAN + TcECAD XML parameter extraction
+> **Status: controlled codegen preview diff download bundle in
+> `@plccopilot/web` (Sprint 91); controlled codegen preview diff
+> UX in `@plccopilot/web` (Sprint 90B); controlled codegen preview
+> download bundle in `@plccopilot/web` (Sprint 90A); controlled
+> codegen preview UX in `@plccopilot/web` (Sprint 89); structured
+> EPLAN + TcECAD XML parameter extraction
 > (Sprint 88M); CSV parameter extraction (Sprint 88L); cross-
 > renderer `motor_vfd_simple` parity bar (Sprint 88K); universal
 > vendor support after 88H/88I/88J (CODESYS/Siemens/Rockwell);
@@ -585,6 +587,64 @@ This keeps both branches of the strategic requirement — structured
 ECAD exports today and PDF documents tomorrow — funnelling through
 the same review/persist/export model. A weak prompt cannot
 override that model: it has no surface area in any of these layers.
+
+## Sprint 91 — Controlled codegen preview diff download bundle
+
+Layers a single explicit *Download diff bundle* action onto the
+Sprint 90B *Preview diff* section. The bundle is a small
+auditable JSON built **from the already-computed Sprint 90B diff**
+— the vendor pipeline is never re-run, no `localStorage`, no
+inclusion in the canonical session export, no raw source bytes,
+no PIR-shape fields. The bundle is a *diff archive*, not an
+*artifact archive*: unchanged artifacts are omitted, and changed
+artifacts carry only Sprint 90B's already-capped line-based diff
+sample (≤ 80 lines / 8 KB per artifact, `truncated: true` flagged
+honestly) plus FNV-1a content hashes for identity. The Sprint
+90A *full content* field is intentionally absent (no `"content"`
+key anywhere in the bundle, pinned by tests).
+
+The new pure helper
+[`packages/web/src/utils/codegen-preview-diff-download.ts`](../packages/web/src/utils/codegen-preview-diff-download.ts)
+exports `isPreviewDiffDownloadable`,
+`buildCodegenPreviewDiffBundle`,
+`serializeCodegenPreviewDiffBundle`,
+`createCodegenPreviewDiffFilename`, and
+`sanitizePreviewDiffSnapshotName`, plus the
+`CODEGEN_PREVIEW_DIFF_BUNDLE_KIND` /
+`CODEGEN_PREVIEW_DIFF_BUNDLE_VERSION` constants and the bundle
+type tree. DOM-free, total, deterministic; never mutates inputs.
+The downloadability gate inherits Sprint 90A's
+`isPreviewDownloadable` so failed / blocked / unavailable / no-
+artifacts current views never surface a diff bundle button.
+Selection mismatch records both backends honestly via
+`selection.selectionMatch: false`.
+
+The panel
+([`packages/web/src/components/CodegenPreviewPanel.tsx`](../packages/web/src/components/CodegenPreviewPanel.tsx))
+keeps everything from Sprint 89 / 90A / 90B intact and only adds
+a *Download diff bundle* button next to the *Preview diff*
+headline. Stale views show a *"Refresh preview to download an
+up-to-date diff bundle"* notice and hide the button. No worker
+change. No Generate change. No `localStorage` schema change. No
+canonical export-bundle change.
+
+26 helper-level tests in
+[`packages/web/tests/codegen-preview-diff-download.spec.ts`](../packages/web/tests/codegen-preview-diff-download.spec.ts)
+cover the gate (8 cases: null / no-baseline / no-current / stale
+/ failed / all-blocked / unchanged / changed), bundle shape
+(unchanged + changed paths, backend `'all'` mixed counts, target
+order, status_changed previousStatus/currentStatus + no fabricated
+artifact rows), counts consistency with Sprint 90B summary,
+artifact + diagnostic ordering, dedup preservation, full-content
+fidelity past Sprint 89's snippet caps, oversized single-line
+content past the diff byte cap dropped, no `"content"` key, no
+raw source markers, deterministic byte-stable repeated calls, and
+filename / snapshot-name sanitisation (default omits suffix,
+custom name lowercased + dash-collapsed + clamped to 64 chars,
+empty / null / all-punctuation falls back to `'diff'`). See
+[`docs/codegen-preview-diff-download-sprint-91.md`](codegen-preview-diff-download-sprint-91.md)
+for the full bundle contract, privacy guarantees, and the manual
+verification checklist.
 
 ## Sprint 90B — Controlled codegen preview diff UX
 
