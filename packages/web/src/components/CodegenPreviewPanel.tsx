@@ -23,7 +23,7 @@
 //   - delegates everything to the pure helper on click,
 //   - renders a small action button + per-target cards.
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ChangeEvent } from 'react';
 
 import {
   buildCodegenPreviewView,
@@ -52,7 +52,15 @@ import {
   createCodegenPreviewDiffFilename,
   isPreviewDiffDownloadable,
   serializeCodegenPreviewDiffBundle,
+  type CodegenPreviewDiffBundle,
+  type CodegenPreviewDiffBundleArtifactChange,
+  type CodegenPreviewDiffBundleDiagnosticChange,
+  type CodegenPreviewDiffBundleTarget,
 } from '../utils/codegen-preview-diff-download.js';
+import {
+  parseCodegenPreviewDiffBundleText,
+  type ImportedCodegenPreviewDiffView,
+} from '../utils/codegen-preview-diff-import.js';
 import { downloadText } from '../utils/download.js';
 import type { Project } from '@plccopilot/pir';
 
@@ -120,6 +128,14 @@ export function CodegenPreviewPanel({
     previous: null,
     current: null,
   });
+  // Sprint 92 — imported diff bundle (read-only, ephemeral). Lives
+  // entirely in React state. Refreshing the browser drops it.
+  const [imported, setImported] = useState<ImportedCodegenPreviewDiffView>(
+    () => parseCodegenPreviewDiffBundleText(''),
+  );
+  const [importedFilename, setImportedFilename] = useState<string | null>(
+    null,
+  );
   const currentSignature = useMemo(
     () => selectionSignature(project, target),
     [project, target],
@@ -170,6 +186,45 @@ export function CodegenPreviewPanel({
     const text = serializeCodegenPreviewDiffBundle(bundle);
     const filename = createCodegenPreviewDiffFilename(bundle);
     downloadText(filename, text, 'application/json');
+  };
+
+  const onImportDiffBundle = (
+    e: ChangeEvent<HTMLInputElement>,
+  ): void => {
+    // Sprint 92 — read-only import. The File API lives here in the
+    // component; the parser is pure / DOM-free. Never re-runs the
+    // vendor pipeline, never touches preview baseline / current,
+    // never persists anywhere.
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    const filename = file.name;
+    file
+      .text()
+      .then((text) => {
+        const view = parseCodegenPreviewDiffBundleText(text);
+        setImported(view);
+        setImportedFilename(view.status === 'loaded' ? filename : null);
+      })
+      .catch((err) => {
+        // Total parser is the contract; this catch handles File API
+        // read errors only (browser-level — disk fault, permissions).
+        const message = err instanceof Error ? err.message : String(err);
+        setImported({
+          status: 'invalid',
+          summary: `Could not read file: ${message}`,
+          error: `Could not read file: ${message}`,
+        });
+        setImportedFilename(null);
+      });
+    // Reset the input so re-importing the same filename re-fires
+    // onChange. Without this, picking the same file twice is a
+    // no-op.
+    e.target.value = '';
+  };
+
+  const onClearImportedDiff = (): void => {
+    setImported(parseCodegenPreviewDiffBundleText(''));
+    setImportedFilename(null);
   };
 
   const onPreview = (): void => {
@@ -277,6 +332,13 @@ export function CodegenPreviewPanel({
           onDownloadDiffBundle={onDownloadDiffBundle}
         />
       )}
+
+      <ImportedCodegenPreviewDiffSection
+        imported={imported}
+        filename={importedFilename}
+        onImport={onImportDiffBundle}
+        onClear={onClearImportedDiff}
+      />
     </section>
   );
 }
@@ -656,6 +718,243 @@ function ArtifactRow({
         <summary>Show preview</summary>
         <pre className="codegen-preview-snippet">{a.previewText}</pre>
       </details>
+    </li>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Sprint 92 — Imported (read-only) diff section
+// ---------------------------------------------------------------------------
+
+function ImportedCodegenPreviewDiffSection({
+  imported,
+  filename,
+  onImport,
+  onClear,
+}: {
+  imported: ImportedCodegenPreviewDiffView;
+  filename: string | null;
+  onImport: (e: ChangeEvent<HTMLInputElement>) => void;
+  onClear: () => void;
+}): JSX.Element {
+  return (
+    <section
+      className="codegen-preview-imported-diff"
+      aria-label="Archived preview diff"
+    >
+      <header className="codegen-preview-imported-diff-header">
+        <h4>Archived diff</h4>
+        <div className="codegen-preview-actions">
+          <label className="btn codegen-preview-imported-diff-import">
+            Import diff bundle
+            <input
+              type="file"
+              accept="application/json,.json"
+              onChange={onImport}
+              hidden
+            />
+          </label>
+          {imported.status === 'loaded' || imported.status === 'invalid' ? (
+            <button
+              type="button"
+              className="btn"
+              onClick={onClear}
+              aria-label="Clear imported diff"
+            >
+              Clear imported diff
+            </button>
+          ) : null}
+        </div>
+      </header>
+
+      {imported.status === 'empty' ? (
+        <p className="muted">{imported.summary}</p>
+      ) : null}
+
+      {imported.status === 'invalid' ? (
+        <p className="codegen-preview-imported-diff-error">
+          {imported.error}
+        </p>
+      ) : null}
+
+      {imported.status === 'loaded' && imported.bundle ? (
+        <ImportedDiffBody bundle={imported.bundle} filename={filename} />
+      ) : null}
+    </section>
+  );
+}
+
+function ImportedDiffBody({
+  bundle,
+  filename,
+}: {
+  bundle: CodegenPreviewDiffBundle;
+  filename: string | null;
+}): JSX.Element {
+  return (
+    <>
+      <p className="codegen-preview-imported-diff-meta muted">
+        {filename ? (
+          <>
+            <strong>{filename}</strong>
+            {' — '}
+          </>
+        ) : null}
+        backend <code>{bundle.selection.backend}</code>
+        {bundle.selection.previousBackend &&
+        bundle.selection.previousBackend !== bundle.selection.backend ? (
+          <>
+            {' '}(was <code>{bundle.selection.previousBackend}</code>)
+          </>
+        ) : null}
+        {' • snapshot '}
+        <code>{bundle.snapshotName}</code>
+        {' • '}
+        {bundle.targets.length} target{bundle.targets.length === 1 ? '' : 's'}
+      </p>
+      <p className="muted">
+        Imported diff is read-only. It does not affect the current
+        preview, Generate, or saved session.
+      </p>
+      <p
+        className={`codegen-preview-diff-summary codegen-preview-diff-state--${
+          bundle.state === 'unchanged' ? 'unchanged' : 'changed'
+        }`}
+      >
+        {bundle.summary}
+      </p>
+      {bundle.targets.length > 0 ? (
+        <div className="codegen-preview-diff-targets">
+          {bundle.targets.map((t) => (
+            <ImportedDiffTargetRow key={`imp-${t.target}`} target={t} />
+          ))}
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+function ImportedDiffTargetRow({
+  target,
+}: {
+  target: CodegenPreviewDiffBundleTarget;
+}): JSX.Element {
+  const c = target.counts;
+  const artifactPart =
+    c.artifactsAdded + c.artifactsRemoved + c.artifactsChanged > 0
+      ? `${c.artifactsAdded} added, ${c.artifactsRemoved} removed, ${c.artifactsChanged} changed`
+      : 'no artifact changes';
+  const diagPart =
+    c.diagnosticsAdded + c.diagnosticsRemoved > 0
+      ? `${c.diagnosticsAdded + c.diagnosticsRemoved} diagnostic change${
+          c.diagnosticsAdded + c.diagnosticsRemoved === 1 ? '' : 's'
+        }`
+      : 'no diagnostic changes';
+  return (
+    <article
+      className={`codegen-preview-diff-row codegen-preview-diff-row--${target.targetStatus}`}
+      aria-label={`Imported diff for ${target.target}`}
+    >
+      <header className="codegen-preview-diff-row-header">
+        <code className="codegen-preview-target">{target.target}</code>
+        <span className={`badge preview-diff-badge--${target.targetStatus}`}>
+          {target.targetStatus.replace('_', ' ')}
+        </span>
+        {target.previousStatus && target.currentStatus &&
+        target.previousStatus !== target.currentStatus ? (
+          <span className="muted">
+            {target.previousStatus} → {target.currentStatus}
+          </span>
+        ) : null}
+      </header>
+      <p className="muted">
+        {artifactPart}; {diagPart}.
+      </p>
+      {target.artifactChanges.length > 0 ? (
+        <details className="codegen-preview-diff-artifacts">
+          <summary>Artifact changes</summary>
+          <ul>
+            {target.artifactChanges.map((a) => (
+              <ImportedDiffArtifactRow
+                key={`imp-${target.target}-a-${a.path}`}
+                artifact={a}
+              />
+            ))}
+          </ul>
+        </details>
+      ) : null}
+      {target.diagnosticChanges.length > 0 ? (
+        <details className="codegen-preview-diff-diagnostics">
+          <summary>
+            Diagnostic changes ({target.diagnosticChanges.length})
+          </summary>
+          <ul>
+            {target.diagnosticChanges.map((d, i) => (
+              <ImportedDiffDiagnosticRow
+                key={`imp-${target.target}-d-${i}-${d.code}`}
+                d={d}
+              />
+            ))}
+          </ul>
+        </details>
+      ) : null}
+    </article>
+  );
+}
+
+function ImportedDiffArtifactRow({
+  artifact,
+}: {
+  artifact: CodegenPreviewDiffBundleArtifactChange;
+}): JSX.Element {
+  return (
+    <li
+      className={`codegen-preview-diff-artifact codegen-preview-diff-artifact--${artifact.status}`}
+    >
+      <header>
+        <span className={`badge preview-diff-badge--${artifact.status}`}>
+          {artifact.status}
+        </span>{' '}
+        <code className="codegen-preview-artifact-path">{artifact.path}</code>
+      </header>
+      {artifact.status === 'changed' && artifact.diff ? (
+        <details>
+          <summary>
+            Show diff sample
+            {artifact.diff.truncated ? ' (truncated)' : ''}
+          </summary>
+          <pre className="codegen-preview-diff-snippet">
+            {artifact.diff.lines
+              .map((l) => {
+                const sigil =
+                  l.status === 'added'
+                    ? '+'
+                    : l.status === 'removed'
+                      ? '-'
+                      : ' ';
+                return `${sigil} ${l.text}`;
+              })
+              .join('\n')}
+          </pre>
+        </details>
+      ) : null}
+    </li>
+  );
+}
+
+function ImportedDiffDiagnosticRow({
+  d,
+}: {
+  d: CodegenPreviewDiffBundleDiagnosticChange;
+}): JSX.Element {
+  return (
+    <li className={`codegen-preview-diff-diagnostic preview-diff-${d.status}`}>
+      <span className={`badge preview-diff-badge--${d.status}`}>
+        {d.status}
+      </span>{' '}
+      <span className={`badge sev-${d.severity}`}>{d.severity}</span>{' '}
+      <code>{d.code}</code>{' '}
+      <span className="diag-message">{d.message}</span>
     </li>
   );
 }

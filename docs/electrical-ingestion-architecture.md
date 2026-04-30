@@ -1,6 +1,7 @@
 # Electrical-plan ingestion architecture
 
-> **Status: controlled codegen preview diff download bundle in
+> **Status: imported preview diff view in `@plccopilot/web`
+> (Sprint 92); controlled codegen preview diff download bundle in
 > `@plccopilot/web` (Sprint 91); controlled codegen preview diff
 > UX in `@plccopilot/web` (Sprint 90B); controlled codegen preview
 > download bundle in `@plccopilot/web` (Sprint 90A); controlled
@@ -587,6 +588,68 @@ This keeps both branches of the strategic requirement — structured
 ECAD exports today and PDF documents tomorrow — funnelling through
 the same review/persist/export model. A weak prompt cannot
 override that model: it has no surface area in any of these layers.
+
+## Sprint 92 — Imported preview diff view
+
+Closes the Sprint 91 archive cycle by adding a read-only round
+trip: the operator can pick a previously-saved
+`plc-copilot.codegen-preview-diff` v1 JSON in the browser and
+inspect it next to the live preview / diff with the same visual
+vocabulary. The imported diff cannot feed Generate, cannot
+modify the applied project, cannot change the Sprint 90B preview
+baseline / current, cannot re-run the vendor pipeline, cannot
+reach `localStorage`, and cannot fold into the canonical session
+export bundle.
+
+The new pure helper
+[`packages/web/src/utils/codegen-preview-diff-import.ts`](../packages/web/src/utils/codegen-preview-diff-import.ts)
+exports `parseCodegenPreviewDiffBundleText`,
+`parseCodegenPreviewDiffBundle`,
+`isSupportedCodegenPreviewDiffBundle`, and the
+`ImportedCodegenPreviewDiffView` type
+(`status: 'empty' | 'loaded' | 'invalid'`). Total — never throws
+on operator-supplied input. DOM-free; the File API call lives in
+the panel layer. The validator strictly enforces Sprint 91's v1
+contract (`kind === 'plc-copilot.codegen-preview-diff'`,
+`version === 1`) and rebuilds a fresh bundle from a whitelist of
+known fields, dropping any extras (a stray `content`,
+`pir_version`, raw source bytes) on the floor. No new bundle
+format — the validated value is exactly the Sprint 91
+`CodegenPreviewDiffBundle` type.
+
+The panel
+([`packages/web/src/components/CodegenPreviewPanel.tsx`](../packages/web/src/components/CodegenPreviewPanel.tsx))
+keeps Sprint 89 / 90A / 90B / 91 surfaces intact and adds an
+*Archived diff* section as a sibling under the live preview body.
+The section renders `<input type="file" accept="application/json,.json">`
+for picking, an empty-state copy
+*"Imported diff: none. Import a previously downloaded
+plc-copilot.codegen-preview-diff JSON to inspect it read-only."*,
+an invalid-state error block, and a loaded-state body that
+mirrors the Sprint 90B live diff (per-target cards with
+`<details>` artifact / diagnostic lists, `+/-` diff samples,
+status badges) with an explicit *"Imported diff is read-only. It
+does not affect the current preview, Generate, or saved session."*
+notice. A *Clear imported diff* button drops the imported state
+back to empty; refreshing the browser also drops it.
+
+28 helper-level tests in
+[`packages/web/tests/codegen-preview-diff-import.spec.ts`](../packages/web/tests/codegen-preview-diff-import.spec.ts)
+cover empty / whitespace / malformed JSON, wrong kind / wrong
+version / non-object input, real Sprint 91 changed + unchanged
+round trips, no-mutation + deterministic output, selection /
+counts / artifact-and-diagnostic order preservation, backend
+`'all'` round trip, whitelist privacy (top-level / per-artifact /
+per-target extras dropped including `content`, `pir_version`,
+`row_kind,`, `<EplanProject>`), defensive validation (missing
+`targets`, unsupported target name, negative count, missing
+selection backend, unsupported state, malformed diagnostic,
+optional `snapshotName` defaulting, `previousBackend: null`
+acceptable), and the `isSupportedCodegenPreviewDiffBundle`
+predicate. See
+[`docs/codegen-preview-diff-import-sprint-92.md`](codegen-preview-diff-import-sprint-92.md)
+for the full contract, privacy guarantees, and the manual
+verification checklist.
 
 ## Sprint 91 — Controlled codegen preview diff download bundle
 

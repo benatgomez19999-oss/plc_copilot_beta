@@ -1,7 +1,7 @@
-# Web electrical-ingestion workflow — Sprint 77 → … → 91
+# Web electrical-ingestion workflow — Sprint 77 → … → 92
 
 > **Status: end-to-end pipeline live in `@plccopilot/web`
-> (Sprint 77 → 78A → 78B → 79 → 80 → 81 → 82 → 87B → 89 → 90A → 90B → 91).**
+> (Sprint 77 → 78A → 78B → 79 → 80 → 81 → 82 → 87B → 89 → 90A → 90B → 91 → 92).**
 > CSV / EPLAN XML / TcECAD XML / **PDF (real text-layer + IO-list
 > table extraction + Sprint 82 address strictness)** → review →
 > PIR preview → **local persistence + downloadable artefacts**,
@@ -32,10 +32,21 @@
 > auditable JSON file (no `"content"` key — diff archive, not
 > artifact archive) the operator saves locally, gated on the
 > same Sprint 90A successful-preview semantics. Stale views
-> hide the button and prompt the operator to refresh. Preview,
-> download bundle, diff, and diff bundle are never automatic,
-> never persisted to localStorage, and never included in export
-> bundles. **Sprint 82** is a
+> hide the button and prompt the operator to refresh. **Sprint
+> 92** then closes the diff archive cycle: the operator can
+> import a previously-downloaded
+> `plc-copilot.codegen-preview-diff` v1 JSON and view it in a
+> read-only *Archived diff* section that mirrors the live diff's
+> visuals. The imported diff cannot feed Generate, cannot modify
+> the applied project, cannot change the Sprint 90B preview
+> baseline / current, cannot re-run the vendor pipeline, cannot
+> reach localStorage, and cannot fold into the canonical session
+> export. Wrong kind / wrong version / malformed JSON surface as
+> a stable invalid state with no crash. Refreshing the browser
+> drops the imported diff. Preview, download bundle, diff, diff
+> bundle, and imported diff are never automatic, never persisted
+> to localStorage, and never included in export bundles.
+> **Sprint 82** is a
 > safety/hardening sprint: isolated Beckhoff-style channel
 > markers (`I1`, `O2`, `%I1`) are no longer promoted to
 > buildable PIR addresses. Source-evidence drilldown now

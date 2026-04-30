@@ -1745,3 +1745,34 @@ table.kv td {
   white-space: pre;
   margin: 4px 0 0 0;
 }
+
+/* Sprint 92 — Imported (read-only) diff section */
+.codegen-preview-imported-diff {
+  margin-top: 16px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.codegen-preview-imported-diff h4 {
+  margin: 0 0 4px 0;
+  font-size: 0.95em;
+}
+.codegen-preview-imported-diff-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.codegen-preview-imported-diff-import {
+  cursor: pointer;
+}
+.codegen-preview-imported-diff-meta {
+  margin: 0 0 4px 0;
+}
+.codegen-preview-imported-diff-error {
+  color: #991b1b;
+  background: #fee2e2;
+  border-radius: 4px;
+  padding: 6px 8px;
+  margin: 4px 0;
+}
