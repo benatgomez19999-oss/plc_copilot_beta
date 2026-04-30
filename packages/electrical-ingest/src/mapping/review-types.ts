@@ -27,6 +27,13 @@ export interface PirBuildReviewState {
   ioCandidates: Record<string, PirBuildReviewedItemState>;
   equipmentCandidates: Record<string, PirBuildReviewedItemState>;
   assumptions: Record<string, PirBuildReviewedItemState>;
+  /**
+   * Sprint 88L — parameter candidate decisions, parallel to
+   * IO / equipment / assumption buckets. Optional so existing
+   * callers that don't carry parameter candidates stay
+   * compatible; readers default unknown ids to `'pending'`.
+   */
+  parameterCandidates?: Record<string, PirBuildReviewedItemState>;
 }
 
 /**
@@ -35,7 +42,7 @@ export interface PirBuildReviewState {
  */
 export function getReviewedDecision(
   state: PirBuildReviewState,
-  bag: 'io' | 'equipment' | 'assumption',
+  bag: 'io' | 'equipment' | 'assumption' | 'parameter',
   id: string,
 ): PirBuildReviewDecision {
   const target =
@@ -43,6 +50,8 @@ export function getReviewedDecision(
       ? state.ioCandidates
       : bag === 'equipment'
         ? state.equipmentCandidates
-        : state.assumptions;
+        : bag === 'parameter'
+          ? state.parameterCandidates ?? {}
+          : state.assumptions;
   return target?.[id]?.decision ?? 'pending';
 }

@@ -32,10 +32,12 @@ export type {
   EplanIngestor,
   EplanSourceFile,
   Evidence,
+  ElectricalParameterDraft,
   PirDraftCandidate,
   PirEquipmentCandidate,
   PirIoCandidate,
   PirMappingAssumption,
+  PirParameterCandidate,
   SourceRef,
   SourceRefBoundingBox,
 } from './types.js';

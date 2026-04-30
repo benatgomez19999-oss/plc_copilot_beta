@@ -15,6 +15,7 @@ import type {
   PirEquipmentCandidate,
   PirIoCandidate,
   PirMappingAssumption,
+  PirParameterCandidate,
 } from '@plccopilot/electrical-ingest';
 
 import { classifyConfidence } from './review-confidence.js';
@@ -27,7 +28,9 @@ export const REVIEW_DECISIONS = Object.freeze<ReviewDecision[]>([
   'rejected',
 ]);
 
-export type ReviewItemType = 'io' | 'equipment' | 'assumption';
+// Sprint 88L — `parameter` joins the bag types so a parameter
+// candidate can be reviewed independently of equipment / IO.
+export type ReviewItemType = 'io' | 'equipment' | 'assumption' | 'parameter';
 
 export interface ReviewedItemState {
   id: string;
@@ -40,6 +43,13 @@ export interface ElectricalReviewState {
   ioCandidates: Record<string, ReviewedItemState>;
   equipmentCandidates: Record<string, ReviewedItemState>;
   assumptions: Record<string, ReviewedItemState>;
+  /**
+   * Sprint 88L — parameter candidate decisions. Optional so a state
+   * persisted by an older session (no parameter rows) is still
+   * readable; readers default to `'pending'` when the bag is
+   * undefined.
+   */
+  parameterCandidates?: Record<string, ReviewedItemState>;
 }
 
 /**
@@ -63,6 +73,17 @@ export function createInitialReviewState(
   }
   for (const a of candidate.assumptions ?? []) {
     state.assumptions[a.id] = { id: a.id, decision: 'pending' };
+  }
+  // Sprint 88L — only seed the parameter bag when the candidate
+  // actually carries parameters; legacy candidates keep an
+  // undefined `parameterCandidates` field so older snapshots round-
+  // trip cleanly through structuredClone / JSON.
+  const params = candidate.parameters ?? [];
+  if (params.length > 0) {
+    state.parameterCandidates = {};
+    for (const p of params) {
+      state.parameterCandidates[p.id] = { id: p.id, decision: 'pending' };
+    }
   }
   return state;
 }
@@ -107,6 +128,16 @@ export function setReviewDecision(
         ...state,
         assumptions: { ...state.assumptions, [id]: next },
       };
+    case 'parameter':
+      // Sprint 88L — parameter bag is optional on legacy state
+      // objects; create it on first write.
+      return {
+        ...state,
+        parameterCandidates: {
+          ...(state.parameterCandidates ?? {}),
+          [id]: next,
+        },
+      };
     default: {
       const _exhaustive: never = itemType;
       void _exhaustive;
@@ -130,7 +161,9 @@ export function getReviewDecision(
       ? state.ioCandidates
       : itemType === 'equipment'
         ? state.equipmentCandidates
-        : state.assumptions;
+        : itemType === 'parameter'
+          ? state.parameterCandidates ?? {}
+          : state.assumptions;
   return bag[id]?.decision ?? 'pending';
 }
 
@@ -168,7 +201,11 @@ export function summarizeReviewState(
   };
 
   function tallyItem(
-    item: PirIoCandidate | PirEquipmentCandidate | PirMappingAssumption,
+    item:
+      | PirIoCandidate
+      | PirEquipmentCandidate
+      | PirMappingAssumption
+      | PirParameterCandidate,
     type: ReviewItemType,
   ): void {
     counts.total++;
@@ -187,6 +224,9 @@ export function summarizeReviewState(
   for (const io of candidate.io ?? []) tallyItem(io, 'io');
   for (const eq of candidate.equipment ?? []) tallyItem(eq, 'equipment');
   for (const as of candidate.assumptions ?? []) tallyItem(as, 'assumption');
+  // Sprint 88L — tally parameter candidates alongside the other
+  // reviewable items.
+  for (const p of candidate.parameters ?? []) tallyItem(p, 'parameter');
 
   for (const d of candidate.diagnostics ?? []) {
     if (d.severity === 'error') counts.blockingDiagnostics++;
@@ -229,7 +269,11 @@ export function hasReviewableItems(candidate: PirDraftCandidate): boolean {
   const io = candidate.io ?? [];
   const eq = candidate.equipment ?? [];
   const as = candidate.assumptions ?? [];
-  return io.length > 0 || eq.length > 0 || as.length > 0;
+  // Sprint 88L — parameter candidates are reviewable items too.
+  const params = candidate.parameters ?? [];
+  return (
+    io.length > 0 || eq.length > 0 || as.length > 0 || params.length > 0
+  );
 }
 
 /**

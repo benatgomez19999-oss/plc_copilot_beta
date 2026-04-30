@@ -37,8 +37,10 @@ import type {
   ElectricalIngestionResult,
   ElectricalNode,
   ElectricalNodeKind,
+  ElectricalParameterDraft,
   ElectricalSourceIngestor,
   Evidence,
+  PirParameterCandidate,
   SourceRef,
 } from '../types.js';
 
@@ -67,6 +69,15 @@ export const CSV_CANONICAL_HEADERS = Object.freeze([
   'function',
   'location',
   'comment',
+  // Sprint 88L — explicit-metadata row-kind discriminator + the
+  // four columns that carry numeric Parameter metadata. All five
+  // are additive: legacy CSVs that don't set them keep the
+  // device-row pipeline they always had.
+  'row_kind',
+  'parameter_id',
+  'default',
+  'unit',
+  'data_type',
 ] as const);
 
 export type CsvCanonicalHeader = (typeof CSV_CANONICAL_HEADERS)[number];
@@ -141,6 +152,20 @@ export const CSV_HEADER_ALIASES: ReadonlyMap<string, CsvCanonicalHeader> =
     ['function', 'function'],
     ['location', 'location'],
     ['comment', 'comment'],
+    // Sprint 88L — explicit-metadata row discriminator + parameter/binding columns
+    ['row_kind', 'row_kind'],
+    ['record_kind', 'row_kind'],
+    ['record', 'row_kind'],
+    ['parameter_id', 'parameter_id'],
+    ['param_id', 'parameter_id'],
+    ['default', 'default'],
+    ['default_value', 'default'],
+    ['unit', 'unit'],
+    ['units', 'unit'],
+    ['eu', 'unit'],
+    ['data_type', 'data_type'],
+    ['dtype', 'data_type'],
+    ['datatype', 'data_type'],
   ] as const);
 
 // ---------------------------------------------------------------------------
@@ -465,6 +490,17 @@ export function mapCsvRowToGraphFragment(
   const diagnostics: ElectricalDiagnostic[] = [];
   const cells = row.cells;
 
+  // Sprint 88L — `row_kind=parameter|setpoint_binding` rows are
+  // handled by the explicit parameter-draft extractor in
+  // `ingestElectricalCsv`, not the device-row pipeline. Returning
+  // an empty fragment here (rather than emitting CSV_MISSING_TAG
+  // because parameter/binding rows legitimately have no `tag`)
+  // keeps the device pipeline untouched.
+  const rowKind = (cells['row_kind'] ?? '').toLowerCase();
+  if (rowKind === 'parameter' || rowKind === 'setpoint_binding') {
+    return { nodes, edges, diagnostics };
+  }
+
   const tag = cells['tag'];
   if (!tag || tag.length === 0) {
     diagnostics.push(
@@ -712,6 +748,202 @@ export function mapCsvRowToGraphFragment(
   return { nodes, edges, diagnostics };
 }
 
+// ---------------------------------------------------------------------------
+// Sprint 88L — parameter + setpoint-binding row extractors.
+//
+// `row_kind=parameter` rows declare a numeric machine Parameter
+// (id, data_type, default, optional unit / label). They never come
+// from inference: every required field must be explicitly set on
+// the row, otherwise a diagnostic fires and the row is dropped.
+//
+// `row_kind=setpoint_binding` rows declare an explicit edge from
+// an equipment+role pair to a parameter id. Today only
+// `speed_setpoint_out` is supported (the v0 numeric output role on
+// `motor_vfd_simple`); other roles surface
+// CSV_SETPOINT_BINDING_ROLE_UNSUPPORTED.
+// ---------------------------------------------------------------------------
+
+const SUPPORTED_SETPOINT_ROLES: ReadonlySet<string> = new Set([
+  'speed_setpoint_out',
+]);
+
+function parseParameterDataType(
+  raw: string | undefined,
+): 'int' | 'dint' | 'real' | null {
+  if (!raw) return null;
+  const v = raw.trim().toLowerCase();
+  if (v === 'int') return 'int';
+  if (v === 'dint') return 'dint';
+  if (v === 'real') return 'real';
+  return null;
+}
+
+function parseParameterDefault(raw: string | undefined): number | null {
+  if (raw === undefined) return null;
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) return null;
+  const n = Number(trimmed);
+  if (!Number.isFinite(n)) return null;
+  return n;
+}
+
+function extractParameterRow(
+  row: CsvRow,
+  context: { sourceId: string; fileName?: string },
+  draft: ElectricalParameterDraft,
+  seenIds: Set<string>,
+): void {
+  const cells = row.cells;
+  const id = (cells['parameter_id'] ?? cells['tag'] ?? '').trim();
+  const ref = makeRowRef(
+    context.sourceId,
+    context.fileName,
+    row.lineNumber,
+    id || undefined,
+    cells['sheet'] ?? cells['page'],
+  );
+  if (id.length === 0) {
+    draft.diagnostics.push(
+      createElectricalDiagnostic({
+        code: 'CSV_PARAMETER_METADATA_INCOMPLETE',
+        message: `CSV parameter row at line ${row.lineNumber} has no parameter_id (and no fallback tag).`,
+        sourceRef: ref,
+        hint: 'set the `parameter_id` column to a stable id (e.g. p_m01_speed).',
+      }),
+    );
+    return;
+  }
+  if (seenIds.has(id)) {
+    draft.diagnostics.push(
+      createElectricalDiagnostic({
+        code: 'CSV_PARAMETER_DUPLICATE_ID',
+        message: `CSV parameter row at line ${row.lineNumber} duplicates parameter_id ${JSON.stringify(id)}; second occurrence skipped.`,
+        sourceRef: ref,
+      }),
+    );
+    return;
+  }
+
+  const dataType = parseParameterDataType(cells['data_type']);
+  if (!dataType) {
+    draft.diagnostics.push(
+      createElectricalDiagnostic({
+        code: 'CSV_PARAMETER_METADATA_NOT_NUMERIC',
+        message: `CSV parameter row at line ${row.lineNumber} (id ${JSON.stringify(id)}) declares data_type ${JSON.stringify(cells['data_type'] ?? '')}; expected one of int / dint / real (numeric only — bool parameters cannot back a numeric output role per PIR R-EQ-05).`,
+        sourceRef: ref,
+        hint: 'set data_type to int, dint, or real.',
+      }),
+    );
+    return;
+  }
+
+  const defaultValue = parseParameterDefault(cells['default']);
+  if (defaultValue === null) {
+    draft.diagnostics.push(
+      createElectricalDiagnostic({
+        code: 'CSV_PARAMETER_METADATA_INCOMPLETE',
+        message: `CSV parameter row at line ${row.lineNumber} (id ${JSON.stringify(id)}) is missing or has an unparseable \`default\` (got ${JSON.stringify(cells['default'] ?? '')}).`,
+        sourceRef: ref,
+        hint: 'set `default` to a finite number; unit conversion is the operator\'s responsibility — Sprint 88L does no scaling.',
+      }),
+    );
+    return;
+  }
+
+  seenIds.add(id);
+  const param: PirParameterCandidate = {
+    id,
+    label: cells['label']?.length ? cells['label'] : undefined,
+    dataType,
+    defaultValue,
+    unit: cells['unit']?.length ? cells['unit'] : undefined,
+    description: cells['comment']?.length ? cells['comment'] : undefined,
+    sourceRefs: [ref],
+    confidence: confidenceOf(0.9, 'csv parameter row with explicit metadata'),
+  };
+  // Drop undefined optional keys so the candidate stays JSON-clean.
+  if (param.label === undefined) delete (param as { label?: string }).label;
+  if (param.unit === undefined) delete (param as { unit?: string }).unit;
+  if (param.description === undefined) {
+    delete (param as { description?: string }).description;
+  }
+  draft.parameters.push(param);
+  draft.diagnostics.push(
+    createElectricalDiagnostic({
+      code: 'CSV_PARAMETER_EXTRACTED',
+      message: `parameter ${JSON.stringify(id)} (${dataType}, default=${defaultValue}${param.unit ? `, unit=${param.unit}` : ''}) extracted from CSV row ${row.lineNumber}.`,
+      sourceRef: ref,
+    }),
+  );
+}
+
+function extractSetpointBindingRow(
+  row: CsvRow,
+  context: { sourceId: string; fileName?: string },
+  draft: ElectricalParameterDraft,
+): void {
+  const cells = row.cells;
+  // Equipment id can land in either `tag` (matches the existing
+  // device-row convention) or the explicit `parameter_id`-cousin we
+  // give for clarity. We accept both; `tag` wins when both set.
+  const equipmentId = (cells['tag'] ?? '').trim();
+  const role = (cells['role'] ?? '').trim();
+  const parameterId = (cells['parameter_id'] ?? '').trim();
+  const ref = makeRowRef(
+    context.sourceId,
+    context.fileName,
+    row.lineNumber,
+    equipmentId || undefined,
+    cells['sheet'] ?? cells['page'],
+  );
+
+  if (equipmentId.length === 0) {
+    draft.diagnostics.push(
+      createElectricalDiagnostic({
+        code: 'CSV_SETPOINT_BINDING_TARGET_MISSING',
+        message: `CSV setpoint_binding row at line ${row.lineNumber} has no equipment id (tag column is empty).`,
+        sourceRef: ref,
+      }),
+    );
+    return;
+  }
+  if (role.length === 0) {
+    draft.diagnostics.push(
+      createElectricalDiagnostic({
+        code: 'CSV_SETPOINT_BINDING_ROLE_UNSUPPORTED',
+        message: `CSV setpoint_binding row at line ${row.lineNumber} has no \`role\` column.`,
+        sourceRef: ref,
+        hint: 'set role to a numeric output role on the target equipment (currently only `speed_setpoint_out`).',
+      }),
+    );
+    return;
+  }
+  if (!SUPPORTED_SETPOINT_ROLES.has(role)) {
+    draft.diagnostics.push(
+      createElectricalDiagnostic({
+        code: 'CSV_SETPOINT_BINDING_ROLE_UNSUPPORTED',
+        message: `CSV setpoint_binding row at line ${row.lineNumber} declares role ${JSON.stringify(role)}; Sprint 88L only supports ${[...SUPPORTED_SETPOINT_ROLES].map((r) => JSON.stringify(r)).join(', ')}.`,
+        sourceRef: ref,
+      }),
+    );
+    return;
+  }
+  if (parameterId.length === 0) {
+    draft.diagnostics.push(
+      createElectricalDiagnostic({
+        code: 'CSV_SETPOINT_BINDING_PARAMETER_MISSING',
+        message: `CSV setpoint_binding row at line ${row.lineNumber} (equipment ${JSON.stringify(equipmentId)}, role ${JSON.stringify(role)}) has no \`parameter_id\`.`,
+        sourceRef: ref,
+      }),
+    );
+    return;
+  }
+
+  const map = draft.setpointBindings[equipmentId] ?? {};
+  map[role] = parameterId;
+  draft.setpointBindings[equipmentId] = map;
+}
+
 /**
  * Direct text-based ingestion entry point. Used by the registry-
  * facing wrapper below, but also useful in tests / consumers that
@@ -732,7 +964,33 @@ export function ingestElectricalCsv(
   const seenTags = new Map<string, number>();
   const channelToDevices = new Map<string, string[]>();
 
+  // Sprint 88L — parameter draft accumulator. Populated from
+  // `row_kind=parameter` and `row_kind=setpoint_binding` rows; only
+  // attached to graph.metadata when non-empty so legacy CSVs stay
+  // metadata-clean.
+  const parameterDraft: ElectricalParameterDraft = {
+    parameters: [],
+    setpointBindings: {},
+    diagnostics: [],
+  };
+  const seenParameterIds = new Set<string>();
+
   for (const row of parsed.rows) {
+    const rowKind = (row.cells['row_kind'] ?? '').toLowerCase();
+    if (rowKind === 'parameter') {
+      extractParameterRow(
+        row,
+        { sourceId, fileName },
+        parameterDraft,
+        seenParameterIds,
+      );
+      continue;
+    }
+    if (rowKind === 'setpoint_binding') {
+      extractSetpointBindingRow(row, { sourceId, fileName }, parameterDraft);
+      continue;
+    }
+
     const tag = row.cells['tag'];
     if (tag && tag.length > 0) {
       if (seenTags.has(tag)) {
@@ -797,16 +1055,29 @@ export function ingestElectricalCsv(
     }
   }
 
+  const metadata: ElectricalGraph['metadata'] = {
+    sourceFiles: fileName ? [fileName] : [],
+    generator: 'electrical-ingest@csv',
+  };
+  // Sprint 88L — only attach the parameter draft when something
+  // structurally explicit was seen. Empty drafts on legacy CSVs
+  // leave metadata untouched so the cross-source duplicate
+  // detector + snapshots don't see a new always-present field.
+  if (
+    parameterDraft.parameters.length > 0 ||
+    Object.keys(parameterDraft.setpointBindings).length > 0 ||
+    parameterDraft.diagnostics.length > 0
+  ) {
+    metadata.parameterDraft = parameterDraft;
+    diagnostics.push(...parameterDraft.diagnostics);
+  }
   const graph: ElectricalGraph = {
     id: buildCsvGraphId(sourceId),
     sourceKind: 'csv',
     nodes: allNodes,
     edges: allEdges,
     diagnostics: [...diagnostics],
-    metadata: {
-      sourceFiles: fileName ? [fileName] : [],
-      generator: 'electrical-ingest@csv',
-    },
+    metadata,
   };
   return { graph, diagnostics };
 }

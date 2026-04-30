@@ -40,6 +40,7 @@ import type {
   IoAddress,
   IoSignal,
   MemoryArea,
+  Parameter as PirParameter,
   Project,
   Provenance,
   Sequence,
@@ -53,6 +54,7 @@ import type {
   PirEquipmentCandidate,
   PirIoCandidate,
   PirMappingAssumption,
+  PirParameterCandidate,
   SourceRef,
 } from '../types.js';
 import {
@@ -136,7 +138,19 @@ export type PirBuildDiagnosticCode =
   // builder never auto-merges; the operator must resolve.
   | 'PIR_BUILD_CROSS_SOURCE_DUPLICATE_IO_ADDRESS'
   | 'PIR_BUILD_CROSS_SOURCE_DUPLICATE_IO_TAG'
-  | 'PIR_BUILD_CROSS_SOURCE_DUPLICATE_EQUIPMENT_ID';
+  | 'PIR_BUILD_CROSS_SOURCE_DUPLICATE_EQUIPMENT_ID'
+  // ---- Sprint 88L: parameter extraction + setpoint binding ----
+  // Pending-review parity for parameter candidates (mirrors the
+  // existing IO / equipment / assumption pending bar).
+  | 'PIR_BUILD_PARAMETER_CANDIDATE_PENDING'
+  // Accepted parameter failed PIR Parameter shape (R-PR-02 etc.).
+  | 'PIR_BUILD_ACCEPTED_PARAMETER_INVALID'
+  // Setpoint binding referenced a parameter that was rejected /
+  // not accepted at review time. Builder refuses the equipment.
+  | 'PIR_BUILD_SETPOINT_BINDING_REFERENCES_UNACCEPTED_PARAMETER'
+  // Setpoint binding referenced a parameter that does not exist
+  // anywhere in the candidate parameters list.
+  | 'PIR_BUILD_SETPOINT_BINDING_REFERENCES_MISSING_PARAMETER';
 
 export interface PirBuildDiagnostic {
   code: PirBuildDiagnosticCode;
@@ -189,7 +203,12 @@ export function hasReviewableCandidates(candidate: PirDraftCandidate): boolean {
   const io = candidate.io ?? [];
   const eq = candidate.equipment ?? [];
   const as = candidate.assumptions ?? [];
-  return io.length > 0 || eq.length > 0 || as.length > 0;
+  // Sprint 88L — parameters are reviewable items too; a candidate
+  // composed of only parameter rows still has work for the operator.
+  const params = candidate.parameters ?? [];
+  return (
+    io.length > 0 || eq.length > 0 || as.length > 0 || params.length > 0
+  );
 }
 
 /**
@@ -226,6 +245,12 @@ export function isReviewedCandidateReadyForPirBuild(
   }
   for (const as of candidate.assumptions ?? []) {
     if (getReviewedDecision(state, 'assumption', as.id) === 'pending') {
+      return false;
+    }
+  }
+  // Sprint 88L — parameter candidates participate in the same gate.
+  for (const p of candidate.parameters ?? []) {
+    if (getReviewedDecision(state, 'parameter', p.id) === 'pending') {
       return false;
     }
   }
@@ -417,6 +442,11 @@ export function mapCandidateEquipmentKind(
       return 'sensor_discrete';
     case 'motor_simple':
       return 'motor_simple';
+    // Sprint 88L — VFD-driven motor, surfaces with a numeric
+    // `speed_setpoint_out` role. PIR R-EQ-05 still enforces
+    // that the candidate carry an `ioSetpointBindings` entry.
+    case 'motor_vfd_simple':
+      return 'motor_vfd_simple';
     case 'pneumatic_cylinder_2pos':
       return 'pneumatic_cylinder_2pos';
     case 'valve_solenoid':
@@ -683,6 +713,22 @@ export function buildPirFromReviewedCandidate(
       blockedByPending = true;
     }
   }
+  // Sprint 88L — parameter candidates are gated like IO / equipment.
+  // Pending decisions block the build with a dedicated code so the
+  // operator UX can route to the parameter row in the review panel.
+  for (const p of candidate.parameters ?? []) {
+    const d = getReviewedDecision(state, 'parameter', p.id);
+    if (d === 'pending') {
+      pushDiag(ctx, {
+        code: 'PIR_BUILD_PARAMETER_CANDIDATE_PENDING',
+        severity: 'error',
+        message: `Parameter candidate ${p.id} is still pending review.`,
+        candidateId: p.id,
+        sourceRefs: p.sourceRefs,
+      });
+      blockedByPending = true;
+    }
+  }
   // Tally error-severity diagnostics.
   let blockedByErrorDiagnostics = false;
   for (const d of candidate.diagnostics ?? []) {
@@ -757,6 +803,26 @@ export function buildPirFromReviewedCandidate(
     }
   }
 
+  // Sprint 88L — collect accepted parameters first so the equipment
+  // pass can validate setpoint bindings against them.
+  const acceptedParameters: PirParameter[] = [];
+  const acceptedParameterById = new Map<string, PirParameter>();
+  const rejectedParameterIds = new Set<string>();
+  for (const p of candidate.parameters ?? []) {
+    const decision = getReviewedDecision(state, 'parameter', p.id);
+    if (decision === 'rejected') {
+      ctx.skippedRejected++;
+      rejectedParameterIds.add(p.id);
+      continue;
+    }
+    const built = buildParameter(p, ctx);
+    if (built) {
+      acceptedParameters.push(built);
+      acceptedParameterById.set(p.id, built);
+      ctx.sourceMap[built.id] = mergeRefs(p.sourceRefs);
+    }
+  }
+
   const acceptedEquipment: Equipment[] = [];
   for (const eq of candidate.equipment ?? []) {
     const decision = getReviewedDecision(state, 'equipment', eq.id);
@@ -765,7 +831,13 @@ export function buildPirFromReviewedCandidate(
       continue;
     }
     ctx.acceptedEquipment++;
-    const built = buildEquipment(eq, ctx);
+    const built = buildEquipment(eq, ctx, {
+      acceptedParameterById,
+      rejectedParameterIds,
+      knownParameterIds: new Set(
+        (candidate.parameters ?? []).map((p) => p.id),
+      ),
+    });
     if (built) {
       acceptedEquipment.push(built);
       ctx.sourceMap[built.id] = mergeRefs(eq.sourceRefs);
@@ -836,7 +908,8 @@ export function buildPirFromReviewedCandidate(
         io: acceptedIoSignals,
         alarms: [],
         interlocks: [],
-        parameters: [],
+        // Sprint 88L — populate from accepted parameter candidates.
+        parameters: acceptedParameters,
         recipes: [],
         safety_groups: [],
       },
@@ -929,9 +1002,16 @@ function buildIoSignal(
   return signal;
 }
 
+interface ParameterContext {
+  acceptedParameterById: Map<string, PirParameter>;
+  rejectedParameterIds: Set<string>;
+  knownParameterIds: Set<string>;
+}
+
 function buildEquipment(
   eq: PirEquipmentCandidate,
   ctx: BuildContext,
+  paramCtx?: ParameterContext,
 ): Equipment | null {
   const type = mapCandidateEquipmentKind(eq.kind);
   if (!type) {
@@ -980,6 +1060,63 @@ function buildEquipment(
     return null;
   }
 
+  // Sprint 88L — wire setpoint bindings from candidate.ioSetpointBindings,
+  // gated against accepted parameters. Each entry must reference a
+  // parameter that exists AND was accepted at review time. Rejected
+  // parameters surface a dedicated diagnostic; missing parameters
+  // surface another. Either failure refuses the equipment.
+  let ioSetpointBindings: Record<string, string> | undefined;
+  if (
+    eq.ioSetpointBindings &&
+    Object.keys(eq.ioSetpointBindings).length > 0
+  ) {
+    const out: Record<string, string> = {};
+    let bindingError = false;
+    for (const [role, paramId] of Object.entries(eq.ioSetpointBindings)) {
+      if (!paramCtx?.knownParameterIds.has(paramId)) {
+        pushDiag(ctx, {
+          code: 'PIR_BUILD_SETPOINT_BINDING_REFERENCES_MISSING_PARAMETER',
+          severity: 'error',
+          message: `equipment ${eq.id} role ${JSON.stringify(role)} setpoint binding references parameter ${JSON.stringify(paramId)} which is not declared in the candidate.`,
+          candidateId: eq.id,
+          sourceRefs: eq.sourceRefs,
+        });
+        bindingError = true;
+        continue;
+      }
+      if (paramCtx?.rejectedParameterIds.has(paramId)) {
+        pushDiag(ctx, {
+          code: 'PIR_BUILD_SETPOINT_BINDING_REFERENCES_UNACCEPTED_PARAMETER',
+          severity: 'error',
+          message: `equipment ${eq.id} role ${JSON.stringify(role)} setpoint binding references parameter ${JSON.stringify(paramId)}, which was rejected at review.`,
+          candidateId: eq.id,
+          sourceRefs: eq.sourceRefs,
+        });
+        bindingError = true;
+        continue;
+      }
+      const accepted = paramCtx?.acceptedParameterById.get(paramId);
+      if (!accepted) {
+        // Parameter was declared but failed PIR Parameter shape
+        // (R-PR-02 etc.). buildParameter already pushed the
+        // PIR_BUILD_ACCEPTED_PARAMETER_INVALID diagnostic; surface
+        // the binding-side knock-on so reviewers can trace it.
+        pushDiag(ctx, {
+          code: 'PIR_BUILD_SETPOINT_BINDING_REFERENCES_UNACCEPTED_PARAMETER',
+          severity: 'error',
+          message: `equipment ${eq.id} role ${JSON.stringify(role)} setpoint binding references parameter ${JSON.stringify(paramId)}, which failed validation and could not be built.`,
+          candidateId: eq.id,
+          sourceRefs: eq.sourceRefs,
+        });
+        bindingError = true;
+        continue;
+      }
+      out[role] = accepted.id;
+    }
+    if (bindingError) return null;
+    if (Object.keys(out).length > 0) ioSetpointBindings = out;
+  }
+
   const equipment: Equipment = {
     id,
     name: id,
@@ -988,7 +1125,68 @@ function buildEquipment(
     io_bindings: remappedBindings,
     provenance: provenance(ctx),
   };
+  if (ioSetpointBindings) equipment.io_setpoint_bindings = ioSetpointBindings;
   return equipment;
+}
+
+/**
+ * Sprint 88L — build a PIR `Parameter` from a candidate. Returns
+ * `null` on shape failure; emits `PIR_BUILD_ACCEPTED_PARAMETER_INVALID`
+ * with a precise reason. PIR R-PR-02 (default within range, dtype
+ * matches default) is enforced by the validator at the project
+ * level; this helper produces a structurally well-formed Parameter
+ * and lets the validator catch range/dtype mismatches.
+ */
+function buildParameter(
+  p: PirParameterCandidate,
+  ctx: BuildContext,
+): PirParameter | null {
+  if (typeof p.id !== 'string' || p.id.length === 0) {
+    pushDiag(ctx, {
+      code: 'PIR_BUILD_ACCEPTED_PARAMETER_INVALID',
+      severity: 'error',
+      message: `accepted parameter candidate has empty id.`,
+      candidateId: p.id,
+      sourceRefs: p.sourceRefs,
+    });
+    return null;
+  }
+  if (!Number.isFinite(p.defaultValue)) {
+    pushDiag(ctx, {
+      code: 'PIR_BUILD_ACCEPTED_PARAMETER_INVALID',
+      severity: 'error',
+      message: `accepted parameter ${p.id} has non-finite default ${JSON.stringify(p.defaultValue)}.`,
+      candidateId: p.id,
+      sourceRefs: p.sourceRefs,
+    });
+    return null;
+  }
+  if (
+    p.dataType !== 'int' &&
+    p.dataType !== 'dint' &&
+    p.dataType !== 'real'
+  ) {
+    pushDiag(ctx, {
+      code: 'PIR_BUILD_ACCEPTED_PARAMETER_INVALID',
+      severity: 'error',
+      message: `accepted parameter ${p.id} has data_type ${JSON.stringify(p.dataType)}; PIR R-EQ-05 requires numeric (int/dint/real) for setpoint sources.`,
+      candidateId: p.id,
+      sourceRefs: p.sourceRefs,
+    });
+    return null;
+  }
+  const id = canonicalisePirId(p.id, 'p');
+  const param: PirParameter = {
+    id,
+    name: p.label && p.label.length > 0 ? p.label : id,
+    data_type: p.dataType,
+    default: p.defaultValue,
+  };
+  if (typeof p.unit === 'string' && p.unit.length > 0) param.unit = p.unit;
+  if (typeof p.description === 'string' && p.description.length > 0) {
+    param.description = p.description;
+  }
+  return param;
 }
 
 function deriveCodeSymbol(rawId: string, canonicalised: string): string {

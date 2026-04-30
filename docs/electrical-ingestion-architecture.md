@@ -1,10 +1,10 @@
 # Electrical-plan ingestion architecture
 
-> **Status: cross-renderer `motor_vfd_simple` parity bar
-> (Sprint 88K, tests-only); `motor_vfd_simple` universally supported
-> across CODESYS / Siemens / Rockwell after the Logix audit (Sprint
-> 88J); Siemens support (Sprint 88I); CODESYS support (Sprint 88H);
-> PIR + codegen-core lowering (Sprint 88G); PIR design *Option A —
+> **Status: electrical-ingest CSV parameter extraction for
+> `motor_vfd_simple` setpoint sources (Sprint 88L); cross-renderer
+> `motor_vfd_simple` parity bar (Sprint 88K); universal vendor
+> support after 88H/88I/88J (CODESYS/Siemens/Rockwell); PIR +
+> codegen-core lowering (Sprint 88G); PIR design *Option A —
 > Parameter→role binding* (Sprint 88F); audit deferred (Sprint 88E);
 > cross-renderer `valve_onoff` parity bar (Sprint 88D); Rockwell
 > valve_onoff support after Logix audit (Sprint 88C).** Sprint 72
@@ -581,6 +581,37 @@ This keeps both branches of the strategic requirement — structured
 ECAD exports today and PDF documents tomorrow — funnelling through
 the same review/persist/export model. A weak prompt cannot
 override that model: it has no surface area in any of these layers.
+
+## Sprint 88L — Electrical-ingest parameter extraction for `motor_vfd_simple`
+
+Closes the operator-authored-parameters-only constraint Sprint
+88G left open. CSV ingestion learns two new explicit-metadata
+row types — `row_kind=parameter` (declares one numeric machine
+`Parameter`) and `row_kind=setpoint_binding` (declares one
+explicit `<equipment, role> → <parameter>` edge). Both are
+opt-in and additive: legacy CSVs that don't carry `row_kind`
+rows continue through the device pipeline unchanged. The CSV
+ingestor stashes the result on a new optional
+`graph.metadata.parameterDraft` sidecar; `buildPirDraftCandidate`
+threads it onto the candidate (`parameters[]` plus per-equipment
+`ioSetpointBindings`); review state gains a `parameterCandidates`
+bag; `buildPirFromReviewedCandidate` materialises accepted
+parameters into `machine.parameters[]` and resolves
+`Equipment.io_setpoint_bindings`. The build refuses an equipment
+whose binding references a missing or rejected parameter
+(`PIR_BUILD_SETPOINT_BINDING_REFERENCES_MISSING_PARAMETER` /
+`...UNACCEPTED_PARAMETER`). EPLAN and TcECAD ingestors stay safe
+no-ops until a real fixture exposes structured parameter
+metadata. Hard rules pinned by 16 new tests in
+[`packages/electrical-ingest/tests/parameter-extraction-motor-vfd-simple.spec.ts`](../packages/electrical-ingest/tests/parameter-extraction-motor-vfd-simple.spec.ts):
+no parameter is synthesised; bool data types are refused at
+extraction; free-text comments do not yield parameters; bindings
+to unsupported roles are dropped with diagnostics; SourceRef line
+numbers are preserved end-to-end through the PIR `sourceMap`.
+See
+[`docs/electrical-ingest-parameter-extraction-sprint-88L.md`](electrical-ingest-parameter-extraction-sprint-88L.md)
+for the full CSV column reference, diagnostic table, and the
+recommended Sprint 88M / 89 sequence.
 
 ## Sprint 88K — Cross-renderer `motor_vfd_simple` parity bar
 

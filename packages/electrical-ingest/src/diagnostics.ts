@@ -181,7 +181,21 @@ function defaultSeverityForCode(
     case 'PDF_LAYOUT_ROTATION_SUSPECTED':
     // Sprint 84.1 — region-aware table walking diagnostic.
     case 'PDF_LAYOUT_REGION_CLUSTERED':
+    // Sprint 88L — `CSV_PARAMETER_EXTRACTED` is a positive
+    // signal that an explicit parameter row landed in the draft.
+    case 'CSV_PARAMETER_EXTRACTED':
       return 'info';
+    // Sprint 88L — duplicate parameter id is a warning (second
+    // occurrence skipped; first one wins). All other parameter /
+    // setpoint-binding row failures block the row deterministically.
+    case 'CSV_PARAMETER_DUPLICATE_ID':
+      return 'warning';
+    case 'CSV_PARAMETER_METADATA_INCOMPLETE':
+    case 'CSV_PARAMETER_METADATA_NOT_NUMERIC':
+    case 'CSV_SETPOINT_BINDING_TARGET_MISSING':
+    case 'CSV_SETPOINT_BINDING_PARAMETER_MISSING':
+    case 'CSV_SETPOINT_BINDING_ROLE_UNSUPPORTED':
+      return 'error';
     default: {
       // Exhaustiveness — TS will flag a missing case if a code is
       // added to the union and not handled here.

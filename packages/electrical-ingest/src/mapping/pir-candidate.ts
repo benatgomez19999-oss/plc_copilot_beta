@@ -22,10 +22,12 @@ import type {
   ElectricalDiagnostic,
   ElectricalGraph,
   ElectricalNode,
+  ElectricalParameterDraft,
   PirDraftCandidate,
   PirEquipmentCandidate,
   PirIoCandidate,
   PirMappingAssumption,
+  PirParameterCandidate,
 } from '../types.js';
 
 const MIN_EQUIPMENT_CONFIDENCE = 0.6;
@@ -193,7 +195,98 @@ export function buildPirDraftCandidate(
     }
   }
 
+  // -------------------------------------------------------------
+  // Sprint 88L — Pass 3: parameter-draft sidecar from
+  // graph.metadata.parameterDraft (populated by ingestors that
+  // recognise explicit Parameter / setpoint_binding metadata —
+  // CSV today; EPLAN / TcECAD safe-no-op when metadata absent).
+  // Pure / read-only — never inferred from labels or comments.
+  // -------------------------------------------------------------
+  applyParameterDraft(candidate, graph.metadata?.parameterDraft);
+
   return candidate;
+}
+
+/**
+ * Sprint 88L — copy the parameter draft sidecar from the graph
+ * metadata onto the candidate:
+ *
+ *   - `draft.parameters` → `candidate.parameters`
+ *   - `draft.setpointBindings[<equipment_id>]` → matching equipment
+ *     candidate's `ioSetpointBindings`
+ *   - `draft.diagnostics` → `candidate.diagnostics` (deduplicated
+ *     against the diagnostics already attached to the graph)
+ *
+ * If the draft references an equipment id that no equipment
+ * candidate matches (raw tag mismatch, or the device-row produced
+ * an `assumption` rather than a candidate), the binding is dropped
+ * with a `CSV_SETPOINT_BINDING_TARGET_MISSING` diagnostic.
+ */
+function applyParameterDraft(
+  candidate: PirDraftCandidate,
+  draft: ElectricalParameterDraft | undefined,
+): void {
+  if (!draft) return;
+  if (draft.parameters.length > 0) {
+    candidate.parameters = draft.parameters.map((p) => ({
+      ...p,
+      sourceRefs: [...p.sourceRefs],
+    }));
+  }
+
+  // Push diagnostics from the draft (parameter / binding rows) onto
+  // the candidate so review surfaces them. The graph's diagnostic
+  // list already carries the same set; we dedupe by code+message+
+  // sourceRef.line to keep the candidate's view clean.
+  const seen = new Set<string>(
+    candidate.diagnostics.map(
+      (d) =>
+        `${d.code}|${d.message}|${d.sourceRef?.sourceId ?? ''}|${d.sourceRef?.line ?? ''}`,
+    ),
+  );
+  for (const d of draft.diagnostics) {
+    const k = `${d.code}|${d.message}|${d.sourceRef?.sourceId ?? ''}|${d.sourceRef?.line ?? ''}`;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    candidate.diagnostics.push(d);
+  }
+
+  // Map setpoint bindings to equipment candidates. Source-side
+  // equipment ids are typically raw CSV tags (e.g. `mot01`); the
+  // candidate's id is `eq_${node.id}` where the device node id
+  // is `device:mot01`. We index by both shapes for robustness.
+  if (Object.keys(draft.setpointBindings).length === 0) return;
+
+  const eqByRawTag = new Map<string, PirEquipmentCandidate>();
+  for (const eq of candidate.equipment) {
+    eqByRawTag.set(eq.id, eq);
+    // Strip the candidate-side `eq_device:` / `eq_` prefix the
+    // candidate mapper added (see Pass 2: `id: \`eq_${n.id}\``,
+    // and CSV node ids start with `device:`).
+    const stripped = eq.id
+      .replace(/^eq_device:/, '')
+      .replace(/^eq_/, '');
+    if (stripped.length > 0) eqByRawTag.set(stripped, eq);
+  }
+
+  for (const [equipmentId, roleMap] of Object.entries(draft.setpointBindings)) {
+    const eq = eqByRawTag.get(equipmentId);
+    if (!eq) {
+      candidate.diagnostics.push(
+        createElectricalDiagnostic({
+          code: 'CSV_SETPOINT_BINDING_TARGET_MISSING',
+          message: `CSV setpoint_binding referenced equipment ${JSON.stringify(equipmentId)} but no matching equipment candidate exists in the draft (the device-row may have failed classification or was emitted as an assumption).`,
+          hint: 'declare the equipment as a CSV device row (e.g. tag=mot01, kind=motor_vfd_simple) before binding parameters to it.',
+        }),
+      );
+      continue;
+    }
+    const next: Record<string, string> = { ...(eq.ioSetpointBindings ?? {}) };
+    for (const [role, paramId] of Object.entries(roleMap)) {
+      next[role] = paramId;
+    }
+    eq.ioSetpointBindings = next;
+  }
 }
 
 /**

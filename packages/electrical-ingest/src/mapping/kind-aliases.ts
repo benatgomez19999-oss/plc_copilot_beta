@@ -31,6 +31,12 @@ export const KIND_ALIASES: ReadonlyMap<string, ElectricalNodeKind> = new Map([
   ['motor', 'motor'],
   ['drive', 'motor'],
   ['conveyor', 'motor'],
+  // Sprint 88L — VFD-driven motor; the graph still classifies as
+  // `motor`, but the device-row carries `raw_kind=motor_vfd_simple`
+  // which `inferEquipmentRole` reads to pick the canonical
+  // `motor_vfd_simple` candidate kind.
+  ['motor_vfd_simple', 'motor'],
+  ['vfd', 'motor'],
   // PLC + IO
   ['plc', 'plc'],
   ['cpu', 'plc'],

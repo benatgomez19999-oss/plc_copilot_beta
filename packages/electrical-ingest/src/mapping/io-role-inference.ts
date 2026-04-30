@@ -155,6 +155,25 @@ export function inferEquipmentRole(node: ElectricalNode): InferredEquipmentRole 
     };
   }
   if (node.kind === 'motor') {
+    // Sprint 88L — distinguish VFD-driven motors when the source
+    // declared the kind explicitly via `raw_kind`. Falls back to
+    // `motor_simple` when the source is ambiguous (no
+    // `raw_kind=motor_vfd_simple` / `raw_kind=vfd`).
+    const rawKind =
+      typeof node.attributes?.['raw_kind'] === 'string'
+        ? (node.attributes['raw_kind'] as string).toLowerCase()
+        : '';
+    if (rawKind === 'motor_vfd_simple' || rawKind === 'vfd') {
+      evidences.push({
+        source: 'graph-kind',
+        score: 0.9,
+        reason: `node.kind == motor + raw_kind=${rawKind}`,
+      });
+      return {
+        kind: 'motor_vfd_simple',
+        confidence: confidenceFromEvidence(evidences),
+      };
+    }
     evidences.push({
       source: 'graph-kind',
       score: 0.9,

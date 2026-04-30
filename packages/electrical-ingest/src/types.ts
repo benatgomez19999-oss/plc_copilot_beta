@@ -149,7 +149,41 @@ export interface ElectricalGraph {
     createdAt?: string;
     sourceFiles?: string[];
     generator?: string;
+    /**
+     * Sprint 88L — parameter draft sidecar. Populated by ingestors
+     * that recognise explicit `Parameter` + `setpoint_binding`
+     * metadata (CSV `row_kind` rows today). Consumed by
+     * `buildPirDraftCandidate`, which copies `parameters[]` onto
+     * the candidate and threads `setpointBindings[<equipment_id>]`
+     * into `PirEquipmentCandidate.ioSetpointBindings`. Optional —
+     * legacy graphs / sources without explicit metadata simply
+     * omit it.
+     */
+    parameterDraft?: ElectricalParameterDraft;
   };
+}
+
+/**
+ * Sprint 88L — sidecar carried on `ElectricalGraph.metadata`
+ * during ingestion. The CSV ingestor populates it from
+ * `row_kind=parameter` and `row_kind=setpoint_binding` rows; the
+ * draft is consumed by `buildPirDraftCandidate`. Pure data — no
+ * ambient state, no I/O.
+ */
+export interface ElectricalParameterDraft {
+  parameters: PirParameterCandidate[];
+  /**
+   * `<raw equipment id from source>` → `<role>` → `<parameter id>`.
+   * The PIR-draft builder resolves the equipment id against the
+   * candidate equipment list (matching by raw tag / canonical
+   * device id) and copies the role→param map onto the equipment
+   * candidate's `ioSetpointBindings`. If no equipment matches, the
+   * builder emits a `CSV_SETPOINT_BINDING_TARGET_MISSING`-style
+   * diagnostic.
+   */
+  setpointBindings: Record<string, Record<string, string>>;
+  /** Diagnostics raised by parameter-row / binding-row extraction. */
+  diagnostics: ElectricalDiagnostic[];
 }
 
 // ---------------------------------------------------------------------------
@@ -304,7 +338,19 @@ export type ElectricalDiagnosticCode =
   // boundaries — a header in region A cannot absorb data rows
   // in region B. Sparse: one info diagnostic per page where
   // clustering actually fired.
-  | 'PDF_LAYOUT_REGION_CLUSTERED';
+  | 'PDF_LAYOUT_REGION_CLUSTERED'
+  // ---- Sprint 88L: explicit-metadata parameter extraction ----
+  // CSV (and, when explicitly populated, EPLAN / TcECAD) declare
+  // numeric machine parameters + setpoint bindings via dedicated
+  // `row_kind` rows. Diagnostics are deterministic + per-row;
+  // free-text inference is forbidden.
+  | 'CSV_PARAMETER_EXTRACTED'
+  | 'CSV_PARAMETER_DUPLICATE_ID'
+  | 'CSV_PARAMETER_METADATA_INCOMPLETE'
+  | 'CSV_PARAMETER_METADATA_NOT_NUMERIC'
+  | 'CSV_SETPOINT_BINDING_TARGET_MISSING'
+  | 'CSV_SETPOINT_BINDING_PARAMETER_MISSING'
+  | 'CSV_SETPOINT_BINDING_ROLE_UNSUPPORTED';
 
 export interface ElectricalDiagnostic {
   code: ElectricalDiagnosticCode;
@@ -376,6 +422,11 @@ export interface PirEquipmentCandidate {
   kind:
     | 'sensor_discrete'
     | 'motor_simple'
+    // Sprint 88L — VFD-driven motor whose `speed_setpoint_out`
+    // numeric output is sourced from a `Parameter` declared in
+    // `ioSetpointBindings` (mirror of PIR R-EQ-05). Only set
+    // when the source declares the kind explicitly.
+    | 'motor_vfd_simple'
     | 'pneumatic_cylinder_2pos'
     | 'valve_solenoid'
     | 'unknown';
@@ -385,6 +436,44 @@ export interface PirEquipmentCandidate {
    *     extended: "io_i08", retracted: "io_i09" }
    */
   ioBindings: Record<string, string>;
+  /**
+   * Sprint 88L — optional role → parameter candidate id map.
+   * Each key is a numeric output role on this equipment shape
+   * (today only `speed_setpoint_out` on `motor_vfd_simple`); each
+   * value is a `PirParameterCandidate.id` from the same draft.
+   * The PIR builder mirrors this into
+   * `Equipment.io_setpoint_bindings` after the operator accepts
+   * the parameter + the equipment + the binding edge.
+   */
+  ioSetpointBindings?: Record<string, string>;
+  sourceRefs: SourceRef[];
+  confidence: Confidence;
+}
+
+// Sprint 88L — numeric machine-level parameter draft. Carries the
+// minimum metadata needed by PIR's `Parameter` (id, data_type,
+// default) plus optional unit / label. Only emitted when the source
+// declares the metadata explicitly — never inferred from free text.
+export interface PirParameterCandidate {
+  id: string;
+  /** Optional human label for the review UI. */
+  label?: string;
+  /**
+   * Numeric data types only. `'bool'` parameters cannot back a
+   * numeric output role (PIR R-EQ-05 sub-rule B5 enforces this);
+   * Sprint 88L deliberately excludes them from the draft union so
+   * the operator can't promote a bool by accident.
+   */
+  dataType: 'int' | 'dint' | 'real';
+  /**
+   * Default value as PIR's `Parameter.default` requires. The CSV
+   * ingestor parses this from a numeric column; never synthesised.
+   */
+  defaultValue: number;
+  /** Optional engineering unit string (documentation only — no scaling). */
+  unit?: string;
+  /** Optional free-form description; flowed into PIR `Parameter.description`. */
+  description?: string;
   sourceRefs: SourceRef[];
   confidence: Confidence;
 }
@@ -401,6 +490,13 @@ export interface PirDraftCandidate {
   name?: string;
   io: PirIoCandidate[];
   equipment: PirEquipmentCandidate[];
+  /**
+   * Sprint 88L — optional machine-level parameter drafts captured
+   * by structured ingestors (CSV today; EPLAN / TcECAD only when
+   * the source carries explicit numeric metadata). Empty / undefined
+   * for legacy candidates.
+   */
+  parameters?: PirParameterCandidate[];
   diagnostics: ElectricalDiagnostic[];
   assumptions: PirMappingAssumption[];
   /** Id of the source ElectricalGraph the candidate was derived from. */
