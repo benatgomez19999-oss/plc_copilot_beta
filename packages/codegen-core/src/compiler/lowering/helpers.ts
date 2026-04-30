@@ -72,6 +72,11 @@ export const SUPPORTED_ACTIVITIES: Record<string, readonly string[]> = {
   pneumatic_cylinder_2pos: ['extend', 'retract'],
   motor_simple: ['run', 'run_fwd'],
   sensor_discrete: [],
+  // Sprint 87A — single-coil on/off valve (e.g. solenoid valve with
+  // spring return). One activity `open` energises the solenoid; the
+  // valve closes when the activity is no longer active. No close
+  // activity — the closure is mechanical, not driven by a command.
+  valve_onoff: ['open'],
 };
 
 export function commandVarName(eqId: string, activity: string): string {

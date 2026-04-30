@@ -28,10 +28,15 @@ import type {
   ProgramIR,
 } from './program.js';
 
+// Sprint 87A — `valve_onoff` joins the core scope so the vendor-neutral
+// pipeline can lower it. Per-target readiness still gates which backends
+// are willing to render it (only CODESYS in v0; Siemens / Rockwell still
+// reject via `READINESS_UNSUPPORTED_EQUIPMENT_FOR_TARGET`).
 const SUPPORTED_TYPES = new Set([
   'pneumatic_cylinder_2pos',
   'motor_simple',
   'sensor_discrete',
+  'valve_onoff',
 ]);
 
 const DEFAULT_GENERATED_AT = '1970-01-01T00:00:00Z';

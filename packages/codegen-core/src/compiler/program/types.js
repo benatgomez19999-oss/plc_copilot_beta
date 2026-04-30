@@ -18,6 +18,11 @@ const FIELDS = {
         { name: 'running_fb', dataType: 'Bool' },
         { name: 'fault', dataType: 'Bool' },
     ],
+    // Sprint 87A — minimal valve_onoff DUT shape.
+    valve_onoff: [
+        { name: 'cmd_open', dataType: 'Bool' },
+        { name: 'fault', dataType: 'Bool' },
+    ],
 };
 /**
  * Canonical IR type name per equipment type. The naming happens to match the
@@ -27,6 +32,8 @@ const FIELDS = {
 const CANONICAL_NAME = {
     pneumatic_cylinder_2pos: 'UDT_Cylinder2Pos',
     motor_simple: 'UDT_MotorSimple',
+    // Sprint 87A — codesys renders this as `DUT_ValveOnoff`.
+    valve_onoff: 'UDT_ValveOnoff',
 };
 /**
  * Resolve the canonical IR type name for a PIR equipment type. Returns

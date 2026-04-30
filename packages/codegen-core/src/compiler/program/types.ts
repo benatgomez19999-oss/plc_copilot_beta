@@ -21,6 +21,15 @@ const FIELDS: Partial<Record<EquipmentType, readonly TypeFieldIR[]>> = {
     { name: 'running_fb', dataType: 'Bool' },
     { name: 'fault', dataType: 'Bool' },
   ],
+  // Sprint 87A — minimal valve_onoff DUT shape.
+  // No close_cmd / no position feedback / no busy: a spring-return
+  // on/off valve has nothing meaningful to surface beyond the open
+  // command and a fault bit. Larger shapes belong in higher-fidelity
+  // equipment kinds, not in v0.
+  valve_onoff: [
+    { name: 'cmd_open', dataType: 'Bool' },
+    { name: 'fault', dataType: 'Bool' },
+  ],
 };
 
 /**
@@ -31,6 +40,9 @@ const FIELDS: Partial<Record<EquipmentType, readonly TypeFieldIR[]>> = {
 const CANONICAL_NAME: Partial<Record<EquipmentType, string>> = {
   pneumatic_cylinder_2pos: 'UDT_Cylinder2Pos',
   motor_simple: 'UDT_MotorSimple',
+  // Sprint 87A — codesys renders this as `DUT_ValveOnoff` (via the
+  // existing `codesysTypeName` `UDT_*` → `DUT_*` rewrite).
+  valve_onoff: 'UDT_ValveOnoff',
 };
 
 /**

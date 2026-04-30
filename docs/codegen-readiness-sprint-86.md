@@ -61,8 +61,11 @@ up list is attached as `cause`.
 
 ## What it does not do
 
-- **No new equipment support.** The capability tables mirror
-  `compileProject`'s existing `SUPPORTED_TYPES` set.
+- **No new equipment support in v0** — capabilities mirror
+  `compileProject`'s `SUPPORTED_TYPES` set.
+  *(Sprint 87A widened CODESYS only with `valve_onoff`; Siemens
+  and Rockwell continue to mirror the v0 baseline. See
+  [`docs/codegen-equipment-support-sprint-87A.md`](codegen-equipment-support-sprint-87A.md).)*
 - **No automatic codegen from web.** The web flow already
   refuses to call `generate` without an explicit operator
   action; Sprint 86 doesn't change that.

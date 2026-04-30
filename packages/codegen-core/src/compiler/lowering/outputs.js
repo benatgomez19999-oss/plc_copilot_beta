@@ -29,6 +29,9 @@ function wireEquipment(eq, cmds, table, diagnostics, meta) {
             return wireMotorSimple(eq, cmds, table, diagnostics, meta);
         case 'sensor_discrete':
             return [];
+        // Sprint 87A — single-coil spring-return solenoid valve.
+        case 'valve_onoff':
+            return wireValveOnoff(eq, cmds, table, diagnostics, meta);
         default: {
             // Sprint 41 — surface the equipment id and a hint listing the
             // wiring strategies the lowering layer knows.
@@ -41,7 +44,7 @@ function wireEquipment(eq, cmds, table, diagnostics, meta) {
                 ...(typePath !== undefined ? { path: typePath } : {}),
                 stationId: table.stationId,
                 symbol: eq.id,
-                hint: `Change ${eq.id}.type to one of (pneumatic_cylinder_2pos, motor_simple, sensor_discrete) or extend wireEquipment for "${eq.type}".`,
+                hint: `Change ${eq.id}.type to one of (pneumatic_cylinder_2pos, motor_simple, sensor_discrete, valve_onoff) or extend wireEquipment for "${eq.type}".`,
             }));
             return [];
         }
@@ -115,5 +118,32 @@ function wireMotorSimple(eq, cmds, table, diagnostics, meta) {
     return [
         ir.comment(`${eq.id} (motor_simple): run_cmd | run_fwd_cmd -> run_out`),
         ir.assign(storageToRef(runSym.storage), ir.orAll(parts)),
+    ];
+}
+// Sprint 87A — single-coil spring-return solenoid valve.
+// One activity `open` drives a single `solenoid_out` coil; spring
+// closes the valve when the activity is no longer active.
+function wireValveOnoff(eq, cmds, table, diagnostics, meta) {
+    const openCmd = cmds.find((c) => c.activity === 'open');
+    const solSym = table.resolve(`${eq.id}.solenoid_out`);
+    if (!solSym) {
+        const bindingPath = meta.pathContext
+            ? equipmentIoBindingPath(meta.pathContext.machineIndex, meta.pathContext.stationIndex, meta.equipmentIndex, 'solenoid_out')
+            : undefined;
+        diagnostics.push(diag('error', 'UNBOUND_ROLE', `Equipment "${eq.id}" has no solenoid_out binding.`, {
+            ...(bindingPath !== undefined ? { path: bindingPath } : {}),
+            stationId: table.stationId,
+            symbol: `${eq.id}.solenoid_out`,
+            hint: `Bind "solenoid_out" in equipment "${eq.id}".io_bindings to an IO of type bool.`,
+        }));
+        return [];
+    }
+    if (!openCmd) {
+        // No `open` activity drives this valve — emit nothing (spring-rest state).
+        return [];
+    }
+    return [
+        ir.comment(`${eq.id} (valve_onoff): open_cmd -> solenoid_out`),
+        ir.assign(storageToRef(solSym.storage), ir.refExpr(ref.local(openCmd.varName))),
     ];
 }

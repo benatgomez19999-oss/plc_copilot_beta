@@ -11,6 +11,8 @@ export const SUPPORTED_ACTIVITIES = {
     pneumatic_cylinder_2pos: ['extend', 'retract'],
     motor_simple: ['run', 'run_fwd'],
     sensor_discrete: [],
+    // Sprint 87A — spring-return solenoid valve, single `open` activity.
+    valve_onoff: ['open'],
 };
 export function commandVarName(eqId, activity) {
     return `${eqId}_${activity}_cmd`;

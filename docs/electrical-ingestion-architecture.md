@@ -1,6 +1,6 @@
 # Electrical-plan ingestion architecture
 
-> **Status: Codegen readiness diagnostics v0 (Sprint 86).** Sprint 72
+> **Status: CODESYS gains valve_onoff support (Sprint 87A).** Sprint 72
 > scaffolded the architecture. Sprint 73 added the CSV ingestor.
 > Sprint 74 added the EPLAN structured XML ingestor v0. Sprint 75
 > added the Review UI v0. Sprint 76 added the PIR builder v0.
@@ -574,6 +574,37 @@ This keeps both branches of the strategic requirement — structured
 ECAD exports today and PDF documents tomorrow — funnelling through
 the same review/persist/export model. A weak prompt cannot
 override that model: it has no surface area in any of these layers.
+
+## Sprint 87A — Target equipment support v0 (`valve_onoff` for CODESYS)
+
+The first per-target equipment-support split. Sprint 86 left
+all four codegen targets on the same supported set; Sprint 87A
+widens **CODESYS only** with `valve_onoff` (single-coil
+spring-return solenoid valve). Siemens and Rockwell continue
+to reject the kind via `READINESS_FAILED` +
+`READINESS_UNSUPPORTED_EQUIPMENT_FOR_TARGET`.
+
+Changes:
+
+- `compileProject.SUPPORTED_TYPES` adds `valve_onoff` (the
+  vendor-neutral lowering accepts it). The CLI / web tests for
+  Siemens / Rockwell rejection still pass because preflight
+  rejects before `compileProject` runs.
+- `SUPPORTED_ACTIVITIES` adds `valve_onoff: ['open']`. One
+  spring-return activity; no separate close.
+- `wireValveOnoff` in
+  [`packages/codegen-core/src/compiler/lowering/outputs.ts`](../packages/codegen-core/src/compiler/lowering/outputs.ts)
+  emits one `solenoid_out := <valve>_open_cmd` assignment per
+  active state.
+- `UDT_ValveOnoff` (rendered as `DUT_ValveOnoff` for CODESYS)
+  with two fields: `cmd_open : Bool`, `fault : Bool`.
+- Readiness capability tables split — `core` / `codesys`
+  include `valve_onoff`; `siemens` / `rockwell` stay on the
+  Sprint 86 baseline (3 kinds).
+
+No new safety semantics, no synthesised close output, no
+position feedback. Documented in
+[`docs/codegen-equipment-support-sprint-87A.md`](codegen-equipment-support-sprint-87A.md).
 
 ## Sprint 86 — Codegen readiness diagnostics v0
 
