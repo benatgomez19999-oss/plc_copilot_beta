@@ -1,7 +1,7 @@
-# Web electrical-ingestion workflow — Sprint 77 → … → 90A
+# Web electrical-ingestion workflow — Sprint 77 → … → 90B
 
 > **Status: end-to-end pipeline live in `@plccopilot/web`
-> (Sprint 77 → 78A → 78B → 79 → 80 → 81 → 82 → 87B → 89 → 90A).**
+> (Sprint 77 → 78A → 78B → 79 → 80 → 81 → 82 → 87B → 89 → 90A → 90B).**
 > CSV / EPLAN XML / TcECAD XML / **PDF (real text-layer + IO-list
 > table extraction + Sprint 82 address strictness)** → review →
 > PIR preview → **local persistence + downloadable artefacts**,
@@ -17,8 +17,18 @@
 > diagnostics, per-target error blocks) into a deterministic JSON
 > file the operator saves locally — no re-run of the vendor
 > pipeline, no auto-download, no inclusion in canonical session
-> exports. Preview is never automatic, never persisted to
-> localStorage, and never included in export bundles. **Sprint 82** is a
+> exports. **Sprint 90B** layers an ephemeral *Preview diff*
+> section underneath: when a new successful preview lands, the
+> prior successful preview becomes the baseline and the panel
+> shows per-target status transitions, artifact added /
+> removed / changed (with a compact line-based diff sample,
+> ≤ 80 lines / 8 KB, truncation flagged), and diagnostic
+> added / removed. The diff lives in React state only — lost on
+> reload, never persisted to localStorage, never folded into the
+> canonical session export. Failed / blocked refreshes do not
+> regress the baseline. Preview, download bundle, and diff are
+> never automatic, never persisted to localStorage, and never
+> included in export bundles. **Sprint 82** is a
 > safety/hardening sprint: isolated Beckhoff-style channel
 > markers (`I1`, `O2`, `%I1`) are no longer promoted to
 > buildable PIR addresses. Source-evidence drilldown now

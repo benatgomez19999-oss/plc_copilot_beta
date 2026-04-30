@@ -1,6 +1,7 @@
 # Electrical-plan ingestion architecture
 
-> **Status: controlled codegen preview download bundle in
+> **Status: controlled codegen preview diff UX in `@plccopilot/web`
+> (Sprint 90B); controlled codegen preview download bundle in
 > `@plccopilot/web` (Sprint 90A); controlled codegen preview UX in
 > `@plccopilot/web` (Sprint 89); structured EPLAN + TcECAD XML parameter extraction
 > (Sprint 88M); CSV parameter extraction (Sprint 88L); cross-
@@ -584,6 +585,52 @@ This keeps both branches of the strategic requirement — structured
 ECAD exports today and PDF documents tomorrow — funnelling through
 the same review/persist/export model. A weak prompt cannot
 override that model: it has no surface area in any of these layers.
+
+## Sprint 90B — Controlled codegen preview diff UX
+
+Layers an ephemeral *Preview diff* section onto the Sprint 89
+preview panel + Sprint 90A download bundle. New pure helper
+[`packages/web/src/utils/codegen-preview-diff.ts`](../packages/web/src/utils/codegen-preview-diff.ts)
+projects two `CodegenPreviewView`s into a deterministic diff:
+per-target status transitions, artifact added / removed / changed /
+unchanged, manifest diagnostic added / removed, and a compact
+line-based diff sample for changed artifacts (caps:
+`MAX_DIFF_LINES_PER_ARTIFACT = 80` lines / `MAX_DIFF_BYTES_PER_ARTIFACT = 8 KB`,
+`truncated: true` flagged honestly). The helper is DOM-free,
+total, deterministic, never mutates inputs, and tolerates null /
+undefined baseline (returns `state: 'no-baseline' | 'no-current' |
+'no-inputs'`). Targets sort siemens → codesys → rockwell to mirror
+the panel; artifacts sort by path; manifest diagnostics dedupe on
+`severity|code|message|path|hint`. Content compares from the Sprint
+90A `content` field — the truncated `previewText` snippet is
+ignored. Selection mismatch is surfaced via `selectionMatch: false`
+rather than silently masked.
+
+The panel
+([`packages/web/src/components/CodegenPreviewPanel.tsx`](../packages/web/src/components/CodegenPreviewPanel.tsx))
+keeps the Sprint 89 phase machine + Sprint 90A download button
+unchanged and adds a small ephemeral state slot
+`{previous, current}` — both `CodegenPreviewView | null`. Slots
+advance atomically only when a new *successful* preview lands
+(re-using Sprint 90A's `isPreviewDownloadable` gate); a failed /
+blocked / unavailable refresh leaves the slots untouched so the
+baseline never regresses on a bad refresh. Stale views do not
+recompute the diff — the panel pauses with a *"Refresh to
+re-compare"* notice. No worker change. No `localStorage`. No
+inclusion in the canonical session export. Both slots vanish on
+page reload.
+
+27 helper-level tests in
+[`packages/web/tests/codegen-preview-diff.spec.ts`](../packages/web/tests/codegen-preview-diff.spec.ts)
+cover null / missing inputs, identity, artifact + target + manifest
+transitions, sort stability across backend `'all'` mixed scenarios,
+full-content fidelity past the Sprint 89 snippet caps, line + byte
+truncation, immutability, byte-stable repeated calls, privacy
+(no `row_kind,` / `<EplanProject` / `<TcecadProject` / `%PDF-` /
+`pir_version` markers), and selection-mismatch surfacing. See
+[`docs/codegen-preview-diff-sprint-90B.md`](codegen-preview-diff-sprint-90B.md)
+for the full diff state machine, hard rules, and manual
+verification checklist.
 
 ## Sprint 90A — Controlled codegen preview download bundle
 

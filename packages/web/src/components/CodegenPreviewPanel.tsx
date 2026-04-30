@@ -40,6 +40,13 @@ import {
   makeCodegenPreviewBundleFilename,
   serializeCodegenPreviewBundle,
 } from '../utils/codegen-preview-download.js';
+import {
+  buildCodegenPreviewDiff,
+  type CodegenPreviewArtifactDiff,
+  type CodegenPreviewDiagnosticDiff,
+  type CodegenPreviewDiffView,
+  type CodegenPreviewTargetDiff,
+} from '../utils/codegen-preview-diff.js';
 import { downloadText } from '../utils/download.js';
 import type { Project } from '@plccopilot/pir';
 
@@ -71,6 +78,21 @@ type PanelPhase =
   | { kind: 'has-result'; view: CodegenPreviewView; signature: string }
   | { kind: 'stale'; view: CodegenPreviewView };
 
+/**
+ * Sprint 90B — diff baseline state. Ephemeral React state only:
+ *   - `previous` is the prior successful preview the operator saw
+ *     in this React session.
+ *   - `current` is the most recent successful preview.
+ * Both are advanced atomically when a NEW successful preview lands;
+ * a failed / blocked / unavailable refresh leaves the slots
+ * untouched (the baseline does not regress on a bad refresh). Lost
+ * on page reload — never persisted.
+ */
+interface DiffSlots {
+  previous: CodegenPreviewView | null;
+  current: CodegenPreviewView | null;
+}
+
 function selectionSignature(
   project: Project | null | undefined,
   target: CodegenPreviewPanelTarget,
@@ -88,6 +110,10 @@ export function CodegenPreviewPanel({
   generatedAt,
 }: CodegenPreviewPanelProps): JSX.Element {
   const [phase, setPhase] = useState<PanelPhase>({ kind: 'idle' });
+  const [diffSlots, setDiffSlots] = useState<DiffSlots>({
+    previous: null,
+    current: null,
+  });
   const currentSignature = useMemo(
     () => selectionSignature(project, target),
     [project, target],
@@ -140,6 +166,20 @@ export function CodegenPreviewPanel({
         selection: target,
         generatedAt,
       });
+      // Sprint 90B — promote a *successful* preview into the diff
+      // slots: the prior `current` becomes the new `previous`. A
+      // failed / blocked / unavailable refresh leaves the slots
+      // untouched so the operator's baseline does not regress on a
+      // bad refresh. The downloadability gate is the same one the
+      // Download bundle button uses, which keeps the two panels
+      // honest about what counts as "successful".
+      const successful = isPreviewDownloadable({ view, stale: false });
+      if (successful) {
+        setDiffSlots((slots) => ({
+          previous: slots.current,
+          current: view,
+        }));
+      }
       setPhase((prev) => {
         // If the selection moved while we were running, drop the
         // stale result rather than overwriting newer state.
@@ -211,6 +251,7 @@ export function CodegenPreviewPanel({
         <PreviewBody
           view={phase.view}
           stale={phase.kind === 'stale'}
+          diffSlots={diffSlots}
         />
       )}
     </section>
@@ -220,9 +261,11 @@ export function CodegenPreviewPanel({
 function PreviewBody({
   view,
   stale,
+  diffSlots,
 }: {
   view: CodegenPreviewView;
   stale: boolean;
+  diffSlots: DiffSlots;
 }): JSX.Element {
   return (
     <>
@@ -240,7 +283,204 @@ function PreviewBody({
           ))}
         </div>
       )}
+      <PreviewDiffSection
+        view={view}
+        stale={stale}
+        diffSlots={diffSlots}
+      />
     </>
+  );
+}
+
+function PreviewDiffSection({
+  view,
+  stale,
+  diffSlots,
+}: {
+  view: CodegenPreviewView;
+  stale: boolean;
+  diffSlots: DiffSlots;
+}): JSX.Element | null {
+  // Stale views deliberately do not recompute a diff — the
+  // operator must refresh first. The text gives them an honest
+  // pointer rather than silently disappearing.
+  if (stale) {
+    return (
+      <section className="codegen-preview-diff" aria-label="Preview diff">
+        <h4>Preview diff</h4>
+        <p className="muted">
+          Diff is paused while the preview is stale. Refresh the
+          preview to re-compare against the previous successful run.
+        </p>
+      </section>
+    );
+  }
+
+  // The diff helper compares against the *previous successful*
+  // view. When the just-rendered view is itself blocked / failed /
+  // unavailable, we hand the helper `null` for the current side so
+  // it never invents artifact diffs on a failed run.
+  const currentForDiff =
+    isPreviewDownloadable({ view, stale: false }) ? view : null;
+  const diff = buildCodegenPreviewDiff(
+    diffSlots.previous,
+    currentForDiff ?? diffSlots.current,
+  );
+
+  return (
+    <section className="codegen-preview-diff" aria-label="Preview diff">
+      <h4>Preview diff</h4>
+      <p
+        className={`codegen-preview-diff-summary codegen-preview-diff-state--${diff.state}`}
+      >
+        {diff.headline}
+      </p>
+      {!currentForDiff && diffSlots.current ? (
+        <p className="muted">
+          Current preview produced no successful target — comparing
+          against the previous successful preview is not meaningful.
+        </p>
+      ) : null}
+      {diff.state === 'changed' ? (
+        <div className="codegen-preview-diff-targets">
+          {diff.targets
+            .filter((t) => t.status !== 'unchanged')
+            .map((t) => (
+              <PreviewDiffTargetRow key={`diff-${t.target}`} target={t} />
+            ))}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function PreviewDiffTargetRow({
+  target,
+}: {
+  target: CodegenPreviewTargetDiff;
+}): JSX.Element {
+  const c = target.counts;
+  const artifactPart =
+    c.artifactsAdded + c.artifactsRemoved + c.artifactsChanged > 0
+      ? `${c.artifactsAdded} added, ${c.artifactsRemoved} removed, ${c.artifactsChanged} changed`
+      : 'no artifact changes';
+  const diagPart =
+    c.diagnosticsAdded + c.diagnosticsRemoved > 0
+      ? `${c.diagnosticsAdded + c.diagnosticsRemoved} diagnostic change${
+          c.diagnosticsAdded + c.diagnosticsRemoved === 1 ? '' : 's'
+        }`
+      : 'no diagnostic changes';
+  return (
+    <article
+      className={`codegen-preview-diff-row codegen-preview-diff-row--${target.status}`}
+      aria-label={`Diff for ${target.target}`}
+    >
+      <header className="codegen-preview-diff-row-header">
+        <code className="codegen-preview-target">{target.target}</code>
+        <span className={`badge preview-diff-badge--${target.status}`}>
+          {target.status.replace('_', ' ')}
+        </span>
+        {target.previousStatus && target.currentStatus &&
+        target.previousStatus !== target.currentStatus ? (
+          <span className="muted">
+            {STATUS_LABEL[target.previousStatus]} →{' '}
+            {STATUS_LABEL[target.currentStatus]}
+          </span>
+        ) : null}
+      </header>
+      <p className="muted">
+        {artifactPart}; {diagPart}.
+      </p>
+      {target.artifacts.some((a) => a.status !== 'unchanged') ? (
+        <details className="codegen-preview-diff-artifacts">
+          <summary>Artifact changes</summary>
+          <ul>
+            {target.artifacts
+              .filter((a) => a.status !== 'unchanged')
+              .map((a) => (
+                <PreviewDiffArtifactRow
+                  key={`${target.target}-diff-${a.path}`}
+                  artifact={a}
+                />
+              ))}
+          </ul>
+        </details>
+      ) : null}
+      {target.diagnostics.length > 0 ? (
+        <details className="codegen-preview-diff-diagnostics">
+          <summary>
+            Diagnostic changes ({target.diagnostics.length})
+          </summary>
+          <ul>
+            {target.diagnostics.map((d, i) => (
+              <PreviewDiffDiagnosticRow
+                key={`${target.target}-diff-d-${i}-${d.diagnostic.code}`}
+                d={d}
+              />
+            ))}
+          </ul>
+        </details>
+      ) : null}
+    </article>
+  );
+}
+
+function PreviewDiffArtifactRow({
+  artifact,
+}: {
+  artifact: CodegenPreviewArtifactDiff;
+}): JSX.Element {
+  return (
+    <li
+      className={`codegen-preview-diff-artifact codegen-preview-diff-artifact--${artifact.status}`}
+    >
+      <header>
+        <span className={`badge preview-diff-badge--${artifact.status}`}>
+          {artifact.status}
+        </span>{' '}
+        <code className="codegen-preview-artifact-path">{artifact.path}</code>
+      </header>
+      {artifact.status === 'changed' && artifact.diff ? (
+        <details>
+          <summary>
+            Show diff sample
+            {artifact.diff.truncated ? ' (truncated)' : ''}
+          </summary>
+          <pre className="codegen-preview-diff-snippet">
+            {artifact.diff.lines
+              .map((l) => {
+                const sigil =
+                  l.status === 'added'
+                    ? '+'
+                    : l.status === 'removed'
+                      ? '-'
+                      : ' ';
+                return `${sigil} ${l.text}`;
+              })
+              .join('\n')}
+          </pre>
+        </details>
+      ) : null}
+    </li>
+  );
+}
+
+function PreviewDiffDiagnosticRow({
+  d,
+}: {
+  d: CodegenPreviewDiagnosticDiff;
+}): JSX.Element {
+  return (
+    <li className={`codegen-preview-diff-diagnostic preview-diff-${d.status}`}>
+      <span className={`badge preview-diff-badge--${d.status}`}>
+        {d.status}
+      </span>{' '}
+      <span className={`badge sev-${d.diagnostic.severity}`}>
+        {d.diagnostic.severity}
+      </span>{' '}
+      <code>{d.diagnostic.code}</code>{' '}
+      <span className="diag-message">{d.diagnostic.message}</span>
+    </li>
   );
 }
 

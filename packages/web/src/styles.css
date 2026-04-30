@@ -1672,3 +1672,69 @@ table.kv td {
 .codegen-readiness-item {
   margin: 4px 0;
 }
+
+/* Sprint 90B — Codegen preview diff section */
+.codegen-preview-diff {
+  margin-top: 12px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.codegen-preview-diff h4 {
+  margin: 0 0 4px 0;
+  font-size: 0.95em;
+}
+.codegen-preview-diff-summary {
+  margin: 0 0 8px 0;
+}
+.codegen-preview-diff-state--unchanged {
+  color: var(--muted);
+}
+.codegen-preview-diff-targets {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.codegen-preview-diff-row {
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--border);
+  border-radius: 4px;
+  padding: 6px 8px;
+}
+.codegen-preview-diff-row--added { border-left-color: #16a34a; }
+.codegen-preview-diff-row--removed { border-left-color: #dc2626; }
+.codegen-preview-diff-row--status_changed { border-left-color: #b45309; }
+.codegen-preview-diff-row--artifacts_changed { border-left-color: #2563eb; }
+.codegen-preview-diff-row--diagnostics_changed { border-left-color: #9333ea; }
+.codegen-preview-diff-row-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.preview-diff-badge--added { background: #dcfce7; color: #166534; }
+.preview-diff-badge--removed { background: #fee2e2; color: #991b1b; }
+.preview-diff-badge--changed { background: #dbeafe; color: #1e3a8a; }
+.preview-diff-badge--status_changed { background: #fef3c7; color: #92400e; }
+.preview-diff-badge--artifacts_changed { background: #dbeafe; color: #1e3a8a; }
+.preview-diff-badge--diagnostics_changed { background: #ede9fe; color: #5b21b6; }
+.preview-diff-badge--unchanged { background: var(--bg-elevated); color: var(--muted); }
+.codegen-preview-diff-artifacts ul,
+.codegen-preview-diff-diagnostics ul {
+  list-style: none;
+  padding: 4px 0 0 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.codegen-preview-diff-artifact { padding: 2px 0; }
+.codegen-preview-diff-snippet {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.85em;
+  padding: 6px 8px;
+  background: var(--bg-elevated);
+  border-radius: 4px;
+  overflow-x: auto;
+  white-space: pre;
+  margin: 4px 0 0 0;
+}
