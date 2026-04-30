@@ -1,6 +1,7 @@
 # Electrical-plan ingestion architecture
 
-> **Status: Rockwell valve_onoff support after Logix audit (Sprint 88C).** Sprint 72
+> **Status: cross-renderer `valve_onoff` parity bar (Sprint 88D); Rockwell
+> valve_onoff support after Logix audit (Sprint 88C).** Sprint 72
 > scaffolded the architecture. Sprint 73 added the CSV ingestor.
 > Sprint 74 added the EPLAN structured XML ingestor v0. Sprint 75
 > added the Review UI v0. Sprint 76 added the PIR builder v0.
@@ -574,6 +575,26 @@ This keeps both branches of the strategic requirement — structured
 ECAD exports today and PDF documents tomorrow — funnelling through
 the same review/persist/export model. A weak prompt cannot
 override that model: it has no surface area in any of these layers.
+
+## Sprint 88D — Cross-renderer `valve_onoff` parity bar
+
+Tests-only sprint. Sprints 87A → 88C each shipped a per-package
+spec pinning **its own** target's `valve_onoff` artifact shape;
+none of them guarded **parity** across the three production
+backends. Sprint 88D adds
+[`packages/codegen-integration-tests/tests/valve-onoff-universal-support.spec.ts`](../packages/codegen-integration-tests/tests/valve-onoff-universal-support.spec.ts)
+which runs a single `valve_onoff` PIR fixture through CODESYS,
+Siemens and Rockwell and asserts: (a) the type artifact carries
+exactly `cmd_open` + `fault` on every backend, (b) every station
+FB wires `open_cmd → io_v01_sol` in its target's lexical
+convention, (c) no backend synthesises close output / position
+feedback / busy / done / fault latch, (d) `runTargetPreflight`
+returns clean for every vendor target, (e) `motor_vfd_simple`
+still throws `READINESS_FAILED` on every vendor target (no
+accidental opening), and (f) generation is deterministic.
+22 effective tests, no production code touched. See
+[`docs/codegen-integration-valve-onoff-sprint-88D.md`](codegen-integration-valve-onoff-sprint-88D.md)
+for the full guarantee/non-guarantee list.
 
 ## Sprint 88C — Rockwell valve_onoff support after Logix audit
 
