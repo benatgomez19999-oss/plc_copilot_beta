@@ -6,17 +6,14 @@
 import { dedupDiagnostics, diag, sortDiagnostics, } from '../compiler/diagnostics.js';
 import { equipmentPath, equipmentTypePath, stationPath, } from '../compiler/diagnostic-paths.js';
 
-// Sprint 88I — Siemens audit confirmed structural agnosticism for
-// motor_vfd_simple; Siemens joins core+codesys on the wider set.
-// Only Rockwell stays on the narrower set until its audit in 88J.
-const ROCKWELL_SUPPORTED_EQUIPMENT = new Set([
+// Sprint 88J — Rockwell audit confirmed structural agnosticism for
+// motor_vfd_simple; Rockwell joins core/codesys/siemens on the wider
+// set. All four targets converge on CORE_SUPPORTED_EQUIPMENT.
+const CORE_SUPPORTED_EQUIPMENT = new Set([
     'pneumatic_cylinder_2pos',
     'motor_simple',
     'sensor_discrete',
     'valve_onoff',
-]);
-const CORE_SUPPORTED_EQUIPMENT = new Set([
-    ...ROCKWELL_SUPPORTED_EQUIPMENT,
     'motor_vfd_simple',
 ]);
 const CORE_SUPPORTED_DATA_TYPES = new Set([
@@ -56,9 +53,9 @@ const TARGET_CAPABILITIES = {
     },
     rockwell: {
         target: 'rockwell',
-        // Sprint 88I — keeps Rockwell on the narrower set;
-        // motor_vfd_simple audit lands in 88J.
-        supportedEquipmentTypes: ROCKWELL_SUPPORTED_EQUIPMENT,
+        // Sprint 88J — Rockwell audit confirmed structural agnosticism
+        // for motor_vfd_simple; widens to CORE_SUPPORTED_EQUIPMENT.
+        supportedEquipmentTypes: CORE_SUPPORTED_EQUIPMENT,
         supportedIoDataTypes: CORE_SUPPORTED_DATA_TYPES,
         supportedIoMemoryAreas: CORE_SUPPORTED_MEMORY_AREAS,
     },

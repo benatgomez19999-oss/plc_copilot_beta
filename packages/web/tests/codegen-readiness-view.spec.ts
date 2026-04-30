@@ -182,30 +182,16 @@ describe('buildCodegenReadinessView — Sprint 87A/87C/88C valve_onoff', () => {
     ).toBe(false);
   });
 
-  it('4. motor_vfd_simple still blocks Rockwell (CODESYS opened in 88H, Siemens in 88I)', () => {
+  it('4. motor_vfd_simple is universally accepted on every vendor target (Sprints 88H/88I/88J convergence)', () => {
     // Sprint 88H — CODESYS audit. Sprint 88I — Siemens SCL audit.
-    // Both confirmed structural agnosticism for `motor_vfd_simple`.
-    // Only Rockwell continues to block; its audit lands in 88J.
-    // The unsupported-UX is exercised on the one still-closed
-    // vendor, with explicit positive checks for CODESYS + Siemens.
+    // Sprint 88J — Rockwell Logix audit. All three confirmed
+    // structural agnosticism; capability tables converge on
+    // CORE_SUPPORTED_EQUIPMENT. The readiness view is no longer
+    // `'blocked'` for `motor_vfd_simple` on any vendor target.
     const p = valveProject();
     (p.machines[0].stations[0].equipment[0].type as string) =
       'motor_vfd_simple';
-
-    // Rockwell still blocked — UX exercised here.
-    const rv = buildCodegenReadinessView({ project: p, target: 'rockwell' });
-    expect(rv.status).toBe('blocked');
-    const rGroup = rv.groups.find(
-      (g) => g.code === 'READINESS_UNSUPPORTED_EQUIPMENT_FOR_TARGET',
-    );
-    expect(rGroup).toBeDefined();
-    expect(rGroup?.severity).toBe('error');
-    expect(rGroup?.items[0].message).toContain('motor_vfd_simple');
-    expect(rGroup?.items[0].message).toContain('rockwell');
-    expect(rGroup?.items[0].hint).toBeDefined();
-
-    // CODESYS + Siemens no longer block the kind.
-    for (const target of ['codesys', 'siemens'] as const) {
+    for (const target of ['codesys', 'siemens', 'rockwell'] as const) {
       const v = buildCodegenReadinessView({ project: p, target });
       expect(v.status).not.toBe('blocked');
       expect(
@@ -213,6 +199,27 @@ describe('buildCodegenReadinessView — Sprint 87A/87C/88C valve_onoff', () => {
           (g) => g.code === 'READINESS_UNSUPPORTED_EQUIPMENT_FOR_TARGET',
         ),
       ).toBe(false);
+    }
+  });
+
+  it('5. pneumatic_cylinder_1pos still blocks every vendor target (regression bar for an actually-unsupported kind)', () => {
+    // After Sprint 88J every vendor accepts motor_vfd_simple, so
+    // the rejection-UX guardrail moves to a kind that is still
+    // genuinely outside CORE_SUPPORTED_EQUIPMENT.
+    const p = valveProject();
+    (p.machines[0].stations[0].equipment[0].type as string) =
+      'pneumatic_cylinder_1pos';
+    for (const target of ['codesys', 'siemens', 'rockwell'] as const) {
+      const v = buildCodegenReadinessView({ project: p, target });
+      expect(v.status).toBe('blocked');
+      const group = v.groups.find(
+        (g) => g.code === 'READINESS_UNSUPPORTED_EQUIPMENT_FOR_TARGET',
+      );
+      expect(group).toBeDefined();
+      expect(group?.severity).toBe('error');
+      expect(group?.items[0].message).toContain('pneumatic_cylinder_1pos');
+      expect(group?.items[0].message).toContain(target);
+      expect(group?.items[0].hint).toBeDefined();
     }
   });
 });

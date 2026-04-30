@@ -1,13 +1,12 @@
 # Electrical-plan ingestion architecture
 
-> **Status: Siemens `motor_vfd_simple` support after SCL audit
-> (Sprint 88I — Rockwell still blocked); CODESYS `motor_vfd_simple`
-> support (Sprint 88H); PIR + codegen-core `motor_vfd_simple`
-> lowering (Sprint 88G); PIR design *Option A — Parameter→role
-> binding* (Sprint 88F); `motor_vfd_simple` audit deferred (Sprint
-> 88E); cross-renderer `valve_onoff` parity bar (Sprint 88D);
-> Rockwell valve_onoff support after Logix audit (Sprint 88C).**
-> Sprint 72
+> **Status: `motor_vfd_simple` universally supported across
+> CODESYS / Siemens / Rockwell after the Logix audit (Sprint 88J);
+> Siemens support (Sprint 88I); CODESYS support (Sprint 88H);
+> PIR + codegen-core lowering (Sprint 88G); PIR design *Option A —
+> Parameter→role binding* (Sprint 88F); audit deferred (Sprint 88E);
+> cross-renderer `valve_onoff` parity bar (Sprint 88D); Rockwell
+> valve_onoff support after Logix audit (Sprint 88C).** Sprint 72
 > scaffolded the architecture. Sprint 73 added the CSV ingestor.
 > Sprint 74 added the EPLAN structured XML ingestor v0. Sprint 75
 > added the Review UI v0. Sprint 76 added the PIR builder v0.
@@ -581,6 +580,43 @@ This keeps both branches of the strategic requirement — structured
 ECAD exports today and PDF documents tomorrow — funnelling through
 the same review/persist/export model. A weak prompt cannot
 override that model: it has no surface area in any of these layers.
+
+## Sprint 88J — Rockwell `motor_vfd_simple` audit + widening (universal convergence)
+
+Audit-first sprint mirroring 88C / 88H / 88I. The Rockwell/Logix
+renderer was audited against the 9-point checklist (per-equipment
+switch, hard-coded UDT_NAMES, TypeArtifactIR.fields rendering,
+Assign rendering, SymbolRef → parameter rendering via shared
+`renderStorage`, naming conversion, manifest diagnostics, FB body
+walking, Logix tag-name constraints) and came back fully clean.
+Sprint 88G's `wireMotorVfdSimple` already produces the IR; the
+Logix renderer emits it generically the moment the readiness
+capability table opens. Rockwell now joins the wider set, and the
+narrow `ROCKWELL_SUPPORTED_EQUIPMENT` constant is removed —
+all four targets (`core` / `codesys` / `siemens` / `rockwell`)
+converge on `CORE_SUPPORTED_EQUIPMENT`. New per-package
+end-to-end spec at
+[`packages/codegen-rockwell/tests/motor-vfd-simple.spec.ts`](../packages/codegen-rockwell/tests/motor-vfd-simple.spec.ts)
+pins: `UDT_MotorVfdSimple` exact field set
+(`cmd_run : BOOL`, `speed_setpoint : REAL`, `fault : BOOL`),
+the run command and parameter-sourced setpoint assignments
+(`io_m01_run := mot01_run_cmd` and
+`io_m01_speed_aw := p_m01_speed;`), the no-synthesised-literal
+invariant on the speed setpoint RHS (regex against
+`:= TRUE/FALSE/<number>;`), the no-extra-signals contract,
+manifest cleanliness with `ROCKWELL_EXPERIMENTAL_BACKEND`
+retained, the `UNBOUND_ROLE` / `UNBOUND_SETPOINT_SOURCE` paths,
+determinism, and no-duplicate-paths. Codegen-core readiness
+tests, the 88D cross-renderer parity bar, the web readiness-view
+spec, and the CLI generate spec all updated; the
+"unsupported-universal" guardrail moves from `motor_vfd_simple`
+to `pneumatic_cylinder_1pos`. The cross-renderer
+`motor_vfd_simple` parity bar (mirror of 88D for valve_onoff)
+lands in Sprint 88K. See
+[`docs/codegen-motor-vfd-rockwell-sprint-88J.md`](codegen-motor-vfd-rockwell-sprint-88J.md)
+for the full audit findings, the readiness vendor matrix
+(`core: ✅`, `codesys: ✅`, `siemens: ✅`, `rockwell: ✅`),
+the honest constraints, and the recommended Sprint 88K/L sequence.
 
 ## Sprint 88I — Siemens `motor_vfd_simple` audit + widening
 

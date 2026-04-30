@@ -334,13 +334,13 @@ describe('preflightProject — Sprint 87A valve_onoff per-target split', () => {
   });
 
   it('8. runTargetPreflight still throws READINESS_FAILED for an equipment kind outside CORE_SUPPORTED_EQUIPMENT', () => {
-    // `motor_vfd_simple` is a valid PIR EquipmentType but is
-    // NOT in any target's capability set. It exercises the
-    // unsupported-equipment path now that valve_onoff is
-    // universally supported.
+    // After Sprint 88J, `motor_vfd_simple` is in every target's
+    // capability set. `pneumatic_cylinder_1pos` is a valid PIR
+    // EquipmentType that is NOT in `CORE_SUPPORTED_EQUIPMENT` and
+    // exercises the rejection path on every vendor target.
     const p = valveProject();
     (p.machines[0].stations[0].equipment[0].type as string) =
-      'motor_vfd_simple';
+      'pneumatic_cylinder_1pos';
     let caught: CodegenError | undefined;
     try {
       runTargetPreflight(p, 'rockwell');
@@ -380,35 +380,36 @@ describe('preflightProject — Sprint 87A valve_onoff per-target split', () => {
 // audit findings and the conditions under which camino B unblocks.
 // =============================================================================
 
-describe('preflightProject — Sprint 88I motor_vfd_simple per-vendor split (CODESYS + Siemens opened)', () => {
+describe('preflightProject — Sprint 88J motor_vfd_simple convergence (all targets accept)', () => {
   // Sprint 88E pinned that no target accepted motor_vfd_simple.
-  // Sprint 88G widened the `core` target while keeping every
-  // vendor target closed. Sprint 88H opened CODESYS. Sprint 88I
-  // opens Siemens after its SCL renderer audit; only Rockwell
-  // stays closed until its audit in Sprint 88J.
-  it('1. motor_vfd_simple is rejected by Rockwell (audit 88J pending)', () => {
-    const caps = getTargetCapabilities('rockwell');
-    expect(caps.supportedEquipmentTypes.has('motor_vfd_simple' as never)).toBe(
-      false,
-    );
-  });
-
-  it('2. motor_vfd_simple IS in the core capability table (Sprint 88G)', () => {
+  // Sprint 88G widened the `core` target. Sprint 88H opened CODESYS,
+  // 88I opened Siemens, 88J opens Rockwell after the Logix renderer
+  // audit. Every target now shares CORE_SUPPORTED_EQUIPMENT for
+  // motor_vfd_simple. The block is kept as a regression bar — any
+  // accidental narrowing on a future sprint must surface here.
+  it('1. motor_vfd_simple IS in the core capability table (Sprint 88G)', () => {
     const caps = getTargetCapabilities('core');
     expect(caps.supportedEquipmentTypes.has('motor_vfd_simple' as never)).toBe(
       true,
     );
   });
 
-  it('3. motor_vfd_simple IS in the CODESYS capability table (Sprint 88H — post-audit)', () => {
+  it('2. motor_vfd_simple IS in the CODESYS capability table (Sprint 88H)', () => {
     const caps = getTargetCapabilities('codesys');
     expect(caps.supportedEquipmentTypes.has('motor_vfd_simple' as never)).toBe(
       true,
     );
   });
 
-  it('4. motor_vfd_simple IS in the Siemens capability table (Sprint 88I — post-audit)', () => {
+  it('3. motor_vfd_simple IS in the Siemens capability table (Sprint 88I)', () => {
     const caps = getTargetCapabilities('siemens');
+    expect(caps.supportedEquipmentTypes.has('motor_vfd_simple' as never)).toBe(
+      true,
+    );
+  });
+
+  it('4. motor_vfd_simple IS in the Rockwell capability table (Sprint 88J — post-audit)', () => {
+    const caps = getTargetCapabilities('rockwell');
     expect(caps.supportedEquipmentTypes.has('motor_vfd_simple' as never)).toBe(
       true,
     );

@@ -125,30 +125,28 @@ export interface PreflightResult {
 // vendor set so `compileProject` could lower `motor_vfd_simple`
 // while every vendor target stayed closed.
 //
-// Sprint 88H — CODESYS renderer audit confirmed structural
-// agnosticism for `motor_vfd_simple`; CODESYS joined `core` on the
-// wider set.
+// Sprint 88H — CODESYS renderer audit confirmed structural agnosticism
+// for `motor_vfd_simple`; CODESYS joined `core` on the wider set.
+// Sprint 88I — Siemens/SCL renderer audit ditto; Siemens joined too.
+// Sprint 88J — Rockwell/Logix renderer audit confirmed structural
+// agnosticism (no per-kind switch in `renderStmtRockwell` /
+// `renderTypeArtifactRockwell` / `renderFunctionBlockRockwell`;
+// fields iterated blindly with per-field dataType → IEC type;
+// SymbolRef → parameter renders via the same `renderStorage` path
+// used by guards / triggers — bare global identifier on Rockwell
+// (no quoting, no `#` prefix); canonical `UDT_MotorVfdSimple`
+// accepted verbatim; per-project `ROCKWELL_*` diagnostics never
+// gated on equipment kind). Rockwell now joins the wider set;
+// every target shares `CORE_SUPPORTED_EQUIPMENT`.
 //
-// Sprint 88I — Siemens/SCL renderer audit confirmed structural
-// agnosticism for `motor_vfd_simple` (no per-kind switch in
-// `renderStmt` / `renderTypeArtifactSiemens` / `renderFunctionBlock`;
-// fields iterated blindly with per-field dataType → SCL type;
-// SymbolRef→parameter renders via the same `renderStorage` path used
-// by guards / triggers; canonical `UDT_MotorVfdSimple` name accepted
-// verbatim with no DUT_* rewrite; manifest is equipment-agnostic).
-// Siemens now joins `core` and `codesys` on the wider set; only
-// Rockwell stays on the narrower set until its own audit in
-// Sprint 88J.
-const ROCKWELL_SUPPORTED_EQUIPMENT: ReadonlySet<EquipmentType> = new Set<EquipmentType>([
+// The narrow `ROCKWELL_SUPPORTED_EQUIPMENT` constant is removed —
+// re-introduce a target-specific narrow set when a future kind
+// lands on a subset of vendors, mirroring the 88H/88I/88J pattern.
+const CORE_SUPPORTED_EQUIPMENT: ReadonlySet<EquipmentType> = new Set<EquipmentType>([
   'pneumatic_cylinder_2pos',
   'motor_simple',
   'sensor_discrete',
   'valve_onoff',
-]);
-
-// `core`, `codesys`, and (after Sprint 88I) `siemens` share the wider set.
-const CORE_SUPPORTED_EQUIPMENT: ReadonlySet<EquipmentType> = new Set<EquipmentType>([
-  ...ROCKWELL_SUPPORTED_EQUIPMENT,
   'motor_vfd_simple',
 ]);
 
@@ -194,9 +192,11 @@ const TARGET_CAPABILITIES: Record<CodegenTarget, TargetCapabilities> = {
   },
   rockwell: {
     target: 'rockwell',
-    // Sprint 88I — keeps Rockwell on the narrower set;
-    // motor_vfd_simple audit lands in Sprint 88J.
-    supportedEquipmentTypes: ROCKWELL_SUPPORTED_EQUIPMENT,
+    // Sprint 88J — Rockwell/Logix audit confirmed structural
+    // agnosticism for `motor_vfd_simple`; capability table widens
+    // to `CORE_SUPPORTED_EQUIPMENT`. All four targets are now on
+    // the same set.
+    supportedEquipmentTypes: CORE_SUPPORTED_EQUIPMENT,
     supportedIoDataTypes: CORE_SUPPORTED_DATA_TYPES,
     supportedIoMemoryAreas: CORE_SUPPORTED_MEMORY_AREAS,
   },

@@ -267,21 +267,37 @@ describe('Sprint 88D — valve_onoff universal support (integration)', () => {
   });
 
   // =============================================================================
-  // 5. motor_vfd_simple — Sprint 88I per-vendor split.
+  // 5. motor_vfd_simple — Sprint 88J convergence.
   //
-  // CODESYS opened in Sprint 88H, Siemens opened in Sprint 88I after
-  // their respective renderer audits. Only Rockwell still rejects;
-  // its audit lands in Sprint 88J. The per-vendor specs in
-  // `packages/codegen-codesys/tests/motor-vfd-simple.spec.ts` and
-  // `packages/codegen-siemens/tests/motor-vfd-simple.spec.ts` cover
-  // the acceptance side; this loop pins the residual rejection bar.
+  // CODESYS opened in 88H, Siemens in 88I, Rockwell in 88J after
+  // their respective renderer audits. Every vendor target now
+  // accepts the kind. The per-vendor specs in
+  // `packages/codegen-{codesys,siemens,rockwell}/tests/motor-vfd-simple.spec.ts`
+  // cover the acceptance side; this block pins the convergence
+  // (preflight passes on every vendor target). The cross-renderer
+  // parity bar — analogous to Sprint 88D for valve_onoff — lands
+  // in Sprint 88K.
+  //
+  // Sprint 88J also flips the "still-unsupported equipment" usage
+  // away from `motor_vfd_simple`. Rejection-UX tests retarget to
+  // `pneumatic_cylinder_1pos` (still outside CORE_SUPPORTED_EQUIPMENT)
+  // when needed.
   // =============================================================================
 
-  describe('5. motor_vfd_simple still blocks Rockwell (CODESYS opened in 88H, Siemens in 88I)', () => {
-    it('rockwell → runTargetPreflight throws READINESS_FAILED with UNSUPPORTED_EQUIPMENT_FOR_TARGET', () => {
+  describe('5. motor_vfd_simple is universally accepted on every vendor target (88H/88I/88J convergence)', () => {
+    for (const target of ['codesys', 'siemens', 'rockwell'] as const) {
+      it(`${target} → runTargetPreflight does NOT throw on a motor_vfd_simple project`, () => {
+        const p = valveProject();
+        (p.machines[0].stations[0].equipment[0].type as string) =
+          'motor_vfd_simple';
+        expect(() => runTargetPreflight(p, target)).not.toThrow();
+      });
+    }
+
+    it('pneumatic_cylinder_1pos still throws READINESS_FAILED on Rockwell (regression bar for an actually-unsupported kind)', () => {
       const p = valveProject();
       (p.machines[0].stations[0].equipment[0].type as string) =
-        'motor_vfd_simple';
+        'pneumatic_cylinder_1pos';
       let caught: CodegenError | undefined;
       try {
         runTargetPreflight(p, 'rockwell');
@@ -298,20 +314,6 @@ describe('Sprint 88D — valve_onoff universal support (integration)', () => {
           (d) => d.code === 'READINESS_UNSUPPORTED_EQUIPMENT_FOR_TARGET',
         ),
       ).toBe(true);
-    });
-
-    it('codesys → motor_vfd_simple no longer throws at preflight (Sprint 88H — post-audit)', () => {
-      const p = valveProject();
-      (p.machines[0].stations[0].equipment[0].type as string) =
-        'motor_vfd_simple';
-      expect(() => runTargetPreflight(p, 'codesys')).not.toThrow();
-    });
-
-    it('siemens → motor_vfd_simple no longer throws at preflight (Sprint 88I — post-audit)', () => {
-      const p = valveProject();
-      (p.machines[0].stations[0].equipment[0].type as string) =
-        'motor_vfd_simple';
-      expect(() => runTargetPreflight(p, 'siemens')).not.toThrow();
     });
   });
 
