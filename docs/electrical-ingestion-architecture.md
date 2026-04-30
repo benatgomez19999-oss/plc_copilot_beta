@@ -1,8 +1,10 @@
 # Electrical-plan ingestion architecture
 
-> **Status: `motor_vfd_simple` audit closed at *support deferred*
-> (Sprint 88E); cross-renderer `valve_onoff` parity bar (Sprint 88D);
-> Rockwell valve_onoff support after Logix audit (Sprint 88C).** Sprint 72
+> **Status: PIR design for `motor_vfd_simple` numeric setpoint binding
+> closed at *Option A — Parameter→role binding* (Sprint 88F, design-only);
+> `motor_vfd_simple` audit closed at *support deferred* (Sprint 88E);
+> cross-renderer `valve_onoff` parity bar (Sprint 88D); Rockwell
+> valve_onoff support after Logix audit (Sprint 88C).** Sprint 72
 > scaffolded the architecture. Sprint 73 added the CSV ingestor.
 > Sprint 74 added the EPLAN structured XML ingestor v0. Sprint 75
 > added the Review UI v0. Sprint 76 added the PIR builder v0.
@@ -576,6 +578,31 @@ This keeps both branches of the strategic requirement — structured
 ECAD exports today and PDF documents tomorrow — funnelling through
 the same review/persist/export model. A weak prompt cannot
 override that model: it has no surface area in any of these layers.
+
+## Sprint 88F — PIR design for `motor_vfd_simple` numeric setpoint binding (Option A)
+
+Design-only sprint. Sprint 88E established that the renderer side is
+structurally agnostic and the blocker is in PIR — `speed_setpoint_out`
+is a required numeric output with no PIR-level mechanism to drive a
+value into it. Sprint 88F audits the existing PIR `Parameter` /
+`Activity` / `Recipe` machinery and compares two ways to close the
+gap: **Option A — parameter→role binding** (a new optional
+`io_setpoint_bindings: Record<role, parameter_id>` on `Equipment`,
+reusing the existing `Parameter` validation + symbol-resolver +
+`DB_Global_Params` lowering) versus **Option B — numeric activity
+verb / `Action[]` payload** (extending `Activity` to carry a numeric
+value into a setpoint output). The recommendation is **Option A**:
+the setpoint is a process parameter, not a sequence event;
+Option A reuses three mature facilities and touches one PIR type,
+one validator rule, and one lowering helper, while Option B
+conflates state-entry semantics with process-parameter semantics,
+forces a breaking change to `activate: string[]` (or activates
+the long-deferred `Action[]` lowering path), and loses recipe
+override "for free." A concrete Sprint 88G implementation plan +
+acceptance criteria is provided in
+[`docs/pir-motor-vfd-speed-setpoint-design-sprint-88F.md`](pir-motor-vfd-speed-setpoint-design-sprint-88F.md).
+Capability tables stay closed for `motor_vfd_simple` until 88G
+ships and the per-vendor audits (88H/88I/88J) follow.
 
 ## Sprint 88E — `motor_vfd_simple` audit (support deferred)
 
