@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Sprint 88M — representative EPLAN XML fixture carrying explicit
+  <Parameter> + <SetpointBinding> elements alongside the legacy
+  <Element> device + IO declarations. The structured rows are
+  the only mechanism that turns numeric metadata into machine
+  parameters; nothing here is inferred from <Description>,
+  <Label>, or any free text.
+-->
+<EplanProject schemaVersion="0.1">
+  <Parameters>
+    <Parameter id="p_m01_speed" dataType="real" default="50" unit="Hz" label="M01 speed setpoint"/>
+  </Parameters>
+  <SetpointBindings>
+    <SetpointBinding equipmentId="M01" role="speed_setpoint_out" parameterId="p_m01_speed"/>
+  </SetpointBindings>
+  <Pages>
+    <Page sheet="=A1/14" name="Conveyor">
+      <Element id="el-101" tag="M01" kind="motor"
+               address="%Q0.2" direction="output"
+               label="Conveyor motor"
+               terminal="2" strip="X3" cable="W14"/>
+      <!-- Free-text description with a number — must NOT yield a
+           parameter. Sprint 88M is structured-only. -->
+      <Element id="el-102" tag="M01_speed" kind="motor"
+               address="%QD100" direction="output"
+               label="M01 speed AW: nominal 50 Hz at full load"/>
+    </Page>
+  </Pages>
+</EplanProject>

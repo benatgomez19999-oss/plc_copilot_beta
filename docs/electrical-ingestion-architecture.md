@@ -1,13 +1,14 @@
 # Electrical-plan ingestion architecture
 
-> **Status: electrical-ingest CSV parameter extraction for
-> `motor_vfd_simple` setpoint sources (Sprint 88L); cross-renderer
-> `motor_vfd_simple` parity bar (Sprint 88K); universal vendor
-> support after 88H/88I/88J (CODESYS/Siemens/Rockwell); PIR +
-> codegen-core lowering (Sprint 88G); PIR design *Option A —
-> Parameter→role binding* (Sprint 88F); audit deferred (Sprint 88E);
-> cross-renderer `valve_onoff` parity bar (Sprint 88D); Rockwell
-> valve_onoff support after Logix audit (Sprint 88C).** Sprint 72
+> **Status: structured EPLAN + TcECAD XML parameter extraction for
+> `motor_vfd_simple` setpoint sources (Sprint 88M); CSV parameter
+> extraction (Sprint 88L); cross-renderer `motor_vfd_simple` parity
+> bar (Sprint 88K); universal vendor support after 88H/88I/88J
+> (CODESYS/Siemens/Rockwell); PIR + codegen-core lowering (Sprint
+> 88G); PIR design *Option A — Parameter→role binding* (Sprint 88F);
+> audit deferred (Sprint 88E); cross-renderer `valve_onoff` parity
+> bar (Sprint 88D); Rockwell valve_onoff support after Logix audit
+> (Sprint 88C).** Sprint 72
 > scaffolded the architecture. Sprint 73 added the CSV ingestor.
 > Sprint 74 added the EPLAN structured XML ingestor v0. Sprint 75
 > added the Review UI v0. Sprint 76 added the PIR builder v0.
@@ -581,6 +582,40 @@ This keeps both branches of the strategic requirement — structured
 ECAD exports today and PDF documents tomorrow — funnelling through
 the same review/persist/export model. A weak prompt cannot
 override that model: it has no surface area in any of these layers.
+
+## Sprint 88M — Structured EPLAN + TcECAD XML parameter extraction
+
+Closes the structured-source half of the
+`motor_vfd_simple` ingestion story Sprint 88L opened for CSV. A
+single shared helper
+([`packages/electrical-ingest/src/mapping/structured-parameter-draft.ts`](../packages/electrical-ingest/src/mapping/structured-parameter-draft.ts))
+recognises explicit `<Parameter>` and `<SetpointBinding>` elements
+in any structured XML tree and produces the same
+`ElectricalParameterDraft` sidecar Sprint 88L attached on
+`graph.metadata.parameterDraft`. Both ingestors —
+[`eplan-xml.ts`](../packages/electrical-ingest/src/sources/eplan-xml.ts)
+and
+[`twincat-ecad-xml.ts`](../packages/electrical-ingest/src/sources/twincat-ecad-xml.ts)
+— now expose the parsed XML root on their parse results, call the
+helper, and attach the sidecar only when something explicit was
+seen. Legacy XML (no `<Parameter>` / `<SetpointBinding>`) stays
+metadata-clean. Multi-file XML imports merge per-file drafts into
+one combined sidecar. Same hard rules as 88L: structured-only,
+numeric data types only (`int` / `dint` / `real`), `bool` refused,
+only `speed_setpoint_out` role, no inference from `<Comment>` /
+`<Description>` / `<Label>` / free text. Eight new diagnostic codes
+(`STRUCTURED_PARAMETER_*` / `STRUCTURED_SETPOINT_BINDING_*`) keep
+the surface uniform across CSV and XML; review and PIR-build wire
+exactly as in 88L. 15 new tests in
+[`packages/electrical-ingest/tests/structured-parameter-extraction.spec.ts`](../packages/electrical-ingest/tests/structured-parameter-extraction.spec.ts)
+cover both ingestors plus an end-to-end EPLAN review→PIR build
+that satisfies R-EQ-05. The `<Variable Kind="parameter">`
+attribute alias proposed in the prompt is deferred (collides with
+TcECAD's legacy `<Variable>` IO model and adds no expressive power
+over standalone `<Parameter>`). See
+[`docs/electrical-ingest-structured-parameter-extraction-sprint-88M.md`](electrical-ingest-structured-parameter-extraction-sprint-88M.md)
+for the supported XML shape, alias table, diagnostic table, and
+the recommended Sprint 89 / parameter-range-validation sequence.
 
 ## Sprint 88L — Electrical-ingest parameter extraction for `motor_vfd_simple`
 

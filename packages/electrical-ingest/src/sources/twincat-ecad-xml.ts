@@ -32,6 +32,10 @@
 import { confidenceFromEvidence, confidenceOf } from '../confidence.js';
 import { createElectricalDiagnostic } from '../diagnostics.js';
 import { KIND_ALIASES } from '../mapping/kind-aliases.js';
+import {
+  extractStructuredParameterDraft,
+  isStructuredParameterDraftEmpty,
+} from '../mapping/structured-parameter-draft.js';
 import { normalizeNodeId } from '../normalize.js';
 import { mergeSourceRefs } from './trace.js';
 import {
@@ -125,6 +129,13 @@ export interface TcecadVariableRecord {
 export interface TcecadParseResult {
   variables: TcecadVariableRecord[];
   diagnostics: ElectricalDiagnostic[];
+  /**
+   * Sprint 88M — parsed XML root, exposed so structured
+   * extractors (`extractStructuredParameterDraft`) can walk the
+   * tree without re-parsing. `null` when the XML failed to parse
+   * or had no root element.
+   */
+  root?: XmlElement | null;
 }
 
 function readChildText(el: XmlElement, name: string): string | undefined {
@@ -242,7 +253,7 @@ export function parseTcecadXml(text: string): TcecadParseResult {
         message: 'TcECAD XML input was empty.',
       }),
     );
-    return { variables: [], diagnostics };
+    return { variables: [], diagnostics, root: null };
   }
   const parsed = parseXml(text);
   if (parsed.errors.length > 0) {
@@ -256,7 +267,7 @@ export function parseTcecadXml(text: string): TcecadParseResult {
     }
   }
   if (!parsed.root) {
-    return { variables: [], diagnostics };
+    return { variables: [], diagnostics, root: null };
   }
   if (!detectTcecadXml(parsed.root)) {
     diagnostics.push(
@@ -266,7 +277,7 @@ export function parseTcecadXml(text: string): TcecadParseResult {
         hint: 'expected root <Project> with a Description containing "TcECAD Import" or a CPUs/CPU/Interfaces/Interface/Boxes/Box/Variables/Variable structure.',
       }),
     );
-    return { variables: [], diagnostics };
+    return { variables: [], diagnostics, root: parsed.root };
   }
 
   diagnostics.push(
@@ -288,7 +299,7 @@ export function parseTcecadXml(text: string): TcecadParseResult {
     );
   }
 
-  return { variables, diagnostics };
+  return { variables, diagnostics, root: parsed.root };
 }
 
 // ---------------------------------------------------------------------------
@@ -380,7 +391,11 @@ export function ingestTcecadXml(
 ): ElectricalIngestionResult {
   const sourceId = input.sourceId;
   const fileName = input.fileName;
-  const { variables, diagnostics: parseDiags } = parseTcecadXml(input.text);
+  const {
+    variables,
+    diagnostics: parseDiags,
+    root: parsedRoot,
+  } = parseTcecadXml(input.text);
   const diagnostics: ElectricalDiagnostic[] = [...parseDiags];
   const allNodes: ElectricalNode[] = [];
   const allEdges: ElectricalEdge[] = [];
@@ -646,16 +661,31 @@ export function ingestTcecadXml(
     );
   }
 
+  const metadata: ElectricalGraph['metadata'] = {
+    sourceFiles: fileName ? [fileName] : [],
+    generator: 'electrical-ingest@twincat-ecad-v0',
+  };
+  // Sprint 88M — extract structured `<Parameter>` / `<SetpointBinding>`
+  // elements when the source carries them. Pure / deterministic;
+  // legacy TcECAD exports without explicit metadata stay untouched.
+  if (parsedRoot) {
+    const draft = extractStructuredParameterDraft(parsedRoot, {
+      sourceId,
+      kind: 'twincat_ecad',
+      fileName,
+    });
+    if (!isStructuredParameterDraftEmpty(draft)) {
+      metadata.parameterDraft = draft;
+      diagnostics.push(...draft.diagnostics);
+    }
+  }
   const graph: ElectricalGraph = {
     id: buildTcecadGraphId(sourceId),
     sourceKind: 'twincat_ecad',
     nodes: allNodes,
     edges: allEdges,
     diagnostics: [...diagnostics],
-    metadata: {
-      sourceFiles: fileName ? [fileName] : [],
-      generator: 'electrical-ingest@twincat-ecad-v0',
-    },
+    metadata,
   };
   return { graph, diagnostics };
 }
@@ -689,6 +719,12 @@ export function createTcecadXmlElectricalIngestor(): ElectricalSourceIngestor {
       const allNodes: ElectricalNode[] = [];
       const allEdges: ElectricalEdge[] = [];
       const sourceFiles: string[] = [];
+      // Sprint 88M — same merge pattern as the EPLAN registry
+      // ingestor: combine per-file parameter drafts into one
+      // sidecar.
+      const combinedParameters: import('../types.js').PirParameterCandidate[] = [];
+      const combinedSetpointBindings: Record<string, Record<string, string>> = {};
+      const combinedDraftDiagnostics: ElectricalDiagnostic[] = [];
 
       for (const file of input.files) {
         if (!file || typeof file !== 'object' || file.kind !== 'xml') continue;
@@ -723,6 +759,33 @@ export function createTcecadXmlElectricalIngestor(): ElectricalSourceIngestor {
           if (!existing) allEdges.push(e);
           else existing.sourceRefs = mergeSourceRefs(existing.sourceRefs, e.sourceRefs);
         }
+        const partialDraft = partial.graph.metadata.parameterDraft;
+        if (partialDraft) {
+          combinedParameters.push(...partialDraft.parameters);
+          for (const [eqId, roleMap] of Object.entries(partialDraft.setpointBindings)) {
+            combinedSetpointBindings[eqId] = {
+              ...(combinedSetpointBindings[eqId] ?? {}),
+              ...roleMap,
+            };
+          }
+          combinedDraftDiagnostics.push(...partialDraft.diagnostics);
+        }
+      }
+
+      const metadata: ElectricalGraph['metadata'] = {
+        sourceFiles,
+        generator: 'electrical-ingest@twincat-ecad-v0',
+      };
+      if (
+        combinedParameters.length > 0 ||
+        Object.keys(combinedSetpointBindings).length > 0 ||
+        combinedDraftDiagnostics.length > 0
+      ) {
+        metadata.parameterDraft = {
+          parameters: combinedParameters,
+          setpointBindings: combinedSetpointBindings,
+          diagnostics: combinedDraftDiagnostics,
+        };
       }
 
       const graph: ElectricalGraph = {
@@ -731,10 +794,7 @@ export function createTcecadXmlElectricalIngestor(): ElectricalSourceIngestor {
         nodes: allNodes,
         edges: allEdges,
         diagnostics: [...diagnostics],
-        metadata: {
-          sourceFiles,
-          generator: 'electrical-ingest@twincat-ecad-v0',
-        },
+        metadata,
       };
       return { graph, diagnostics };
     },

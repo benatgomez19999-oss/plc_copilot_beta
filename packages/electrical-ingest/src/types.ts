@@ -350,7 +350,22 @@ export type ElectricalDiagnosticCode =
   | 'CSV_PARAMETER_METADATA_NOT_NUMERIC'
   | 'CSV_SETPOINT_BINDING_TARGET_MISSING'
   | 'CSV_SETPOINT_BINDING_PARAMETER_MISSING'
-  | 'CSV_SETPOINT_BINDING_ROLE_UNSUPPORTED';
+  | 'CSV_SETPOINT_BINDING_ROLE_UNSUPPORTED'
+  // ---- Sprint 88M: structured XML parameter extraction ----
+  // EPLAN XML / TcECAD XML carry explicit `<Parameter>` and
+  // `<SetpointBinding>` elements. Both ingestors share a single
+  // helper (`extractStructuredParameterDraft`) and a single
+  // diagnostic family. Same hard rules as CSV — never inferred,
+  // never synthesised, numeric data types only, only
+  // `speed_setpoint_out` role.
+  | 'STRUCTURED_PARAMETER_EXTRACTED'
+  | 'STRUCTURED_PARAMETER_DUPLICATE_ID'
+  | 'STRUCTURED_PARAMETER_METADATA_INCOMPLETE'
+  | 'STRUCTURED_PARAMETER_METADATA_NOT_NUMERIC'
+  | 'STRUCTURED_PARAMETER_DEFAULT_INVALID'
+  | 'STRUCTURED_SETPOINT_BINDING_TARGET_MISSING'
+  | 'STRUCTURED_SETPOINT_BINDING_PARAMETER_MISSING'
+  | 'STRUCTURED_SETPOINT_BINDING_ROLE_UNSUPPORTED';
 
 export interface ElectricalDiagnostic {
   code: ElectricalDiagnosticCode;

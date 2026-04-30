@@ -27,6 +27,10 @@
 import { confidenceFromEvidence, confidenceOf } from '../confidence.js';
 import { createElectricalDiagnostic } from '../diagnostics.js';
 import { KIND_ALIASES, knownKindHintList } from '../mapping/kind-aliases.js';
+import {
+  extractStructuredParameterDraft,
+  isStructuredParameterDraftEmpty,
+} from '../mapping/structured-parameter-draft.js';
 import { detectPlcAddress, normalizeNodeId } from '../normalize.js';
 import { mergeSourceRefs } from './trace.js';
 import {
@@ -125,6 +129,13 @@ export interface EplanXmlParseResult {
   elements: EplanXmlElementRecord[];
   /** Page-level `sheet` / `name` annotations, indexed by element id. Useful for sheet inheritance. */
   diagnostics: ElectricalDiagnostic[];
+  /**
+   * Sprint 88M — parsed XML root, exposed so structured
+   * extractors (`extractStructuredParameterDraft`) can walk the
+   * tree without re-parsing. `null` when the XML failed to parse
+   * or had no root element.
+   */
+  root?: XmlElement | null;
 }
 
 export interface EplanXmlIngestionOptions {
@@ -344,7 +355,7 @@ export function parseEplanXml(
         message: 'EPLAN XML input was empty.',
       }),
     );
-    return { format: 'unknown_xml', elements: [], diagnostics };
+    return { format: 'unknown_xml', elements: [], diagnostics, root: null };
   }
 
   const parsed = parseXml(text);
@@ -359,7 +370,7 @@ export function parseEplanXml(
     }
   }
   if (!parsed.root) {
-    return { format: 'unknown_xml', elements: [], diagnostics };
+    return { format: 'unknown_xml', elements: [], diagnostics, root: null };
   }
 
   const format = detectEplanXmlFormat(parsed.root);
@@ -380,7 +391,7 @@ export function parseEplanXml(
           message: `strict mode: refusing to extract from unsupported XML format ${JSON.stringify(parsed.root.tag)}.`,
         }),
       );
-      return { format, elements: [], diagnostics };
+      return { format, elements: [], diagnostics, root: parsed.root };
     }
   }
 
@@ -394,7 +405,7 @@ export function parseEplanXml(
       }),
     );
   }
-  return { format, elements, diagnostics };
+  return { format, elements, diagnostics, root: parsed.root };
 }
 
 // ---------------------------------------------------------------------------
@@ -749,16 +760,32 @@ export function ingestEplanXml(
     }
   }
 
+  const metadata: ElectricalGraph['metadata'] = {
+    sourceFiles: fileName ? [fileName] : [],
+    generator: 'electrical-ingest@eplan-xml-v0',
+  };
+  // Sprint 88M — extract structured `<Parameter>` / `<SetpointBinding>`
+  // elements if any. Pure / deterministic; only attaches the sidecar
+  // when the source carries explicit metadata (legacy EPLAN exports
+  // stay untouched).
+  if (parseResult.root) {
+    const draft = extractStructuredParameterDraft(parseResult.root, {
+      sourceId,
+      kind: 'eplan',
+      fileName,
+    });
+    if (!isStructuredParameterDraftEmpty(draft)) {
+      metadata.parameterDraft = draft;
+      diagnostics.push(...draft.diagnostics);
+    }
+  }
   const graph: ElectricalGraph = {
     id: buildEplanXmlGraphId(sourceId),
     sourceKind: 'eplan-export',
     nodes: allNodes,
     edges: allEdges,
     diagnostics: [...diagnostics],
-    metadata: {
-      sourceFiles: fileName ? [fileName] : [],
-      generator: 'electrical-ingest@eplan-xml-v0',
-    },
+    metadata,
   };
   return { graph, diagnostics };
 }
@@ -788,6 +815,12 @@ export function createEplanXmlElectricalIngestor(): ElectricalSourceIngestor {
       const allNodes: ElectricalNode[] = [];
       const allEdges: ElectricalEdge[] = [];
       const sourceFiles: string[] = [];
+      // Sprint 88M — merge per-file parameter drafts into a single
+      // sidecar so multi-file EPLAN imports flow through the same
+      // PIR-builder hook as a single-file ingest.
+      const combinedParameters: import('../types.js').PirParameterCandidate[] = [];
+      const combinedSetpointBindings: Record<string, Record<string, string>> = {};
+      const combinedDraftDiagnostics: ElectricalDiagnostic[] = [];
 
       for (const file of input.files) {
         if (!file || typeof file !== 'object' || file.kind !== 'xml') continue;
@@ -824,6 +857,33 @@ export function createEplanXmlElectricalIngestor(): ElectricalSourceIngestor {
           if (!existing) allEdges.push(e);
           else existing.sourceRefs = mergeSourceRefs(existing.sourceRefs, e.sourceRefs);
         }
+        const partialDraft = partial.graph.metadata.parameterDraft;
+        if (partialDraft) {
+          combinedParameters.push(...partialDraft.parameters);
+          for (const [eqId, roleMap] of Object.entries(partialDraft.setpointBindings)) {
+            combinedSetpointBindings[eqId] = {
+              ...(combinedSetpointBindings[eqId] ?? {}),
+              ...roleMap,
+            };
+          }
+          combinedDraftDiagnostics.push(...partialDraft.diagnostics);
+        }
+      }
+
+      const metadata: ElectricalGraph['metadata'] = {
+        sourceFiles,
+        generator: 'electrical-ingest@eplan-xml-v0',
+      };
+      if (
+        combinedParameters.length > 0 ||
+        Object.keys(combinedSetpointBindings).length > 0 ||
+        combinedDraftDiagnostics.length > 0
+      ) {
+        metadata.parameterDraft = {
+          parameters: combinedParameters,
+          setpointBindings: combinedSetpointBindings,
+          diagnostics: combinedDraftDiagnostics,
+        };
       }
 
       const graph: ElectricalGraph = {
@@ -832,10 +892,7 @@ export function createEplanXmlElectricalIngestor(): ElectricalSourceIngestor {
         nodes: allNodes,
         edges: allEdges,
         diagnostics: [...diagnostics],
-        metadata: {
-          sourceFiles,
-          generator: 'electrical-ingest@eplan-xml-v0',
-        },
+        metadata,
       };
       return { graph, diagnostics };
     },

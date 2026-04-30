@@ -184,17 +184,28 @@ function defaultSeverityForCode(
     // Sprint 88L — `CSV_PARAMETER_EXTRACTED` is a positive
     // signal that an explicit parameter row landed in the draft.
     case 'CSV_PARAMETER_EXTRACTED':
+    // Sprint 88M — same positive signal, structured-source flavour.
+    case 'STRUCTURED_PARAMETER_EXTRACTED':
       return 'info';
     // Sprint 88L — duplicate parameter id is a warning (second
     // occurrence skipped; first one wins). All other parameter /
     // setpoint-binding row failures block the row deterministically.
     case 'CSV_PARAMETER_DUPLICATE_ID':
+    // Sprint 88M — structured-source duplicate is the same shape.
+    case 'STRUCTURED_PARAMETER_DUPLICATE_ID':
       return 'warning';
     case 'CSV_PARAMETER_METADATA_INCOMPLETE':
     case 'CSV_PARAMETER_METADATA_NOT_NUMERIC':
     case 'CSV_SETPOINT_BINDING_TARGET_MISSING':
     case 'CSV_SETPOINT_BINDING_PARAMETER_MISSING':
     case 'CSV_SETPOINT_BINDING_ROLE_UNSUPPORTED':
+    // Sprint 88M — structured-source equivalents.
+    case 'STRUCTURED_PARAMETER_METADATA_INCOMPLETE':
+    case 'STRUCTURED_PARAMETER_METADATA_NOT_NUMERIC':
+    case 'STRUCTURED_PARAMETER_DEFAULT_INVALID':
+    case 'STRUCTURED_SETPOINT_BINDING_TARGET_MISSING':
+    case 'STRUCTURED_SETPOINT_BINDING_PARAMETER_MISSING':
+    case 'STRUCTURED_SETPOINT_BINDING_ROLE_UNSUPPORTED':
       return 'error';
     default: {
       // Exhaustiveness — TS will flag a missing case if a code is

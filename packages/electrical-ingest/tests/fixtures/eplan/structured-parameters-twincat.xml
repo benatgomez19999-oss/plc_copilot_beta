@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Sprint 88M — minimal Beckhoff/TwinCAT ECAD Import-style fixture
+  carrying explicit <Parameter> + <SetpointBinding> elements
+  alongside the legacy <Variable> IO entries. Same hard rules as
+  EPLAN: only structured elements yield parameters or bindings;
+  <Comment> contents are never parsed for numeric metadata.
+-->
+<Project>
+  <Name>CPU1</Name>
+  <Description>TcECAD Import V2.2.12</Description>
+  <Parameters>
+    <Parameter id="p_m01_speed" dataType="real" default="50" unit="Hz" label="M01 speed setpoint"/>
+  </Parameters>
+  <SetpointBindings>
+    <SetpointBinding equipmentId="M01" role="speed_setpoint_out" parameterId="p_m01_speed"/>
+  </SetpointBindings>
+  <CPUs>
+    <CPU>
+      <Name><![CDATA[Conveyor]]></Name>
+      <Interfaces>
+        <Interface>
+          <Name><![CDATA[=S1+EtherCAT1]]></Name>
+          <Type>ETHERCATPROT</Type>
+          <ChannelNo>1</ChannelNo>
+          <Boxes>
+            <Box>
+              <Name><![CDATA[=S1+M01]]></Name>
+              <Type>EL2004</Type>
+              <BoxNo>1010</BoxNo>
+              <Variables>
+                <Variable>
+                  <Name><![CDATA[M01_RUN]]></Name>
+                  <Comment><![CDATA[Conveyor run command at 50 Hz nominal — no inference]]></Comment>
+                  <IsInput>false</IsInput>
+                  <IoName><![CDATA[Output]]></IoName>
+                  <IoGroup>Channel 1</IoGroup>
+                  <IoDataType>BOOL</IoDataType>
+                </Variable>
+              </Variables>
+            </Box>
+          </Boxes>
+        </Interface>
+      </Interfaces>
+    </CPU>
+  </CPUs>
+</Project>
