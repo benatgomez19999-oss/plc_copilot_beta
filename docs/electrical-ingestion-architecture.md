@@ -1,6 +1,6 @@
 # Electrical-plan ingestion architecture
 
-> **Status: CODESYS gains valve_onoff support (Sprint 87A).** Sprint 72
+> **Status: Codegen readiness UX in web (Sprint 87B).** Sprint 72
 > scaffolded the architecture. Sprint 73 added the CSV ingestor.
 > Sprint 74 added the EPLAN structured XML ingestor v0. Sprint 75
 > added the Review UI v0. Sprint 76 added the PIR builder v0.
@@ -574,6 +574,32 @@ This keeps both branches of the strategic requirement — structured
 ECAD exports today and PDF documents tomorrow — funnelling through
 the same review/persist/export model. A weak prompt cannot
 override that model: it has no surface area in any of these layers.
+
+## Sprint 87B — Codegen readiness UX in web
+
+`@plccopilot/web` now runs `preflightProject` BEFORE the
+operator presses Generate and surfaces the diagnostics as a
+compact `CodegenReadinessPanel`. The panel sits between the
+existing `<Toolbar>` and the `compileError` banner, reading
+the existing `appliedProject` + `backend` selector — no new
+state, no duplicate selector. Status verdicts: `unavailable`
+(no PIR) / `ready` / `warning` / `blocked`.
+
+The Sprint 86 fallback path (CompileClientError surfacing
+`READINESS_FAILED` *after* Generate) is preserved; Sprint 87B
+adds the *prevention* layer.
+
+When the `backend` selector value is `'all'` the panel stacks
+one card per vendor target. The Sprint 87A per-target split is
+visible operator-side: a project containing `valve_onoff`
+shows `ready` for CODESYS and `blocked` for Siemens / Rockwell
+with the same `READINESS_UNSUPPORTED_EQUIPMENT_FOR_TARGET`
+group, hint, path, and symbol the codegen-core preflight
+already produces.
+
+UX-only sprint — no automatic codegen, no new equipment
+support, no schema bump, no worker-protocol change. Documented
+in [`docs/codegen-readiness-ux-sprint-87B.md`](codegen-readiness-ux-sprint-87B.md).
 
 ## Sprint 87A — Target equipment support v0 (`valve_onoff` for CODESYS)
 

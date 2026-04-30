@@ -91,6 +91,15 @@
 > `PDF_LAYOUT_ROTATION_SUSPECTED` stays per-page (rare and
 > operationally important). Sprint 84.1B acceptance:
 > [`docs/pdf-manual-acceptance-sprint-84-1B.md`](pdf-manual-acceptance-sprint-84-1B.md).
+> **Sprint 87B** then surfaces codegen readiness as a
+> compact `CodegenReadinessPanel` between the toolbar and the
+> compile-error banner. The panel runs `preflightProject` on
+> the applied PIR for the selected backend (or all three when
+> `backend=all`) and shows verdict + grouped diagnostics
+> BEFORE the operator clicks Generate. Generate stays explicit;
+> the Sprint 86 `READINESS_FAILED` fallback banner is
+> preserved. Sprint 87B acceptance:
+> [`docs/codegen-readiness-ux-sprint-87B.md`](codegen-readiness-ux-sprint-87B.md).
 
 ## Run the dev server
 

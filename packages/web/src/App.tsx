@@ -20,6 +20,7 @@ import {
 import { Toolbar } from './components/Toolbar.js';
 import { FileUpload } from './components/FileUpload.js';
 import { BackendSelector } from './components/BackendSelector.js';
+import { CodegenReadinessPanel } from './components/CodegenReadinessPanel.js';
 import { ProjectSummary } from './components/ProjectSummary.js';
 import { PirEditor } from './components/PirEditor.js';
 import { PirStructureTree } from './components/PirStructureTree.js';
@@ -1292,6 +1293,17 @@ export default function App(): JSX.Element {
           <strong>Could not load PIR:</strong>
           <pre>{loadError}</pre>
         </div>
+      ) : null}
+      {/*
+        Sprint 87B — Codegen readiness preview. Runs `preflightProject`
+        on the applied PIR for the selected backend and surfaces the
+        diagnostics BEFORE the operator hits Generate. The Sprint 86
+        worker-protocol path still surfaces `READINESS_FAILED` after
+        the click as a CompileClientError; this panel is the
+        prevention layer.
+      */}
+      {appliedProject ? (
+        <CodegenReadinessPanel project={appliedProject} target={backend} />
       ) : null}
       {compileError ? (
         <div className="banner banner-error compile-error">

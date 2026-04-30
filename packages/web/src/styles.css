@@ -1593,3 +1593,82 @@ table.kv td {
   letter-spacing: 0.06em;
   color: var(--accent);
 }
+
+/* ----------------------------------------------------------------------
+ * Sprint 87B — Codegen readiness panel.
+ * Surfaces preflightProject diagnostics ABOVE the existing
+ * "Generation failed" banner so the operator sees readiness
+ * issues before pressing Generate.
+ * ---------------------------------------------------------------------- */
+.codegen-readiness-panel {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px 14px;
+  margin: 12px 0;
+  background: var(--bg-elevated, #fafafa);
+}
+.codegen-readiness-panel .panel-header h3 {
+  margin: 0 0 8px 0;
+  font-size: 14px;
+}
+.codegen-readiness-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.codegen-readiness-card {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  background: var(--bg, white);
+}
+.codegen-readiness-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.codegen-readiness-target {
+  font-weight: 600;
+}
+.codegen-readiness-summary {
+  margin: 0 0 8px 0;
+}
+.readiness-status--ready { border-left: 4px solid #16a34a; }
+.readiness-status--warning { border-left: 4px solid #d97706; }
+.readiness-status--blocked { border-left: 4px solid #dc2626; }
+.readiness-status--unavailable { border-left: 4px solid var(--border); }
+.readiness-badge--ready { background: #dcfce7; color: #166534; }
+.readiness-badge--warning { background: #fef3c7; color: #92400e; }
+.readiness-badge--blocked { background: #fee2e2; color: #991b1b; }
+.readiness-badge--unavailable { background: var(--bg-elevated); color: var(--muted); }
+.codegen-readiness-groups {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.codegen-readiness-group {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px 8px;
+}
+.codegen-readiness-group-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.codegen-readiness-group-title {
+  font-weight: 500;
+}
+.codegen-readiness-items {
+  list-style: none;
+  padding: 4px 0 0 24px;
+  margin: 0;
+}
+.codegen-readiness-item {
+  margin: 4px 0;
+}
