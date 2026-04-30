@@ -33,6 +33,8 @@ export function sanitizeSymbol(raw) {
 const UDT_NAMES = {
     pneumatic_cylinder_2pos: 'UDT_Cylinder2Pos',
     motor_simple: 'UDT_MotorSimple',
+    // Sprint 87C — Siemens accepts valve_onoff via shared lowering.
+    valve_onoff: 'UDT_ValveOnoff',
 };
 export function udtName(type) {
     return UDT_NAMES[type] ?? null;

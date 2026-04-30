@@ -42,6 +42,10 @@ export function sanitizeSymbol(raw: string): string {
 const UDT_NAMES: Partial<Record<EquipmentType, string>> = {
   pneumatic_cylinder_2pos: 'UDT_Cylinder2Pos',
   motor_simple: 'UDT_MotorSimple',
+  // Sprint 87C — Siemens accepts `valve_onoff` via the shared
+  // codegen-core lowering. Public helper stays consistent with
+  // `canonicalTypeName('valve_onoff') === 'UDT_ValveOnoff'`.
+  valve_onoff: 'UDT_ValveOnoff',
 };
 
 export function udtName(type: EquipmentType): string | null {

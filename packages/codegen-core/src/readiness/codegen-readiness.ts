@@ -118,10 +118,11 @@ export interface PreflightResult {
 // Per-target capability defaults
 // ---------------------------------------------------------------------------
 
-// Sprint 86 baseline — kinds the vendor-neutral pipeline accepted
-// before any per-target widening. Sprint 87A keeps this as the
-// "narrow" set Siemens / Rockwell still ship.
-const SIEMENS_ROCKWELL_SUPPORTED_EQUIPMENT: ReadonlySet<EquipmentType> = new Set<EquipmentType>([
+// Sprint 86 baseline — Sprint 87A kept Siemens / Rockwell here.
+// Sprint 87C splits the legacy bucket: Siemens widens with
+// `valve_onoff` after an SCL renderer audit; Rockwell stays
+// narrow until its Logix renderer is audited the same way.
+const ROCKWELL_SUPPORTED_EQUIPMENT: ReadonlySet<EquipmentType> = new Set<EquipmentType>([
   'pneumatic_cylinder_2pos',
   'motor_simple',
   'sensor_discrete',
@@ -165,29 +166,29 @@ const TARGET_CAPABILITIES: Record<CodegenTarget, TargetCapabilities> = {
   },
   siemens: {
     target: 'siemens',
-    // Sprint 87A — Siemens stays on the pre-Sprint-87A baseline. The
-    // SCL pipeline has not been audited for `valve_onoff` yet; the
-    // façade rejects it via READINESS_UNSUPPORTED_EQUIPMENT_FOR_TARGET.
-    supportedEquipmentTypes: SIEMENS_ROCKWELL_SUPPORTED_EQUIPMENT,
+    // Sprint 87C — Siemens widens to match `core` after the SCL
+    // renderer audit confirmed it is structurally agnostic
+    // (`buildEquipmentTypesIR` walks core's `FIELDS` table;
+    // `wireValveOnoff` produces standard StmtIR). Siemens now
+    // ships v0 `valve_onoff` support alongside CODESYS.
+    supportedEquipmentTypes: CORE_SUPPORTED_EQUIPMENT,
     supportedIoDataTypes: CORE_SUPPORTED_DATA_TYPES,
     supportedIoMemoryAreas: CORE_SUPPORTED_MEMORY_AREAS,
   },
   codesys: {
     target: 'codesys',
     // Sprint 87A — CODESYS renders `valve_onoff` via the shared
-    // ProgramIR pipeline (DUT_ValveOnoff + the wireValveOnoff
-    // lowering). It is the only vendor target that ships v0
-    // valve_onoff support.
+    // ProgramIR pipeline.
     supportedEquipmentTypes: CORE_SUPPORTED_EQUIPMENT,
     supportedIoDataTypes: CORE_SUPPORTED_DATA_TYPES,
     supportedIoMemoryAreas: CORE_SUPPORTED_MEMORY_AREAS,
   },
   rockwell: {
     target: 'rockwell',
-    // Sprint 87A — Rockwell (experimental, Logix ST) stays on the
-    // pre-Sprint-87A baseline; valve_onoff is not on the certified
-    // path until the Logix renderer is audited.
-    supportedEquipmentTypes: SIEMENS_ROCKWELL_SUPPORTED_EQUIPMENT,
+    // Sprint 87A / 87C — Rockwell (experimental, Logix ST) stays
+    // on the pre-Sprint-87A baseline; valve_onoff is not on the
+    // certified path until the Logix renderer is audited.
+    supportedEquipmentTypes: ROCKWELL_SUPPORTED_EQUIPMENT,
     supportedIoDataTypes: CORE_SUPPORTED_DATA_TYPES,
     supportedIoMemoryAreas: CORE_SUPPORTED_MEMORY_AREAS,
   },

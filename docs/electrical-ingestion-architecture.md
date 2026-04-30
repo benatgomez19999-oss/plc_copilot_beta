@@ -1,6 +1,6 @@
 # Electrical-plan ingestion architecture
 
-> **Status: Codegen readiness UX in web (Sprint 87B).** Sprint 72
+> **Status: Siemens valve_onoff support after SCL audit (Sprint 87C).** Sprint 72
 > scaffolded the architecture. Sprint 73 added the CSV ingestor.
 > Sprint 74 added the EPLAN structured XML ingestor v0. Sprint 75
 > added the Review UI v0. Sprint 76 added the PIR builder v0.
@@ -574,6 +574,36 @@ This keeps both branches of the strategic requirement — structured
 ECAD exports today and PDF documents tomorrow — funnelling through
 the same review/persist/export model. A weak prompt cannot
 override that model: it has no surface area in any of these layers.
+
+## Sprint 87C — Siemens valve_onoff support after SCL audit
+
+Second per-target equipment-support widening. After auditing
+the Siemens SCL renderer (no per-equipment-kind dispatch;
+fully IR-driven) Sprint 87C widens Siemens's capability table
+to include `valve_onoff`. No new lowering, no new DUT shape,
+no safety semantics — Sprint 87A's `wireValveOnoff` +
+`UDT_ValveOnoff` carry through unchanged.
+
+Changes:
+
+- `siemens` capability bucket now uses `CORE_SUPPORTED_EQUIPMENT`
+  (the widened set). The legacy `SIEMENS_ROCKWELL_SUPPORTED_EQUIPMENT`
+  set was renamed `ROCKWELL_SUPPORTED_EQUIPMENT` and now serves
+  Rockwell only.
+- `packages/codegen-siemens/src/naming.ts` adds `valve_onoff:
+  'UDT_ValveOnoff'` to `UDT_NAMES` for public-helper
+  consistency with `canonicalTypeName`.
+- Tests: Sprint 87A's Siemens rejection spec became a support
+  spec (UDT shape, FB wiring, deterministic re-runs, manifest
+  cleanliness, unchanged `UNBOUND_ROLE` contract). Sprint 87A
+  Rockwell rejection spec carries through. CLI `[READINESS_FAILED]`
+  test was retargeted from `siemens` to `rockwell` (the only
+  vendor target that still rejects `valve_onoff`). Web Sprint
+  87B readiness-view tests updated: Siemens ready, Rockwell
+  blocked.
+
+Documented in
+[`docs/codegen-equipment-support-sprint-87C.md`](codegen-equipment-support-sprint-87C.md).
 
 ## Sprint 87B — Codegen readiness UX in web
 

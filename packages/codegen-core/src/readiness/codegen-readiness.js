@@ -6,8 +6,9 @@
 import { dedupDiagnostics, diag, sortDiagnostics, } from '../compiler/diagnostics.js';
 import { equipmentPath, equipmentTypePath, stationPath, } from '../compiler/diagnostic-paths.js';
 
-// Sprint 86 baseline — Sprint 87A keeps Siemens / Rockwell here.
-const SIEMENS_ROCKWELL_SUPPORTED_EQUIPMENT = new Set([
+// Sprint 86 baseline — Sprint 87C splits Siemens off the
+// legacy bucket; Rockwell still rides it.
+const ROCKWELL_SUPPORTED_EQUIPMENT = new Set([
     'pneumatic_cylinder_2pos',
     'motor_simple',
     'sensor_discrete',
@@ -42,22 +43,23 @@ const TARGET_CAPABILITIES = {
     },
     siemens: {
         target: 'siemens',
-        // Sprint 87A — narrow; valve_onoff rejected via readiness.
-        supportedEquipmentTypes: SIEMENS_ROCKWELL_SUPPORTED_EQUIPMENT,
+        // Sprint 87C — widens to core after SCL renderer audit.
+        supportedEquipmentTypes: CORE_SUPPORTED_EQUIPMENT,
         supportedIoDataTypes: CORE_SUPPORTED_DATA_TYPES,
         supportedIoMemoryAreas: CORE_SUPPORTED_MEMORY_AREAS,
     },
     codesys: {
         target: 'codesys',
-        // Sprint 87A — only target shipping valve_onoff in v0.
+        // Sprint 87A — ships valve_onoff via shared IR pipeline.
         supportedEquipmentTypes: CORE_SUPPORTED_EQUIPMENT,
         supportedIoDataTypes: CORE_SUPPORTED_DATA_TYPES,
         supportedIoMemoryAreas: CORE_SUPPORTED_MEMORY_AREAS,
     },
     rockwell: {
         target: 'rockwell',
-        // Sprint 87A — narrow; valve_onoff rejected via readiness.
-        supportedEquipmentTypes: SIEMENS_ROCKWELL_SUPPORTED_EQUIPMENT,
+        // Sprint 87A / 87C — narrow; valve_onoff rejected via readiness
+        // until the Logix renderer is audited.
+        supportedEquipmentTypes: ROCKWELL_SUPPORTED_EQUIPMENT,
         supportedIoDataTypes: CORE_SUPPORTED_DATA_TYPES,
         supportedIoMemoryAreas: CORE_SUPPORTED_MEMORY_AREAS,
     },

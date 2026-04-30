@@ -247,11 +247,15 @@ describe('generate command — codegen errors (sprint 39)', () => {
     expect(io.err()).toMatch(/^\[siemens\] \[UNKNOWN_PARAMETER\]/);
   });
 
-  // Sprint 40 — UNSUPPORTED_EQUIPMENT carries stationId + symbol + path + hint.
-  // Use `valve_onoff`: PIR-valid (passes Zod) but not in the core
-  // pipeline's `SUPPORTED_TYPES` whitelist, so the codegen layer is
-  // the first thing that rejects it — exactly the surface we want
-  // to test for the structured error UX.
+  // Sprint 40 / 86 / 87A / 87C — UNSUPPORTED_EQUIPMENT carries
+  // stationId + symbol + path + hint via the rolled-up
+  // READINESS_FAILED CodegenError. The fixture flips an existing
+  // equipment to `valve_onoff` and runs the **rockwell** backend.
+  // Why Rockwell: Sprint 87A added valve_onoff for CODESYS only;
+  // Sprint 87C widened Siemens after the SCL renderer audit.
+  // Rockwell stays narrow (Logix renderer not yet audited), so it
+  // is the only target that still surfaces READINESS_FAILED for
+  // valve_onoff — the exact UX we want to test here.
   function writeProjectWithUnsupportedEquipment(): string {
     const raw = readFileSync(fixturePath(), 'utf-8');
     const project = JSON.parse(raw) as {
@@ -265,18 +269,11 @@ describe('generate command — codegen errors (sprint 39)', () => {
     return path;
   }
 
-  it('exits 1 with [READINESS_FAILED] + station + symbol + hint (sprint 86)', async () => {
-    // Sprint 86 — Codegen readiness preflight intercepts unsupported
-    // equipment before `compileProject` would; the wrapper error now
-    // surfaces as `READINESS_FAILED` with the per-target diagnostic
-    // list rolled up inside the message body. The previous Sprint 40
-    // direct `UNSUPPORTED_EQUIPMENT` throw is still produced when
-    // `compileProject` is called outside the target façade
-    // (covered by codegen-core/tests/error-metadata.spec.ts).
+  it('exits 1 with [READINESS_FAILED] + station + symbol + hint (sprint 86 / 87C)', async () => {
     const input = writeProjectWithUnsupportedEquipment();
     const io = bufferedIO();
     const code = await runGenerate(
-      { input, backend: 'siemens', out: tmp },
+      { input, backend: 'rockwell', out: tmp },
       io,
     );
     expect(code).toBe(1);
@@ -284,13 +281,16 @@ describe('generate command — codegen errors (sprint 39)', () => {
     expect(stderr).toContain('[READINESS_FAILED]');
     // The roll-up names the offending equipment type.
     expect(stderr).toContain('valve_onoff');
+    // The roll-up names the rejecting target.
+    expect(stderr).toContain('rockwell');
     // Path points at the offending field (carried via the readiness
     // diagnostic into the wrapper error).
     expect(stderr).toContain('machines[0].stations[0].equipment[0].type');
     // Station + symbol metadata in the parens group.
     expect(stderr).toMatch(/station: \w+/);
     expect(stderr).toMatch(/symbol: \w+/);
-    // Hint enumerates the supported types for the target.
+    // Hint enumerates the supported types for the target (Rockwell
+    // baseline still includes the original three kinds).
     expect(stderr).toContain('Hint: ');
     expect(stderr).toMatch(/pneumatic_cylinder_2pos|motor_simple/);
     // The original per-diagnostic code surfaces inside the rolled-up message body.

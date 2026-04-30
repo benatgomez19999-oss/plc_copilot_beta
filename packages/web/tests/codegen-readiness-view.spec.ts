@@ -142,8 +142,8 @@ describe('buildCodegenReadinessView (Sprint 87B)', () => {
 // Sprint 87A valve_onoff per-target split
 // =============================================================================
 
-describe('buildCodegenReadinessView — Sprint 87A valve_onoff', () => {
-  it('1. valve_onoff on codesys → ready', () => {
+describe('buildCodegenReadinessView — Sprint 87A/87C valve_onoff', () => {
+  it('1. valve_onoff on codesys → ready (Sprint 87A)', () => {
     const v = buildCodegenReadinessView({
       project: valveProject(),
       target: 'codesys',
@@ -156,10 +156,23 @@ describe('buildCodegenReadinessView — Sprint 87A valve_onoff', () => {
     ).toBe(false);
   });
 
-  it('2. valve_onoff on siemens → blocked with explicit equipment-not-supported group', () => {
+  it('2. valve_onoff on siemens → ready (Sprint 87C — post SCL renderer audit)', () => {
     const v = buildCodegenReadinessView({
       project: valveProject(),
       target: 'siemens',
+    });
+    expect(v.status).toBe('ready');
+    expect(
+      v.groups.some(
+        (g) => g.code === 'READINESS_UNSUPPORTED_EQUIPMENT_FOR_TARGET',
+      ),
+    ).toBe(false);
+  });
+
+  it('3. valve_onoff on rockwell → blocked (Logix renderer not yet audited)', () => {
+    const v = buildCodegenReadinessView({
+      project: valveProject(),
+      target: 'rockwell',
     });
     expect(v.status).toBe('blocked');
     const group = v.groups.find(
@@ -168,20 +181,8 @@ describe('buildCodegenReadinessView — Sprint 87A valve_onoff', () => {
     expect(group).toBeDefined();
     expect(group?.severity).toBe('error');
     expect(group?.items[0].message).toContain('valve_onoff');
+    expect(group?.items[0].message).toContain('rockwell');
     expect(group?.items[0].hint).toBeDefined();
-  });
-
-  it('3. valve_onoff on rockwell → blocked', () => {
-    const v = buildCodegenReadinessView({
-      project: valveProject(),
-      target: 'rockwell',
-    });
-    expect(v.status).toBe('blocked');
-    expect(
-      v.groups.some(
-        (g) => g.code === 'READINESS_UNSUPPORTED_EQUIPMENT_FOR_TARGET',
-      ),
-    ).toBe(true);
   });
 });
 
