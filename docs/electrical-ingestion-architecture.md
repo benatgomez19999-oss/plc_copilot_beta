@@ -1,7 +1,8 @@
 # Electrical-plan ingestion architecture
 
-> **Status: cross-renderer `valve_onoff` parity bar (Sprint 88D); Rockwell
-> valve_onoff support after Logix audit (Sprint 88C).** Sprint 72
+> **Status: `motor_vfd_simple` audit closed at *support deferred*
+> (Sprint 88E); cross-renderer `valve_onoff` parity bar (Sprint 88D);
+> Rockwell valve_onoff support after Logix audit (Sprint 88C).** Sprint 72
 > scaffolded the architecture. Sprint 73 added the CSV ingestor.
 > Sprint 74 added the EPLAN structured XML ingestor v0. Sprint 75
 > added the Review UI v0. Sprint 76 added the PIR builder v0.
@@ -575,6 +576,28 @@ This keeps both branches of the strategic requirement — structured
 ECAD exports today and PDF documents tomorrow — funnelling through
 the same review/persist/export model. A weak prompt cannot
 override that model: it has no surface area in any of these layers.
+
+## Sprint 88E — `motor_vfd_simple` audit (support deferred)
+
+Audit-first sprint, halted at *camino A — support deferred*. The
+CODESYS / Siemens / Rockwell renderers are all structurally
+agnostic for the kind (same shape that 87A / 87C / 88C found for
+`valve_onoff`); the blocker is in PIR. `motor_vfd_simple` requires
+a numeric `speed_setpoint_out` role with **no** PIR-level
+mechanism (no numeric activity verb, no parameter→role binding)
+to drive a value into it. Any v0 lowering would need to either
+synthesise a value (forbidden by sprint contract — assumption
+promotion) or leave a required output dangling on a real-world
+VFD (industrial risk: stale or zero speed reference). A future
+sprint must first design an explicit numeric-setpoint source in
+PIR before any renderer-side widening can ship safely. One
+capability-table-level test now pins the audit decision in
+[`packages/codegen-core/tests/codegen-readiness.spec.ts`](../packages/codegen-core/tests/codegen-readiness.spec.ts);
+the per-target preflight throw (87A test 8) and the cross-target
+integration loop (88D test 5) keep the rejection covered. See
+[`docs/codegen-motor-vfd-simple-audit-sprint-88E.md`](codegen-motor-vfd-simple-audit-sprint-88E.md)
+for the full audit findings, the conditions under which support
+re-opens, and the recommended next sprint.
 
 ## Sprint 88D — Cross-renderer `valve_onoff` parity bar
 

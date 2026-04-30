@@ -359,6 +359,39 @@ describe('preflightProject — Sprint 87A valve_onoff per-target split', () => {
   });
 });
 
+// =============================================================================
+// Sprint 88E — motor_vfd_simple audit decision pin
+//
+// Sprint 88E audited `motor_vfd_simple` against the same template that
+// gated 87A (CODESYS valve_onoff), 87C (Siemens), and 88C (Rockwell). The
+// audit halted at camino A — *support deferred* — because the PIR shape
+// requires a numeric `speed_setpoint_out` role with no PIR-level mechanism
+// (no numeric activity verb, no parameter→role binding) to drive a value
+// into it. Wiring it would require either synthesising a value or leaving
+// a required output dangling on a real-world VFD; both are forbidden by
+// the sprint contract.
+//
+// This block pins the audit decision at the capability-table layer so any
+// future sprint that adds `motor_vfd_simple` to a target without first
+// resolving the speed-setpoint source must update this test (and the
+// audit doc) on its way through.
+//
+// See `docs/codegen-motor-vfd-simple-audit-sprint-88E.md` for the full
+// audit findings and the conditions under which camino B unblocks.
+// =============================================================================
+
+describe('preflightProject — Sprint 88E motor_vfd_simple audit decision (support deferred)', () => {
+  it('1. motor_vfd_simple is not in any target capability table', () => {
+    const targets: CodegenTarget[] = ['core', 'siemens', 'codesys', 'rockwell'];
+    for (const t of targets) {
+      const caps = getTargetCapabilities(t);
+      expect(caps.supportedEquipmentTypes.has('motor_vfd_simple' as never)).toBe(
+        false,
+      );
+    }
+  });
+});
+
 describe('runTargetPreflight (Sprint 86)', () => {
   it('1. happy path returns the result without throwing', () => {
     const r = runTargetPreflight(happyProject(), 'siemens');
