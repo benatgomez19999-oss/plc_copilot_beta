@@ -32,6 +32,9 @@ function wireEquipment(eq, cmds, table, diagnostics, meta) {
         // Sprint 87A — single-coil spring-return solenoid valve.
         case 'valve_onoff':
             return wireValveOnoff(eq, cmds, table, diagnostics, meta);
+        // Sprint 88G — VFD-driven motor with parameter-sourced speed setpoint.
+        case 'motor_vfd_simple':
+            return wireMotorVfdSimple(eq, cmds, table, diagnostics, meta);
         default: {
             // Sprint 41 — surface the equipment id and a hint listing the
             // wiring strategies the lowering layer knows.
@@ -44,7 +47,7 @@ function wireEquipment(eq, cmds, table, diagnostics, meta) {
                 ...(typePath !== undefined ? { path: typePath } : {}),
                 stationId: table.stationId,
                 symbol: eq.id,
-                hint: `Change ${eq.id}.type to one of (pneumatic_cylinder_2pos, motor_simple, sensor_discrete, valve_onoff) or extend wireEquipment for "${eq.type}".`,
+                hint: `Change ${eq.id}.type to one of (pneumatic_cylinder_2pos, motor_simple, sensor_discrete, valve_onoff, motor_vfd_simple) or extend wireEquipment for "${eq.type}".`,
             }));
             return [];
         }
@@ -146,4 +149,64 @@ function wireValveOnoff(eq, cmds, table, diagnostics, meta) {
         ir.comment(`${eq.id} (valve_onoff): open_cmd -> solenoid_out`),
         ir.assign(storageToRef(solSym.storage), ir.refExpr(ref.local(openCmd.varName))),
     ];
+}
+// Sprint 88G — VFD-driven motor v0. Boolean run wired like motor_simple;
+// numeric speed_setpoint sourced from io_setpoint_bindings parameter.
+// PIR R-EQ-05 enforces the binding; lowering stays defensive.
+function wireMotorVfdSimple(eq, cmds, table, diagnostics, meta) {
+    const stmts = [];
+    // run_out := run_cmd
+    const runSym = table.resolve(`${eq.id}.run_out`);
+    if (!runSym) {
+        const bindingPath = meta.pathContext
+            ? equipmentIoBindingPath(meta.pathContext.machineIndex, meta.pathContext.stationIndex, meta.equipmentIndex, 'run_out')
+            : undefined;
+        diagnostics.push(diag('error', 'UNBOUND_ROLE', `Equipment "${eq.id}" has no run_out binding.`, {
+            ...(bindingPath !== undefined ? { path: bindingPath } : {}),
+            stationId: table.stationId,
+            symbol: `${eq.id}.run_out`,
+            hint: `Bind "run_out" in equipment "${eq.id}".io_bindings to an IO of type bool.`,
+        }));
+        return [];
+    }
+    const runCmd = cmds.find((c) => c.activity === 'run');
+    if (runCmd) {
+        stmts.push(ir.comment(`${eq.id} (motor_vfd_simple): run_cmd -> run_out`));
+        stmts.push(ir.assign(storageToRef(runSym.storage), ir.refExpr(ref.local(runCmd.varName))));
+    }
+    // speed_setpoint_out := <bound parameter>
+    const spSym = table.resolve(`${eq.id}.speed_setpoint_out`);
+    if (!spSym) {
+        const bindingPath = meta.pathContext
+            ? equipmentIoBindingPath(meta.pathContext.machineIndex, meta.pathContext.stationIndex, meta.equipmentIndex, 'speed_setpoint_out')
+            : undefined;
+        diagnostics.push(diag('error', 'UNBOUND_ROLE', `Equipment "${eq.id}" has no speed_setpoint_out binding.`, {
+            ...(bindingPath !== undefined ? { path: bindingPath } : {}),
+            stationId: table.stationId,
+            symbol: `${eq.id}.speed_setpoint_out`,
+            hint: `Bind "speed_setpoint_out" in equipment "${eq.id}".io_bindings to a numeric (Int/DInt/Real) IO.`,
+        }));
+        return stmts;
+    }
+    const spParam = eq.io_setpoint_bindings?.speed_setpoint_out;
+    if (!spParam) {
+        diagnostics.push(diag('error', 'UNBOUND_SETPOINT_SOURCE', `Equipment "${eq.id}" (motor_vfd_simple) has no setpoint source for role "speed_setpoint_out".`, {
+            stationId: table.stationId,
+            symbol: `${eq.id}.speed_setpoint_out`,
+            hint: `Add an entry to ${eq.id}.io_setpoint_bindings.speed_setpoint_out → <parameter id> referencing a numeric machine.parameters[] entry. (PIR R-EQ-05 enforces this; the lowering will not synthesise a literal value.)`,
+        }));
+        return stmts;
+    }
+    const paramSym = table.resolve(spParam);
+    if (!paramSym || paramSym.kind !== 'parameter') {
+        diagnostics.push(diag('error', 'UNKNOWN_SETPOINT_PARAMETER', `Equipment "${eq.id}" setpoint binding references unknown parameter "${spParam}".`, {
+            stationId: table.stationId,
+            symbol: spParam,
+            hint: `Declare "${spParam}" in machine.parameters[] with a numeric data_type, or change the binding to an existing parameter.`,
+        }));
+        return stmts;
+    }
+    stmts.push(ir.comment(`${eq.id} (motor_vfd_simple): ${spParam} -> speed_setpoint_out`));
+    stmts.push(ir.assign(storageToRef(spSym.storage), ir.sym(paramSym)));
+    return stmts;
 }

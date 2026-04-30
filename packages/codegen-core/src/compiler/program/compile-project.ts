@@ -29,14 +29,22 @@ import type {
 } from './program.js';
 
 // Sprint 87A — `valve_onoff` joins the core scope so the vendor-neutral
-// pipeline can lower it. Per-target readiness still gates which backends
-// are willing to render it (only CODESYS in v0; Siemens / Rockwell still
-// reject via `READINESS_UNSUPPORTED_EQUIPMENT_FOR_TARGET`).
+// pipeline can lower it. Per-target readiness gates which backends are
+// willing to render it; as of Sprint 88C all three vendor targets accept
+// `valve_onoff`.
+//
+// Sprint 88G — `motor_vfd_simple` joins the core scope as well. Vendor
+// capability tables stay closed for it (Sprint 88H/88I/88J widen
+// per-target after their respective renderer audits). The split lets
+// codegen-core's own tests exercise the `wireMotorVfdSimple` lowering
+// while `runTargetPreflight` continues to throw `READINESS_FAILED` for
+// every vendor target.
 const SUPPORTED_TYPES = new Set([
   'pneumatic_cylinder_2pos',
   'motor_simple',
   'sensor_discrete',
   'valve_onoff',
+  'motor_vfd_simple',
 ]);
 
 const DEFAULT_GENERATED_AT = '1970-01-01T00:00:00Z';

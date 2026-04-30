@@ -121,23 +121,26 @@ export interface PreflightResult {
 // Sprint 86 baseline narrow set is no longer used directly.
 // Sprint 87A widened CODESYS, Sprint 87C widened Siemens after
 // the SCL renderer audit, and Sprint 88C widens Rockwell after
-// the Logix renderer audit. All four targets now share
-// `CORE_SUPPORTED_EQUIPMENT`. The narrow constant can be
-// re-introduced when a future kind lands on a subset of
-// targets.
-
-// Sprint 87A — `core` and `codesys` widen the supported set with
-// `valve_onoff`. The vendor-neutral lowering ships
-// `wireValveOnoff` + `UDT_ValveOnoff`, so anything that goes
-// through `compileProject` directly (codegen-core unit tests,
-// CODESYS façade) accepts it. Siemens / Rockwell façades reject
-// it via `READINESS_UNSUPPORTED_EQUIPMENT_FOR_TARGET` — those
-// targets have not been verified to render valve_onoff safely.
-const CORE_SUPPORTED_EQUIPMENT: ReadonlySet<EquipmentType> = new Set<EquipmentType>([
+// the Logix renderer audit. Sprint 88G splits `core` from the
+// vendor set again: core now mirrors `compileProject`'s widened
+// `SUPPORTED_TYPES` (which now includes `motor_vfd_simple` so
+// codegen-core's lowering tests can exercise the new wiring),
+// while the vendor capability tables stay closed for
+// `motor_vfd_simple` until the per-target audits land in
+// Sprint 88H/88I/88J.
+const VENDOR_SUPPORTED_EQUIPMENT: ReadonlySet<EquipmentType> = new Set<EquipmentType>([
   'pneumatic_cylinder_2pos',
   'motor_simple',
   'sensor_discrete',
   'valve_onoff',
+]);
+
+// Sprint 88G — `core` widens with `motor_vfd_simple` so the
+// vendor-neutral pipeline can run the new lowering through
+// `compileProject`. Vendor targets stay narrow.
+const CORE_SUPPORTED_EQUIPMENT: ReadonlySet<EquipmentType> = new Set<EquipmentType>([
+  ...VENDOR_SUPPORTED_EQUIPMENT,
+  'motor_vfd_simple',
 ]);
 
 const CORE_SUPPORTED_DATA_TYPES: ReadonlySet<SignalDataType> = new Set<SignalDataType>([
@@ -164,34 +167,28 @@ const TARGET_CAPABILITIES: Record<CodegenTarget, TargetCapabilities> = {
   },
   siemens: {
     target: 'siemens',
-    // Sprint 87C — Siemens widens to match `core` after the SCL
-    // renderer audit confirmed it is structurally agnostic
-    // (`buildEquipmentTypesIR` walks core's `FIELDS` table;
-    // `wireValveOnoff` produces standard StmtIR). Siemens now
-    // ships v0 `valve_onoff` support alongside CODESYS.
-    supportedEquipmentTypes: CORE_SUPPORTED_EQUIPMENT,
+    // Sprint 87C — Siemens widened to match the vendor set after
+    // the SCL renderer audit. Sprint 88G keeps Siemens at the
+    // *vendor* set (no `motor_vfd_simple`); reopen audit in 88I.
+    supportedEquipmentTypes: VENDOR_SUPPORTED_EQUIPMENT,
     supportedIoDataTypes: CORE_SUPPORTED_DATA_TYPES,
     supportedIoMemoryAreas: CORE_SUPPORTED_MEMORY_AREAS,
   },
   codesys: {
     target: 'codesys',
-    // Sprint 87A — CODESYS renders `valve_onoff` via the shared
-    // ProgramIR pipeline.
-    supportedEquipmentTypes: CORE_SUPPORTED_EQUIPMENT,
+    // Sprint 87A — CODESYS ships `valve_onoff` via the shared
+    // ProgramIR pipeline. Sprint 88G keeps CODESYS at the vendor
+    // set; the CODESYS `motor_vfd_simple` audit lands in 88H.
+    supportedEquipmentTypes: VENDOR_SUPPORTED_EQUIPMENT,
     supportedIoDataTypes: CORE_SUPPORTED_DATA_TYPES,
     supportedIoMemoryAreas: CORE_SUPPORTED_MEMORY_AREAS,
   },
   rockwell: {
     target: 'rockwell',
-    // Sprint 88C — Rockwell widens to match `core` after the
-    // Logix renderer audit confirmed it is structurally
-    // agnostic (UDT rendering iterates `TypeArtifactIR.fields`
-    // blindly; `Assign` StmtIR renders as `target := expr;`
-    // with no per-equipment branch; no `UDT_NAMES` mapping
-    // exists — canonical names flow through `core`). Rockwell
-    // now ships v0 `valve_onoff` support alongside CODESYS and
-    // Siemens.
-    supportedEquipmentTypes: CORE_SUPPORTED_EQUIPMENT,
+    // Sprint 88C — Rockwell widened to the vendor set after the
+    // Logix renderer audit. Sprint 88G keeps Rockwell at the
+    // vendor set; reopen audit in 88J.
+    supportedEquipmentTypes: VENDOR_SUPPORTED_EQUIPMENT,
     supportedIoDataTypes: CORE_SUPPORTED_DATA_TYPES,
     supportedIoMemoryAreas: CORE_SUPPORTED_MEMORY_AREAS,
   },

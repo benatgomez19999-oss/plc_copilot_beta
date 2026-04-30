@@ -77,6 +77,11 @@ export const SUPPORTED_ACTIVITIES: Record<string, readonly string[]> = {
   // valve closes when the activity is no longer active. No close
   // activity — the closure is mechanical, not driven by a command.
   valve_onoff: ['open'],
+  // Sprint 88G — VFD-driven motor v0. Mirrors `motor_simple` for the
+  // boolean run command; the numeric `speed_setpoint_out` reference
+  // is supplied by an `io_setpoint_bindings` parameter (PIR R-EQ-05),
+  // not by an activity payload.
+  motor_vfd_simple: ['run'],
 };
 
 export function commandVarName(eqId: string, activity: string): string {

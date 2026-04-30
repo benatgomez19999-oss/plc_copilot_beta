@@ -128,6 +128,75 @@ export function runEquipmentRules(_project, ctx, report) {
                     });
                 }
             }
+            // R-EQ-05 — io_setpoint_bindings well-formed (Sprint 88G).
+            const setpointBindings = eq.io_setpoint_bindings ?? {};
+            // (A) Required numeric-output roles must have a setpoint source.
+            for (const role of shape.required_io) {
+                const spec = roleSpec(eq.type, role);
+                if (spec.direction === 'out' &&
+                    spec.dataClass === 'numeric' &&
+                    !(role in setpointBindings)) {
+                    addIssue(report, {
+                        rule: 'R-EQ-05',
+                        severity: 'error',
+                        path: `${ep}.io_setpoint_bindings`,
+                        message: `equipment "${eq.id}" (${eq.type}) requires a setpoint source for numeric output role "${role}"`,
+                    });
+                }
+            }
+            // (B) Each declared entry must be valid.
+            for (const [role, paramId] of Object.entries(setpointBindings)) {
+                const sp = `${ep}.io_setpoint_bindings.${role}`;
+                const isKnownRole = shape.required_io.includes(role) ||
+                    shape.optional_io.includes(role);
+                if (!isKnownRole) {
+                    addIssue(report, {
+                        rule: 'R-EQ-05',
+                        severity: 'error',
+                        path: sp,
+                        message: `setpoint binding role "${role}" is not defined for equipment type "${eq.type}"`,
+                    });
+                    continue;
+                }
+                const spec = roleSpec(eq.type, role);
+                if (spec.direction !== 'out' || spec.dataClass !== 'numeric') {
+                    addIssue(report, {
+                        rule: 'R-EQ-05',
+                        severity: 'error',
+                        path: sp,
+                        message: `setpoint binding for role "${role}" is only allowed on numeric output roles (got direction=${spec.direction ?? 'unspecified'}, dataClass=${spec.dataClass ?? 'unspecified'})`,
+                    });
+                    continue;
+                }
+                if (!(role in eq.io_bindings)) {
+                    addIssue(report, {
+                        rule: 'R-EQ-05',
+                        severity: 'error',
+                        path: sp,
+                        message: `setpoint binding for role "${role}" requires that role to also appear in io_bindings (the physical IO channel)`,
+                    });
+                    continue;
+                }
+                const param = ctx.parameters_by_id.get(paramId);
+                if (!param) {
+                    addIssue(report, {
+                        rule: 'R-EQ-05',
+                        severity: 'error',
+                        path: sp,
+                        message: `setpoint binding for role "${role}" references unknown parameter "${paramId}"`,
+                    });
+                    continue;
+                }
+                if (param.data_type === 'bool') {
+                    addIssue(report, {
+                        rule: 'R-EQ-05',
+                        severity: 'error',
+                        path: sp,
+                        message: `setpoint binding for role "${role}" requires a numeric parameter; "${paramId}" has data_type "bool"`,
+                    });
+                    continue;
+                }
+            }
         });
     });
     // R-AV-01 — activity.activate entries must reference an existing equipment

@@ -1,10 +1,12 @@
 # Electrical-plan ingestion architecture
 
-> **Status: PIR design for `motor_vfd_simple` numeric setpoint binding
-> closed at *Option A — Parameter→role binding* (Sprint 88F, design-only);
-> `motor_vfd_simple` audit closed at *support deferred* (Sprint 88E);
-> cross-renderer `valve_onoff` parity bar (Sprint 88D); Rockwell
-> valve_onoff support after Logix audit (Sprint 88C).** Sprint 72
+> **Status: PIR + codegen-core `motor_vfd_simple` lowering shipped
+> (Sprint 88G, vendor capability tables stay closed); PIR design for
+> the numeric setpoint binding closed at *Option A — Parameter→role
+> binding* (Sprint 88F, design-only); `motor_vfd_simple` audit closed
+> at *support deferred* (Sprint 88E); cross-renderer `valve_onoff`
+> parity bar (Sprint 88D); Rockwell valve_onoff support after Logix
+> audit (Sprint 88C).** Sprint 72
 > scaffolded the architecture. Sprint 73 added the CSV ingestor.
 > Sprint 74 added the EPLAN structured XML ingestor v0. Sprint 75
 > added the Review UI v0. Sprint 76 added the PIR builder v0.
@@ -578,6 +580,29 @@ This keeps both branches of the strategic requirement — structured
 ECAD exports today and PDF documents tomorrow — funnelling through
 the same review/persist/export model. A weak prompt cannot
 override that model: it has no surface area in any of these layers.
+
+## Sprint 88G — PIR `io_setpoint_bindings` + codegen-core `motor_vfd_simple` lowering
+
+Implementation sprint following Sprint 88F's Option A decision.
+Adds an optional `io_setpoint_bindings: Record<string, Id>` field
+on `Equipment` (PIR), validator rule **R-EQ-05** (every required
+numeric output role must have a parameter setpoint source; every
+declared entry must be well-formed), and a new `wireMotorVfdSimple`
+helper in codegen-core that wires `run_out := run_cmd` plus
+`speed_setpoint_out := <bound parameter symbol>` — never a
+synthesised literal. The codegen-core compile pipeline now emits
+`UDT_MotorVfdSimple` (`cmd_run : Bool`, `speed_setpoint : Real`,
+`fault : Bool`) for `motor_vfd_simple` projects. **Vendor capability
+tables stay closed**: `runTargetPreflight` continues to throw
+`READINESS_FAILED` / `READINESS_UNSUPPORTED_EQUIPMENT_FOR_TARGET`
+on CODESYS, Siemens, and Rockwell. The `core` capability table
+widens to mirror `compileProject`'s `SUPPORTED_TYPES`. Per-vendor
+audits (88H CODESYS, 88I Siemens, 88J Rockwell) reopen the vendor
+tables one at a time. See
+[`docs/pir-motor-vfd-setpoint-binding-sprint-88G.md`](pir-motor-vfd-setpoint-binding-sprint-88G.md)
+for the full file-by-file change list, the new diagnostic codes
+(`UNBOUND_SETPOINT_SOURCE`, `UNKNOWN_SETPOINT_PARAMETER`), and the
+recommended Sprint 88H plan.
 
 ## Sprint 88F — PIR design for `motor_vfd_simple` numeric setpoint binding (Option A)
 

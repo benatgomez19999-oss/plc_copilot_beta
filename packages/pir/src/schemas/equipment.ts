@@ -14,6 +14,10 @@ export const EquipmentSchema = z
       message: 'code_symbol must match /^[A-Za-z][A-Za-z0-9_]{0,63}$/',
     }),
     io_bindings: z.record(z.string().min(1), IdSchema),
+    // Sprint 88G — optional setpoint source binding: role → parameter id.
+    io_setpoint_bindings: z
+      .record(z.string().min(1), IdSchema)
+      .optional(),
     timing: z
       .record(z.string().min(1), z.number().int().nonnegative())
       .optional(),

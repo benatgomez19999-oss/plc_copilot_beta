@@ -13,6 +13,9 @@ export const SUPPORTED_ACTIVITIES = {
     sensor_discrete: [],
     // Sprint 87A — spring-return solenoid valve, single `open` activity.
     valve_onoff: ['open'],
+    // Sprint 88G — VFD-driven motor; numeric setpoint comes from
+    // io_setpoint_bindings (PIR R-EQ-05), not from activity payload.
+    motor_vfd_simple: ['run'],
 };
 export function commandVarName(eqId, activity) {
     return `${eqId}_${activity}_cmd`;

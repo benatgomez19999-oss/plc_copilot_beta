@@ -9,12 +9,17 @@ import { buildDbAlarmsIR, buildDbParamsIR, buildDbRecipesIR, } from './data-bloc
 import { buildFbAlarmsIR } from './fb-alarms.js';
 import { buildTagTablesIR } from './tag-tables.js';
 // Sprint 87A — `valve_onoff` is part of the core scope; per-target
-// readiness still gates which backends are willing to render it.
+// readiness still gates which backends are willing to render it (all
+// three vendor targets accept it as of Sprint 88C).
+// Sprint 88G — `motor_vfd_simple` joins the core scope; vendor
+// capability tables stay closed until their per-target audits
+// (Sprint 88H/88I/88J).
 const SUPPORTED_TYPES = new Set([
     'pneumatic_cylinder_2pos',
     'motor_simple',
     'sensor_discrete',
     'valve_onoff',
+    'motor_vfd_simple',
 ]);
 const DEFAULT_GENERATED_AT = '1970-01-01T00:00:00Z';
 /**

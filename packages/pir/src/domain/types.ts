@@ -50,6 +50,13 @@ export interface Equipment {
   type: EquipmentType;
   code_symbol: string;
   io_bindings: Record<string, Id>;
+  // Sprint 88G — optional role → parameter id map. Each key is a
+  // numeric output role declared on the equipment shape (today only
+  // `speed_setpoint_out` on `motor_vfd_simple`); each value is a
+  // machine-level Parameter id (machine.parameters[].id) whose
+  // numeric value is wired into the bound IO at lowering time.
+  // R-EQ-05 enforces existence + numeric dtype + direction match.
+  io_setpoint_bindings?: Record<string, Id>;
   timing?: Record<string, number>;
   description?: string;
   provenance?: Provenance;

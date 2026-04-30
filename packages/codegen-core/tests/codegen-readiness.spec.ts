@@ -380,15 +380,28 @@ describe('preflightProject — Sprint 87A valve_onoff per-target split', () => {
 // audit findings and the conditions under which camino B unblocks.
 // =============================================================================
 
-describe('preflightProject — Sprint 88E motor_vfd_simple audit decision (support deferred)', () => {
-  it('1. motor_vfd_simple is not in any target capability table', () => {
-    const targets: CodegenTarget[] = ['core', 'siemens', 'codesys', 'rockwell'];
-    for (const t of targets) {
+describe('preflightProject — Sprint 88E motor_vfd_simple audit decision (vendor support deferred)', () => {
+  // Sprint 88G — pin scope tightened to vendor targets only. The
+  // `core` target now mirrors `compileProject`'s widened
+  // SUPPORTED_TYPES (which includes `motor_vfd_simple`) so
+  // codegen-core's own lowering tests can exercise
+  // `wireMotorVfdSimple`. Vendor targets stay closed; per-target
+  // audits (88H/88I/88J) reopen them one at a time.
+  it('1. motor_vfd_simple is not in any vendor capability table', () => {
+    const vendorTargets: CodegenTarget[] = ['siemens', 'codesys', 'rockwell'];
+    for (const t of vendorTargets) {
       const caps = getTargetCapabilities(t);
       expect(caps.supportedEquipmentTypes.has('motor_vfd_simple' as never)).toBe(
         false,
       );
     }
+  });
+
+  it('2. motor_vfd_simple IS in the core capability table (Sprint 88G — mirrors compileProject)', () => {
+    const caps = getTargetCapabilities('core');
+    expect(caps.supportedEquipmentTypes.has('motor_vfd_simple' as never)).toBe(
+      true,
+    );
   });
 });
 

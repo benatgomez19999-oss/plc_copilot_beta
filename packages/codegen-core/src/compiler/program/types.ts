@@ -30,6 +30,19 @@ const FIELDS: Partial<Record<EquipmentType, readonly TypeFieldIR[]>> = {
     { name: 'cmd_open', dataType: 'Bool' },
     { name: 'fault', dataType: 'Bool' },
   ],
+  // Sprint 88G — minimal motor_vfd_simple DUT shape.
+  // `cmd_run` is the boolean run command (mirror of motor_simple);
+  // `speed_setpoint` carries the numeric reference value the
+  // lowering writes from the bound machine-level Parameter (see
+  // R-EQ-05 in PIR). `fault` is exposed but never driven by core
+  // lowering — alarm/interlock layers may latch on it. No reverse,
+  // no ramp, no reset, no permissive — Sprint 88F deliberately
+  // capped the v0 surface to a parameter-sourced setpoint.
+  motor_vfd_simple: [
+    { name: 'cmd_run', dataType: 'Bool' },
+    { name: 'speed_setpoint', dataType: 'Real' },
+    { name: 'fault', dataType: 'Bool' },
+  ],
 };
 
 /**
@@ -43,6 +56,10 @@ const CANONICAL_NAME: Partial<Record<EquipmentType, string>> = {
   // Sprint 87A — codesys renders this as `DUT_ValveOnoff` (via the
   // existing `codesysTypeName` `UDT_*` → `DUT_*` rewrite).
   valve_onoff: 'UDT_ValveOnoff',
+  // Sprint 88G — core ships the canonical IR shape for VFD; vendor
+  // capability tables remain closed (Sprint 88H/88I/88J widen
+  // per-target after their renderer audits).
+  motor_vfd_simple: 'UDT_MotorVfdSimple',
 };
 
 /**

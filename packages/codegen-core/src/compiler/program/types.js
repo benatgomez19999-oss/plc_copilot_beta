@@ -23,6 +23,15 @@ const FIELDS = {
         { name: 'cmd_open', dataType: 'Bool' },
         { name: 'fault', dataType: 'Bool' },
     ],
+    // Sprint 88G — minimal motor_vfd_simple DUT shape. cmd_run is bool;
+    // speed_setpoint carries the numeric reference written from the
+    // bound machine-level Parameter (see PIR R-EQ-05). Vendor
+    // capability tables remain closed in 88G.
+    motor_vfd_simple: [
+        { name: 'cmd_run', dataType: 'Bool' },
+        { name: 'speed_setpoint', dataType: 'Real' },
+        { name: 'fault', dataType: 'Bool' },
+    ],
 };
 /**
  * Canonical IR type name per equipment type. The naming happens to match the
@@ -34,6 +43,8 @@ const CANONICAL_NAME = {
     motor_simple: 'UDT_MotorSimple',
     // Sprint 87A — codesys renders this as `DUT_ValveOnoff`.
     valve_onoff: 'UDT_ValveOnoff',
+    // Sprint 88G — core IR shape; vendor capability tables stay closed.
+    motor_vfd_simple: 'UDT_MotorVfdSimple',
 };
 /**
  * Resolve the canonical IR type name for a PIR equipment type. Returns
