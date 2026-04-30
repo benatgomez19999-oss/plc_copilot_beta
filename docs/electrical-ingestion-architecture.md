@@ -1,8 +1,9 @@
 # Electrical-plan ingestion architecture
 
-> **Status: `motor_vfd_simple` universally supported across
-> CODESYS / Siemens / Rockwell after the Logix audit (Sprint 88J);
-> Siemens support (Sprint 88I); CODESYS support (Sprint 88H);
+> **Status: cross-renderer `motor_vfd_simple` parity bar
+> (Sprint 88K, tests-only); `motor_vfd_simple` universally supported
+> across CODESYS / Siemens / Rockwell after the Logix audit (Sprint
+> 88J); Siemens support (Sprint 88I); CODESYS support (Sprint 88H);
 > PIR + codegen-core lowering (Sprint 88G); PIR design *Option A —
 > Parameter→role binding* (Sprint 88F); audit deferred (Sprint 88E);
 > cross-renderer `valve_onoff` parity bar (Sprint 88D); Rockwell
@@ -580,6 +581,39 @@ This keeps both branches of the strategic requirement — structured
 ECAD exports today and PDF documents tomorrow — funnelling through
 the same review/persist/export model. A weak prompt cannot
 override that model: it has no surface area in any of these layers.
+
+## Sprint 88K — Cross-renderer `motor_vfd_simple` parity bar
+
+Tests-only sprint mirroring Sprint 88D for valve_onoff. Sprints
+88H/88I/88J each shipped a per-package end-to-end spec for
+`motor_vfd_simple`; none of them guarded parity *across* the
+three production backends. Sprint 88K adds that guardrail at
+integration scope. The new spec at
+[`packages/codegen-integration-tests/tests/motor-vfd-simple-universal-support.spec.ts`](../packages/codegen-integration-tests/tests/motor-vfd-simple-universal-support.spec.ts)
+takes one PIR fixture (single station, single
+`motor_vfd_simple`, bool `run_out`, numeric `speed_setpoint_out`,
+machine-level numeric `Parameter p_m01_speed`,
+`io_setpoint_bindings.speed_setpoint_out → p_m01_speed`) and runs
+it through CODESYS, Siemens, and Rockwell — pinning identical
+type-artifact field set
+(`cmd_run`/`speed_setpoint`/`fault`), the run + parameter-sourced
+setpoint assignments in each target's lexical convention, the
+no-synthesised-literal invariant on the speed-setpoint RHS
+(target-specific regex against
+`io_m01_speed_aw := <number>;` and `:= TRUE/FALSE;`), the
+deterministic lowering breadcrumbs, no synthesised
+close/busy/done/position/reverse/reset/jog/permissive/ramp/
+fault-latch identifiers, manifest cleanliness with
+`ROCKWELL_EXPERIMENTAL_BACKEND` retained on Rockwell, preflight
+passing on every vendor target, the
+`pneumatic_cylinder_1pos`-still-rejected regression bar,
+determinism (byte-identical artifacts + stable manifest
+diagnostic codes across two runs), and unique artifact paths.
+33 effective tests in a single parametrised spec. No production
+code touched. See
+[`docs/codegen-integration-motor-vfd-simple-sprint-88K.md`](codegen-integration-motor-vfd-simple-sprint-88K.md)
+for the full guarantee/non-guarantee list and the recommended
+Sprint 88L sequence.
 
 ## Sprint 88J — Rockwell `motor_vfd_simple` audit + widening (universal convergence)
 
