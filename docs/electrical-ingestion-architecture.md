@@ -1,14 +1,15 @@
 # Electrical-plan ingestion architecture
 
-> **Status: structured EPLAN + TcECAD XML parameter extraction for
-> `motor_vfd_simple` setpoint sources (Sprint 88M); CSV parameter
-> extraction (Sprint 88L); cross-renderer `motor_vfd_simple` parity
-> bar (Sprint 88K); universal vendor support after 88H/88I/88J
-> (CODESYS/Siemens/Rockwell); PIR + codegen-core lowering (Sprint
-> 88G); PIR design *Option A — Parameter→role binding* (Sprint 88F);
-> audit deferred (Sprint 88E); cross-renderer `valve_onoff` parity
-> bar (Sprint 88D); Rockwell valve_onoff support after Logix audit
-> (Sprint 88C).** Sprint 72
+> **Status: controlled codegen preview UX in `@plccopilot/web`
+> (Sprint 89); structured EPLAN + TcECAD XML parameter extraction
+> (Sprint 88M); CSV parameter extraction (Sprint 88L); cross-
+> renderer `motor_vfd_simple` parity bar (Sprint 88K); universal
+> vendor support after 88H/88I/88J (CODESYS/Siemens/Rockwell);
+> PIR + codegen-core lowering (Sprint 88G); PIR design *Option A
+> — Parameter→role binding* (Sprint 88F); audit deferred (Sprint
+> 88E); cross-renderer `valve_onoff` parity bar (Sprint 88D);
+> Rockwell valve_onoff support after Logix audit (Sprint 88C).**
+> Sprint 72
 > scaffolded the architecture. Sprint 73 added the CSV ingestor.
 > Sprint 74 added the EPLAN structured XML ingestor v0. Sprint 75
 > added the Review UI v0. Sprint 76 added the PIR builder v0.
@@ -582,6 +583,32 @@ This keeps both branches of the strategic requirement — structured
 ECAD exports today and PDF documents tomorrow — funnelling through
 the same review/persist/export model. A weak prompt cannot
 override that model: it has no surface area in any of these layers.
+
+## Sprint 89 — Controlled codegen preview UX
+
+Adds an explicit, operator-driven preview step in
+`@plccopilot/web` between the Sprint 87B readiness panel and the
+canonical Generate button. New pure helper
+[`packages/web/src/utils/codegen-preview-view.ts`](../packages/web/src/utils/codegen-preview-view.ts)
+runs the vendor pipeline (`generateCodesysProject` /
+`generateSiemensProject` / `generateRockwellProject`) synchronously
+in-process inside `try/catch`, returns a per-target view with
+status (`unavailable` / `ready` / `ready_with_warnings` / `blocked`
+/ `failed`), severity-grouped manifest diagnostics, and a sorted
+artifact list with content snippets capped at 40 lines / 4 KB and
+marked `truncated` when clipped. Backend `'all'` expands into one
+view per vendor target — a failure on one does not poison the
+others. New thin component
+[`packages/web/src/components/CodegenPreviewPanel.tsx`](../packages/web/src/components/CodegenPreviewPanel.tsx)
+renders below the existing readiness panel; the operator clicks
+*Preview generated artifacts* to run; project / target changes
+invalidate the prior result via a stable `${project.id}|${target}`
+signature and mark it stale. Generate button + worker flow are
+untouched. Snippets are ephemeral state — never persisted to
+localStorage, never included in export bundles. See
+[`docs/codegen-preview-ux-sprint-89.md`](codegen-preview-ux-sprint-89.md)
+for the full status enum, manual verification checklist, and the
+recommended Sprint 90 sequence.
 
 ## Sprint 88M — Structured EPLAN + TcECAD XML parameter extraction
 

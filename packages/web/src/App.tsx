@@ -20,6 +20,7 @@ import {
 import { Toolbar } from './components/Toolbar.js';
 import { FileUpload } from './components/FileUpload.js';
 import { BackendSelector } from './components/BackendSelector.js';
+import { CodegenPreviewPanel } from './components/CodegenPreviewPanel.js';
 import { CodegenReadinessPanel } from './components/CodegenReadinessPanel.js';
 import { ProjectSummary } from './components/ProjectSummary.js';
 import { PirEditor } from './components/PirEditor.js';
@@ -1304,6 +1305,18 @@ export default function App(): JSX.Element {
       */}
       {appliedProject ? (
         <CodegenReadinessPanel project={appliedProject} target={backend} />
+      ) : null}
+      {/*
+        Sprint 89 — Codegen preview panel. Lives directly below the
+        readiness panel so the operator sees: readiness → preview →
+        Generate. Preview is explicit-action-only (no auto-trigger
+        on project / target change), runs the vendor pipeline
+        synchronously in-process, and never persists artifacts. The
+        canonical Generate button below is unchanged; readiness
+        remains the real fallback gate for blocking errors.
+      */}
+      {appliedProject ? (
+        <CodegenPreviewPanel project={appliedProject} target={backend} />
       ) : null}
       {compileError ? (
         <div className="banner banner-error compile-error">

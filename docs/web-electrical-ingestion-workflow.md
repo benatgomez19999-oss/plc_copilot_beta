@@ -1,17 +1,25 @@
-# Web electrical-ingestion workflow — Sprint 77 → 78B → 79 → 80 → 81 → 82 → 83A → 83B → 83C → 83D → 83E → 83F → 84 → 84.1 → 84.1B
+# Web electrical-ingestion workflow — Sprint 77 → … → 89
 
 > **Status: end-to-end pipeline live in `@plccopilot/web`
-> (Sprint 77 → 78A → 78B → 79 → 80 → 81 → 82).** CSV / EPLAN XML /
-> TcECAD XML / **PDF (real text-layer + IO-list table extraction
-> + Sprint 82 address strictness)** → review → PIR preview →
-> **local persistence + downloadable artefacts**, all inside the
-> existing dev-mode app. **Sprint 82** is a safety/hardening
-> sprint: isolated Beckhoff-style channel markers (`I1`, `O2`,
-> `%I1`) are no longer promoted to buildable PIR addresses.
-> Source-evidence drilldown now surfaces the PDF `snippet` +
-> `bbox` the extractor populates. **No automatic PLC codegen.
-> No backend, no auth, no upload, no OCR.** Raw source content
-> (CSV/XML body, PDF bytes) is not persisted by default.
+> (Sprint 77 → 78A → 78B → 79 → 80 → 81 → 82 → 87B → 89).** CSV /
+> EPLAN XML / TcECAD XML / **PDF (real text-layer + IO-list table
+> extraction + Sprint 82 address strictness)** → review → PIR
+> preview → **local persistence + downloadable artefacts**, all
+> inside the existing dev-mode app. **Sprint 87B** added the
+> codegen readiness panel above Generate; **Sprint 89** adds an
+> explicit, operator-driven *codegen preview* panel below the
+> readiness panel — the operator can inspect the artifact list,
+> manifest diagnostics, and short ephemeral content snippets
+> (≤ 40 lines / 4 KB per artifact) BEFORE pressing Generate.
+> Preview is never automatic, never persisted to localStorage,
+> and never included in export bundles. **Sprint 82** is a
+> safety/hardening sprint: isolated Beckhoff-style channel
+> markers (`I1`, `O2`, `%I1`) are no longer promoted to
+> buildable PIR addresses. Source-evidence drilldown now
+> surfaces the PDF `snippet` + `bbox` the extractor populates.
+> **No automatic PLC codegen. No backend, no auth, no upload,
+> no OCR.** Raw source content (CSV/XML body, PDF bytes) is not
+> persisted by default.
 >
 > Sprint 81 includes the first deterministic PDF acceptance
 > harness; Sprint 82's regression scenario is documented in
