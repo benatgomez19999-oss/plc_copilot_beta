@@ -64,6 +64,15 @@ export interface CodegenPreviewArtifactView {
   /** Up to `MAX_PREVIEW_LINES` lines / `MAX_PREVIEW_BYTES` bytes; truncated otherwise. */
   previewText: string;
   truncated: boolean;
+  /**
+   * Sprint 90A — full artifact content (no UI cap). Retained on the
+   * preview view so the explicit download bundle can be produced
+   * from already-computed preview state without re-running the
+   * vendor pipeline. The Sprint 89 panel intentionally displays
+   * only `previewText`; nothing in the rendering path reads
+   * `content`.
+   */
+  content: string;
 }
 
 export interface CodegenPreviewDiagnostic {
@@ -429,6 +438,10 @@ function toArtifactView(a: GeneratedArtifact): CodegenPreviewArtifactView {
     sizeBytes,
     previewText: truncated.text,
     truncated: truncated.truncated,
+    // Sprint 90A — keep the full content reachable for the
+    // explicit download bundle. The component still renders only
+    // the truncated `previewText`.
+    content: typeof a.content === 'string' ? a.content : '',
   };
 }
 

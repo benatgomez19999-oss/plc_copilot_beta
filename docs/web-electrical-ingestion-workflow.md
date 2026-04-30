@@ -1,18 +1,24 @@
-# Web electrical-ingestion workflow — Sprint 77 → … → 89
+# Web electrical-ingestion workflow — Sprint 77 → … → 90A
 
 > **Status: end-to-end pipeline live in `@plccopilot/web`
-> (Sprint 77 → 78A → 78B → 79 → 80 → 81 → 82 → 87B → 89).** CSV /
-> EPLAN XML / TcECAD XML / **PDF (real text-layer + IO-list table
-> extraction + Sprint 82 address strictness)** → review → PIR
-> preview → **local persistence + downloadable artefacts**, all
-> inside the existing dev-mode app. **Sprint 87B** added the
-> codegen readiness panel above Generate; **Sprint 89** adds an
+> (Sprint 77 → 78A → 78B → 79 → 80 → 81 → 82 → 87B → 89 → 90A).**
+> CSV / EPLAN XML / TcECAD XML / **PDF (real text-layer + IO-list
+> table extraction + Sprint 82 address strictness)** → review →
+> PIR preview → **local persistence + downloadable artefacts**,
+> all inside the existing dev-mode app. **Sprint 87B** added the
+> codegen readiness panel above Generate; **Sprint 89** added an
 > explicit, operator-driven *codegen preview* panel below the
 > readiness panel — the operator can inspect the artifact list,
 > manifest diagnostics, and short ephemeral content snippets
 > (≤ 40 lines / 4 KB per artifact) BEFORE pressing Generate.
-> Preview is never automatic, never persisted to localStorage,
-> and never included in export bundles. **Sprint 82** is a
+> **Sprint 90A** then adds a single explicit *Download preview
+> bundle* button next to *Refresh preview*: it serialises the
+> current preview state (full-content artifacts, status, summary,
+> diagnostics, per-target error blocks) into a deterministic JSON
+> file the operator saves locally — no re-run of the vendor
+> pipeline, no auto-download, no inclusion in canonical session
+> exports. Preview is never automatic, never persisted to
+> localStorage, and never included in export bundles. **Sprint 82** is a
 > safety/hardening sprint: isolated Beckhoff-style channel
 > markers (`I1`, `O2`, `%I1`) are no longer promoted to
 > buildable PIR addresses. Source-evidence drilldown now

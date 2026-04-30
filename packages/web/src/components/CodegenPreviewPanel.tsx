@@ -34,6 +34,13 @@ import {
   type CodegenPreviewTargetView,
   type CodegenPreviewView,
 } from '../utils/codegen-preview-view.js';
+import {
+  buildCodegenPreviewBundle,
+  isPreviewDownloadable,
+  makeCodegenPreviewBundleFilename,
+  serializeCodegenPreviewBundle,
+} from '../utils/codegen-preview-download.js';
+import { downloadText } from '../utils/download.js';
 import type { Project } from '@plccopilot/pir';
 
 export type CodegenPreviewPanelTarget = CodegenPreviewTarget | 'all';
@@ -107,6 +114,16 @@ export function CodegenPreviewPanel({
 
   const canPreview = !!project;
 
+  const onDownloadBundle = (view: CodegenPreviewView): void => {
+    // Pure helpers do all the work; this thin adapter is the only
+    // DOM-touching bit. Bundle is built from current preview state —
+    // never re-runs the vendor pipeline.
+    const bundle = buildCodegenPreviewBundle(view);
+    const text = serializeCodegenPreviewBundle(bundle);
+    const filename = makeCodegenPreviewBundleFilename(view.selection);
+    downloadText(filename, text, 'application/json');
+  };
+
   const onPreview = (): void => {
     if (!project) return;
     setPhase({ kind: 'running' });
@@ -149,19 +166,32 @@ export function CodegenPreviewPanel({
     >
       <header className="panel-header codegen-preview-header">
         <h3>Codegen preview</h3>
-        <button
-          type="button"
-          className="btn"
-          onClick={onPreview}
-          disabled={!canPreview || phase.kind === 'running'}
-          aria-label="Preview generated artifacts"
-        >
-          {phase.kind === 'running'
-            ? 'Preparing preview…'
-            : phase.kind === 'has-result' || phase.kind === 'stale'
-              ? 'Refresh preview'
-              : 'Preview generated artifacts'}
-        </button>
+        <div className="codegen-preview-actions">
+          <button
+            type="button"
+            className="btn"
+            onClick={onPreview}
+            disabled={!canPreview || phase.kind === 'running'}
+            aria-label="Preview generated artifacts"
+          >
+            {phase.kind === 'running'
+              ? 'Preparing preview…'
+              : phase.kind === 'has-result' || phase.kind === 'stale'
+                ? 'Refresh preview'
+                : 'Preview generated artifacts'}
+          </button>
+          {phase.kind === 'has-result' &&
+          isPreviewDownloadable({ view: phase.view, stale: false }) ? (
+            <button
+              type="button"
+              className="btn"
+              onClick={() => onDownloadBundle(phase.view)}
+              aria-label="Download preview bundle"
+            >
+              Download preview bundle
+            </button>
+          ) : null}
+        </div>
       </header>
 
       {!canPreview ? (

@@ -1,7 +1,8 @@
 # Electrical-plan ingestion architecture
 
-> **Status: controlled codegen preview UX in `@plccopilot/web`
-> (Sprint 89); structured EPLAN + TcECAD XML parameter extraction
+> **Status: controlled codegen preview download bundle in
+> `@plccopilot/web` (Sprint 90A); controlled codegen preview UX in
+> `@plccopilot/web` (Sprint 89); structured EPLAN + TcECAD XML parameter extraction
 > (Sprint 88M); CSV parameter extraction (Sprint 88L); cross-
 > renderer `motor_vfd_simple` parity bar (Sprint 88K); universal
 > vendor support after 88H/88I/88J (CODESYS/Siemens/Rockwell);
@@ -583,6 +584,78 @@ This keeps both branches of the strategic requirement — structured
 ECAD exports today and PDF documents tomorrow — funnelling through
 the same review/persist/export model. A weak prompt cannot
 override that model: it has no surface area in any of these layers.
+
+## Sprint 90A — Controlled codegen preview download bundle
+
+Layers a single explicit *Download preview bundle* action onto the
+Sprint 89 preview panel. The bundle is built **from current
+preview state** (no re-run of the vendor pipeline) and serialised
+to a deterministic JSON file the operator saves locally — never
+persisted to `localStorage`, never folded into the canonical
+session export.
+
+The Sprint 89 artifact view
+([`packages/web/src/utils/codegen-preview-view.ts`](../packages/web/src/utils/codegen-preview-view.ts))
+gains a non-rendered `content: string` field carrying the full
+artifact text; the panel keeps rendering only the truncated
+`previewText` snippet, but the new helper
+([`packages/web/src/utils/codegen-preview-download.ts`](../packages/web/src/utils/codegen-preview-download.ts))
+reads `content` to populate the bundle. The helper is pure / DOM-
+free / total: `isPreviewDownloadable({view, stale})` gates the
+button (false for null / stale / `unavailable` / no-successful-
+target views), `buildCodegenPreviewBundle(view)` builds the
+deterministic object, `serializeCodegenPreviewBundle` emits two-
+space-indented JSON, and `makeCodegenPreviewBundleFilename` stamps
+`plc-copilot-codegen-preview-${selection}.json` with no clock /
+random suffix.
+
+Bundle shape (frozen by tests; bumped via the
+`CODEGEN_PREVIEW_BUNDLE_VERSION` constant if it ever changes):
+
+```jsonc
+{
+  "kind": "plc-copilot-codegen-preview",
+  "version": 1,
+  "selection": "siemens",            // or codesys / rockwell / all
+  "status": "ready_with_warnings",
+  "summary": "1 target ready (warnings).",
+  "targets": [
+    {
+      "target": "siemens",
+      "status": "ready_with_warnings",
+      "summary": "Generated 4 artifacts (2 warnings).",
+      "artifacts": [
+        { "path": "siemens/FB_StLoad.scl", "content": "FUNCTION_BLOCK …", "sizeBytes": 1234, "kind": "scl" }
+      ],
+      "diagnostics": [ /* severity-grouped manifest diagnostics */ ],
+      "error": { "code": "E_…", "message": "…" }   // failed targets only
+    }
+  ]
+}
+```
+
+Backend `'all'` expansion is preserved as-is: blocked / failed /
+unavailable / running targets land in the manifest with
+`artifacts: []` so the operator can see *why* a target is missing
+without the bundle fabricating placeholders. Successful targets
+contribute their full-content artifacts (no 40-line / 4-KB UI
+cap), sorted by path. Manifest diagnostics are shallow-cloned;
+per-target `error` blocks (with the original `CodegenError` code)
+are preserved verbatim on `failed` targets.
+
+Privacy invariants (pinned by tests in
+[`packages/web/tests/codegen-preview-download.spec.ts`](../packages/web/tests/codegen-preview-download.spec.ts)):
+the bundle is a strict pass-through of vendor pipeline output and
+contains generated code only. No raw CSV / EPLAN / TcECAD / PDF
+bytes ever cross the boundary; PIR-shape fields (`pir_version`,
+project payload) are not serialised either. The browser adapter
+is the existing `downloadText` from
+[`packages/web/src/utils/download.ts`](../packages/web/src/utils/download.ts):
+single Blob + synthetic `<a download>` click + `revokeObjectURL`,
+no zip dependency. See
+[`docs/codegen-preview-download-sprint-90A.md`](codegen-preview-download-sprint-90A.md)
+for the full bundle contract, privacy guarantees, and the manual
+verification checklist.
 
 ## Sprint 89 — Controlled codegen preview UX
 
