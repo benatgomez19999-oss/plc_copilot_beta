@@ -1,6 +1,6 @@
 # Electrical-plan ingestion architecture
 
-> **Status: Cross-source duplicate detection v0 (Sprint 88A).** Sprint 72
+> **Status: Rockwell valve_onoff support after Logix audit (Sprint 88C).** Sprint 72
 > scaffolded the architecture. Sprint 73 added the CSV ingestor.
 > Sprint 74 added the EPLAN structured XML ingestor v0. Sprint 75
 > added the Review UI v0. Sprint 76 added the PIR builder v0.
@@ -574,6 +574,32 @@ This keeps both branches of the strategic requirement — structured
 ECAD exports today and PDF documents tomorrow — funnelling through
 the same review/persist/export model. A weak prompt cannot
 override that model: it has no surface area in any of these layers.
+
+## Sprint 88C — Rockwell valve_onoff support after Logix audit
+
+Third per-target equipment-support widening. After auditing
+the Rockwell/Logix renderer (no per-equipment-kind dispatch;
+fully IR-driven UDT + Assign rendering; no `UDT_NAMES` map —
+canonical names flow through `core.canonicalTypeName`; global
+`ROCKWELL_*` diagnostics never gated on equipment type),
+Sprint 88C widens Rockwell's capability table to include
+`valve_onoff`. With this sprint, all four codegen targets
+(`core`, `siemens`, `codesys`, `rockwell`) converge on the
+widened `CORE_SUPPORTED_EQUIPMENT` set; the
+`ROCKWELL_SUPPORTED_EQUIPMENT` "narrow" bucket is removed.
+
+No new lowering, no new DUT shape, no safety semantics —
+Sprint 87A's `wireValveOnoff` + `UDT_ValveOnoff` carry through
+unchanged. The Sprint 87A Rockwell rejection spec was
+replaced with a support spec that pins the artifact list,
+deterministic ST output, and the unchanged `UNBOUND_ROLE`
+contract for missing bindings. The Sprint 87C CLI
+`[READINESS_FAILED]` test was retargeted from `valve_onoff`
+to `motor_vfd_simple` (still unsupported on every target) so
+the rich-error UX is still pinned end-to-end.
+
+Documented in
+[`docs/codegen-equipment-support-sprint-88C.md`](codegen-equipment-support-sprint-88C.md).
 
 ## Sprint 88A — Cross-source duplicate detection v0
 

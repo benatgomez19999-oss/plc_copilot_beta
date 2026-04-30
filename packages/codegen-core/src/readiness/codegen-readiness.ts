@@ -118,15 +118,13 @@ export interface PreflightResult {
 // Per-target capability defaults
 // ---------------------------------------------------------------------------
 
-// Sprint 86 baseline — Sprint 87A kept Siemens / Rockwell here.
-// Sprint 87C splits the legacy bucket: Siemens widens with
-// `valve_onoff` after an SCL renderer audit; Rockwell stays
-// narrow until its Logix renderer is audited the same way.
-const ROCKWELL_SUPPORTED_EQUIPMENT: ReadonlySet<EquipmentType> = new Set<EquipmentType>([
-  'pneumatic_cylinder_2pos',
-  'motor_simple',
-  'sensor_discrete',
-]);
+// Sprint 86 baseline narrow set is no longer used directly.
+// Sprint 87A widened CODESYS, Sprint 87C widened Siemens after
+// the SCL renderer audit, and Sprint 88C widens Rockwell after
+// the Logix renderer audit. All four targets now share
+// `CORE_SUPPORTED_EQUIPMENT`. The narrow constant can be
+// re-introduced when a future kind lands on a subset of
+// targets.
 
 // Sprint 87A — `core` and `codesys` widen the supported set with
 // `valve_onoff`. The vendor-neutral lowering ships
@@ -185,10 +183,15 @@ const TARGET_CAPABILITIES: Record<CodegenTarget, TargetCapabilities> = {
   },
   rockwell: {
     target: 'rockwell',
-    // Sprint 87A / 87C — Rockwell (experimental, Logix ST) stays
-    // on the pre-Sprint-87A baseline; valve_onoff is not on the
-    // certified path until the Logix renderer is audited.
-    supportedEquipmentTypes: ROCKWELL_SUPPORTED_EQUIPMENT,
+    // Sprint 88C — Rockwell widens to match `core` after the
+    // Logix renderer audit confirmed it is structurally
+    // agnostic (UDT rendering iterates `TypeArtifactIR.fields`
+    // blindly; `Assign` StmtIR renders as `target := expr;`
+    // with no per-equipment branch; no `UDT_NAMES` mapping
+    // exists — canonical names flow through `core`). Rockwell
+    // now ships v0 `valve_onoff` support alongside CODESYS and
+    // Siemens.
+    supportedEquipmentTypes: CORE_SUPPORTED_EQUIPMENT,
     supportedIoDataTypes: CORE_SUPPORTED_DATA_TYPES,
     supportedIoMemoryAreas: CORE_SUPPORTED_MEMORY_AREAS,
   },

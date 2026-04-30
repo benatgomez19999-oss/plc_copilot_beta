@@ -142,7 +142,7 @@ describe('buildCodegenReadinessView (Sprint 87B)', () => {
 // Sprint 87A valve_onoff per-target split
 // =============================================================================
 
-describe('buildCodegenReadinessView — Sprint 87A/87C valve_onoff', () => {
+describe('buildCodegenReadinessView — Sprint 87A/87C/88C valve_onoff', () => {
   it('1. valve_onoff on codesys → ready (Sprint 87A)', () => {
     const v = buildCodegenReadinessView({
       project: valveProject(),
@@ -169,20 +169,39 @@ describe('buildCodegenReadinessView — Sprint 87A/87C valve_onoff', () => {
     ).toBe(false);
   });
 
-  it('3. valve_onoff on rockwell → blocked (Logix renderer not yet audited)', () => {
+  it('3. valve_onoff on rockwell → ready (Sprint 88C — post Logix renderer audit)', () => {
     const v = buildCodegenReadinessView({
       project: valveProject(),
       target: 'rockwell',
     });
-    expect(v.status).toBe('blocked');
-    const group = v.groups.find(
-      (g) => g.code === 'READINESS_UNSUPPORTED_EQUIPMENT_FOR_TARGET',
-    );
-    expect(group).toBeDefined();
-    expect(group?.severity).toBe('error');
-    expect(group?.items[0].message).toContain('valve_onoff');
-    expect(group?.items[0].message).toContain('rockwell');
-    expect(group?.items[0].hint).toBeDefined();
+    expect(v.status).toBe('ready');
+    expect(
+      v.groups.some(
+        (g) => g.code === 'READINESS_UNSUPPORTED_EQUIPMENT_FOR_TARGET',
+      ),
+    ).toBe(false);
+  });
+
+  it('4. an unsupported-by-every-target kind (motor_vfd_simple) blocks each vendor target', () => {
+    // `motor_vfd_simple` is a valid PIR EquipmentType but is
+    // outside CORE_SUPPORTED_EQUIPMENT, so it exercises the
+    // unsupported-equipment readiness path now that
+    // valve_onoff is universally supported.
+    const p = valveProject();
+    (p.machines[0].stations[0].equipment[0].type as string) =
+      'motor_vfd_simple';
+    for (const target of ['siemens', 'codesys', 'rockwell'] as const) {
+      const v = buildCodegenReadinessView({ project: p, target });
+      expect(v.status).toBe('blocked');
+      const group = v.groups.find(
+        (g) => g.code === 'READINESS_UNSUPPORTED_EQUIPMENT_FOR_TARGET',
+      );
+      expect(group).toBeDefined();
+      expect(group?.severity).toBe('error');
+      expect(group?.items[0].message).toContain('motor_vfd_simple');
+      expect(group?.items[0].message).toContain(target);
+      expect(group?.items[0].hint).toBeDefined();
+    }
   });
 });
 

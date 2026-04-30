@@ -247,15 +247,18 @@ describe('generate command — codegen errors (sprint 39)', () => {
     expect(io.err()).toMatch(/^\[siemens\] \[UNKNOWN_PARAMETER\]/);
   });
 
-  // Sprint 40 / 86 / 87A / 87C — UNSUPPORTED_EQUIPMENT carries
-  // stationId + symbol + path + hint via the rolled-up
+  // Sprint 40 / 86 / 87A / 87C / 88C — UNSUPPORTED_EQUIPMENT
+  // carries stationId + symbol + path + hint via the rolled-up
   // READINESS_FAILED CodegenError. The fixture flips an existing
-  // equipment to `valve_onoff` and runs the **rockwell** backend.
-  // Why Rockwell: Sprint 87A added valve_onoff for CODESYS only;
-  // Sprint 87C widened Siemens after the SCL renderer audit.
-  // Rockwell stays narrow (Logix renderer not yet audited), so it
-  // is the only target that still surfaces READINESS_FAILED for
-  // valve_onoff — the exact UX we want to test here.
+  // equipment to `motor_vfd_simple` (valid PIR EquipmentType but
+  // outside `CORE_SUPPORTED_EQUIPMENT`) and runs **rockwell**.
+  // Why this kind + target: Sprint 87A added valve_onoff for
+  // CODESYS, 87C for Siemens, and 88C for Rockwell — the
+  // valve_onoff path now succeeds on every vendor target, so
+  // `motor_vfd_simple` is the kind that still exercises the
+  // rejection UX on every target. Rockwell is picked here for
+  // continuity with the Sprint 87C wording; the same UX would
+  // surface on `--backend siemens` or `--backend codesys`.
   function writeProjectWithUnsupportedEquipment(): string {
     const raw = readFileSync(fixturePath(), 'utf-8');
     const project = JSON.parse(raw) as {
@@ -263,13 +266,13 @@ describe('generate command — codegen errors (sprint 39)', () => {
         stations: { id: string; equipment: { id: string; type: string }[] }[];
       }[];
     };
-    project.machines[0]!.stations[0]!.equipment[0]!.type = 'valve_onoff';
+    project.machines[0]!.stations[0]!.equipment[0]!.type = 'motor_vfd_simple';
     const path = join(tmp, 'with-unsupported-equipment.json');
     writeFileSync(path, JSON.stringify(project), 'utf-8');
     return path;
   }
 
-  it('exits 1 with [READINESS_FAILED] + station + symbol + hint (sprint 86 / 87C)', async () => {
+  it('exits 1 with [READINESS_FAILED] + station + symbol + hint (sprint 86 / 87C / 88C)', async () => {
     const input = writeProjectWithUnsupportedEquipment();
     const io = bufferedIO();
     const code = await runGenerate(
@@ -280,7 +283,7 @@ describe('generate command — codegen errors (sprint 39)', () => {
     const stderr = io.err();
     expect(stderr).toContain('[READINESS_FAILED]');
     // The roll-up names the offending equipment type.
-    expect(stderr).toContain('valve_onoff');
+    expect(stderr).toContain('motor_vfd_simple');
     // The roll-up names the rejecting target.
     expect(stderr).toContain('rockwell');
     // Path points at the offending field (carried via the readiness
@@ -289,10 +292,9 @@ describe('generate command — codegen errors (sprint 39)', () => {
     // Station + symbol metadata in the parens group.
     expect(stderr).toMatch(/station: \w+/);
     expect(stderr).toMatch(/symbol: \w+/);
-    // Hint enumerates the supported types for the target (Rockwell
-    // baseline still includes the original three kinds).
+    // Hint enumerates the supported types for the target.
     expect(stderr).toContain('Hint: ');
-    expect(stderr).toMatch(/pneumatic_cylinder_2pos|motor_simple/);
+    expect(stderr).toMatch(/pneumatic_cylinder_2pos|motor_simple|valve_onoff/);
     // The original per-diagnostic code surfaces inside the rolled-up message body.
     expect(stderr).toContain('READINESS_UNSUPPORTED_EQUIPMENT_FOR_TARGET');
     // No stack trace by default.

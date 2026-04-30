@@ -298,24 +298,24 @@ describe('preflightProject — Sprint 87A valve_onoff per-target split', () => {
     ).toBe(false);
   });
 
-  it('4. rockwell target rejects valve_onoff via readiness (still narrow)', () => {
+  it('4. rockwell target accepts valve_onoff (Sprint 88C — post-Logix renderer audit)', () => {
     const r = preflightProject(valveProject(), { target: 'rockwell' });
-    expect(r.hasBlockingErrors).toBe(true);
-    const diag = r.diagnostics.find(
-      (d) => d.code === 'READINESS_UNSUPPORTED_EQUIPMENT_FOR_TARGET',
-    );
-    expect(diag).toBeDefined();
-    expect(diag?.message).toContain('valve_onoff');
-    expect(diag?.message).toContain('rockwell');
+    expect(r.hasBlockingErrors).toBe(false);
+    expect(
+      r.diagnostics.some(
+        (d) => d.code === 'READINESS_UNSUPPORTED_EQUIPMENT_FOR_TARGET',
+      ),
+    ).toBe(false);
   });
 
-  it('5. capability tables reflect the Sprint 87C split', () => {
-    expect(getTargetCapabilities('codesys').supportedEquipmentTypes.has('valve_onoff' as never)).toBe(true);
+  it('5. capability tables reflect the Sprint 88C convergence', () => {
+    // Sprint 88C — all four targets share CORE_SUPPORTED_EQUIPMENT
+    // for valve_onoff (Sprint 87A widened CODESYS, 87C Siemens,
+    // 88C Rockwell after the Logix renderer audit).
     expect(getTargetCapabilities('core').supportedEquipmentTypes.has('valve_onoff' as never)).toBe(true);
-    // Sprint 87C — Siemens widened to include valve_onoff after audit.
+    expect(getTargetCapabilities('codesys').supportedEquipmentTypes.has('valve_onoff' as never)).toBe(true);
     expect(getTargetCapabilities('siemens').supportedEquipmentTypes.has('valve_onoff' as never)).toBe(true);
-    // Rockwell stays narrow until its Logix renderer is audited.
-    expect(getTargetCapabilities('rockwell').supportedEquipmentTypes.has('valve_onoff' as never)).toBe(false);
+    expect(getTargetCapabilities('rockwell').supportedEquipmentTypes.has('valve_onoff' as never)).toBe(true);
   });
 
   it('6. preflight remains pure on a valve_onoff project (input deep-equal before/after)', () => {
@@ -326,12 +326,21 @@ describe('preflightProject — Sprint 87A valve_onoff per-target split', () => {
     expect(JSON.stringify(p)).toBe(before);
   });
 
-  it('7. runTargetPreflight throws READINESS_FAILED for rockwell/valve_onoff but not for codesys / siemens', () => {
+  it('7. runTargetPreflight no-throw on every vendor target for valve_onoff (Sprint 88C convergence)', () => {
     const p = valveProject();
     expect(() => runTargetPreflight(p, 'codesys')).not.toThrow();
-    // Sprint 87C — Siemens now accepts valve_onoff after the SCL
-    // renderer audit, so runTargetPreflight no longer throws.
     expect(() => runTargetPreflight(p, 'siemens')).not.toThrow();
+    expect(() => runTargetPreflight(p, 'rockwell')).not.toThrow();
+  });
+
+  it('8. runTargetPreflight still throws READINESS_FAILED for an equipment kind outside CORE_SUPPORTED_EQUIPMENT', () => {
+    // `motor_vfd_simple` is a valid PIR EquipmentType but is
+    // NOT in any target's capability set. It exercises the
+    // unsupported-equipment path now that valve_onoff is
+    // universally supported.
+    const p = valveProject();
+    (p.machines[0].stations[0].equipment[0].type as string) =
+      'motor_vfd_simple';
     let caught: CodegenError | undefined;
     try {
       runTargetPreflight(p, 'rockwell');

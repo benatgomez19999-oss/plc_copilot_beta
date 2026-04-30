@@ -6,13 +6,10 @@
 import { dedupDiagnostics, diag, sortDiagnostics, } from '../compiler/diagnostics.js';
 import { equipmentPath, equipmentTypePath, stationPath, } from '../compiler/diagnostic-paths.js';
 
-// Sprint 86 baseline — Sprint 87C splits Siemens off the
-// legacy bucket; Rockwell still rides it.
-const ROCKWELL_SUPPORTED_EQUIPMENT = new Set([
-    'pneumatic_cylinder_2pos',
-    'motor_simple',
-    'sensor_discrete',
-]);
+// Sprint 88C — all four targets converge on the widened
+// `CORE_SUPPORTED_EQUIPMENT` set after Rockwell's Logix
+// renderer audit. The narrow constant is removed; re-introduce
+// it when a future kind lands on a subset of targets.
 // Sprint 87A — core and codesys add `valve_onoff`; vendor lowering
 // (wireValveOnoff + UDT_ValveOnoff) ships in core.
 const CORE_SUPPORTED_EQUIPMENT = new Set([
@@ -57,9 +54,8 @@ const TARGET_CAPABILITIES = {
     },
     rockwell: {
         target: 'rockwell',
-        // Sprint 87A / 87C — narrow; valve_onoff rejected via readiness
-        // until the Logix renderer is audited.
-        supportedEquipmentTypes: ROCKWELL_SUPPORTED_EQUIPMENT,
+        // Sprint 88C — widens to core after Logix renderer audit.
+        supportedEquipmentTypes: CORE_SUPPORTED_EQUIPMENT,
         supportedIoDataTypes: CORE_SUPPORTED_DATA_TYPES,
         supportedIoMemoryAreas: CORE_SUPPORTED_MEMORY_AREAS,
     },
