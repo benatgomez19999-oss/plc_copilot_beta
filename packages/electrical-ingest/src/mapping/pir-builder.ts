@@ -56,6 +56,10 @@ import type {
   SourceRef,
 } from '../types.js';
 import {
+  diagnoseCrossSourceDuplicates,
+  summarizeCrossSourceDuplicates,
+} from './cross-source-duplicates.js';
+import {
   diagnoseHardenedGraph,
   summarizeAcceptedGraph,
 } from './electrical-graph-hardening.js';
@@ -124,7 +128,15 @@ export type PirBuildDiagnosticCode =
   | 'PIR_BUILD_ACCEPTED_EQUIPMENT_ORPHANED'
   | 'PIR_BUILD_DUPLICATE_IO_ADDRESS'
   | 'PIR_BUILD_DUPLICATE_IO_TAG'
-  | 'PIR_BUILD_NO_BUILDABLE_IO_AFTER_HARDENING';
+  | 'PIR_BUILD_NO_BUILDABLE_IO_AFTER_HARDENING'
+  // ---- Sprint 88A: cross-source duplicate detection ----
+  // Fired when an accepted item participates in a duplicate
+  // group that spans ≥ 2 distinct `SourceRef.sourceId` values
+  // (e.g. CSV + EPLAN both claim the same IO address). The
+  // builder never auto-merges; the operator must resolve.
+  | 'PIR_BUILD_CROSS_SOURCE_DUPLICATE_IO_ADDRESS'
+  | 'PIR_BUILD_CROSS_SOURCE_DUPLICATE_IO_TAG'
+  | 'PIR_BUILD_CROSS_SOURCE_DUPLICATE_EQUIPMENT_ID';
 
 export interface PirBuildDiagnostic {
   code: PirBuildDiagnosticCode;
@@ -705,6 +717,23 @@ export function buildPirFromReviewedCandidate(
   // -------------------------------------------------------------
   const hardeningSummary = summarizeAcceptedGraph(candidate, state);
   for (const d of diagnoseHardenedGraph(candidate, hardeningSummary)) {
+    pushDiag(ctx, d);
+  }
+
+  // Sprint 88A — cross-source duplicate detection. Surfaces
+  // duplicates that span ≥ 2 distinct `SourceRef.sourceId`
+  // values (e.g. CSV + EPLAN both claim the same IO address).
+  // Pure / read-only / never auto-merges — the operator must
+  // accept one source and reject the others, or re-address /
+  // rename the conflicting items. Sprint 85 same-candidate
+  // duplicate warnings still fire underneath; the cross-source
+  // codes are additional, more specific signals that name the
+  // sources involved.
+  const crossSourceSummary = summarizeCrossSourceDuplicates(
+    candidate,
+    state,
+  );
+  for (const d of diagnoseCrossSourceDuplicates(crossSourceSummary)) {
     pushDiag(ctx, d);
   }
 

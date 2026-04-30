@@ -1,6 +1,6 @@
 # Electrical-plan ingestion architecture
 
-> **Status: Siemens valve_onoff support after SCL audit (Sprint 87C).** Sprint 72
+> **Status: Cross-source duplicate detection v0 (Sprint 88A).** Sprint 72
 > scaffolded the architecture. Sprint 73 added the CSV ingestor.
 > Sprint 74 added the EPLAN structured XML ingestor v0. Sprint 75
 > added the Review UI v0. Sprint 76 added the PIR builder v0.
@@ -574,6 +574,46 @@ This keeps both branches of the strategic requirement — structured
 ECAD exports today and PDF documents tomorrow — funnelling through
 the same review/persist/export model. A weak prompt cannot
 override that model: it has no surface area in any of these layers.
+
+## Sprint 88A — Cross-source duplicate detection v0
+
+A read-only audit layer between Sprint 85's same-candidate
+hardening and the per-item PIR build loop. Detects duplicates
+that span ≥ 2 distinct `SourceRef.sourceId` values (CSV +
+EPLAN, EPLAN + TcECAD, …) and emits three new
+`PirBuildDiagnostic` codes:
+
+- `PIR_BUILD_CROSS_SOURCE_DUPLICATE_IO_ADDRESS` (warning)
+- `PIR_BUILD_CROSS_SOURCE_DUPLICATE_IO_TAG` (warning)
+- `PIR_BUILD_CROSS_SOURCE_DUPLICATE_EQUIPMENT_ID` (warning)
+
+New module
+[`packages/electrical-ingest/src/mapping/cross-source-duplicates.ts`](../packages/electrical-ingest/src/mapping/cross-source-duplicates.ts)
+exports two pure helpers:
+
+- `summarizeCrossSourceDuplicates(candidate, state)` — walks
+  the accepted subset, groups by canonical address /
+  normalised tag / raw equipment id, returns groups that span
+  ≥ 2 distinct sourceIds. No vendor coercion: TcECAD
+  structured names and PDF channel-marker text do NOT collapse
+  with Siemens parsed addresses.
+- `diagnoseCrossSourceDuplicates(summary)` — turns the summary
+  into a deterministic, deduplicated `PirBuildDiagnostic[]`.
+
+Wired into `buildPirFromReviewedCandidate` immediately after
+Sprint 85's `diagnoseHardenedGraph`. Sprint 76's gate semantics,
+Sprint 85's same-candidate warnings, and the sourceMap sidecar
+are all preserved verbatim. The detector never auto-merges,
+never picks a winner, and never coerces vendor-specific
+addresses.
+
+The web UX as of Sprint 87C imports one source per session, so
+this detector stays dormant on today's review snapshots — the
+audit layer ships ahead of the (future) multi-source review UX
+so the safety contract is in place when it lands.
+
+Documented in
+[`docs/cross-source-duplicates-sprint-88A.md`](cross-source-duplicates-sprint-88A.md).
 
 ## Sprint 87C — Siemens valve_onoff support after SCL audit
 
