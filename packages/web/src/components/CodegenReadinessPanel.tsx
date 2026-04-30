@@ -18,9 +18,14 @@ import { useMemo } from 'react';
 
 import {
   buildCodegenReadinessView,
-  type CodegenReadinessStatus,
   type CodegenReadinessView,
 } from '../utils/codegen-readiness-view.js';
+import {
+  READINESS_STATUS_LABEL,
+  readinessStatusPolishToken,
+  severityPolishToken,
+  statusBadgeClass,
+} from '../utils/codegen-preview-panel-view.js';
 import type { CodegenTarget } from '@plccopilot/codegen-core';
 import type { Project } from '@plccopilot/pir';
 
@@ -40,13 +45,6 @@ const VENDOR_TARGETS: ReadonlyArray<CodegenTarget> = [
   'codesys',
   'rockwell',
 ];
-
-const STATUS_LABEL: Record<CodegenReadinessStatus, string> = {
-  unavailable: 'Unavailable',
-  ready: 'Ready',
-  warning: 'Warnings',
-  blocked: 'Blocked',
-};
 
 export function CodegenReadinessPanel({
   project,
@@ -86,8 +84,10 @@ function ReadinessCard({ view }: { view: CodegenReadinessView }): JSX.Element {
     >
       <header className="codegen-readiness-card-header">
         <code className="codegen-readiness-target">{view.target}</code>
-        <span className={`badge readiness-badge--${view.status}`}>
-          {STATUS_LABEL[view.status]}
+        <span
+          className={`${statusBadgeClass(readinessStatusPolishToken(view.status))} readiness-badge--${view.status}`}
+        >
+          {READINESS_STATUS_LABEL[view.status]}
         </span>
       </header>
       <p className="codegen-readiness-summary">{view.summary}</p>
@@ -99,7 +99,9 @@ function ReadinessCard({ view }: { view: CodegenReadinessView }): JSX.Element {
               className={`codegen-readiness-group readiness-group--${group.severity}`}
             >
               <header className="codegen-readiness-group-header">
-                <span className={`badge sev-${group.severity}`}>
+                <span
+                  className={`${statusBadgeClass(severityPolishToken(group.severity))} sev-${group.severity}`}
+                >
                   {group.severity}
                 </span>
                 <code className="diag-code">{group.code}</code>

@@ -1,7 +1,7 @@
-# Web electrical-ingestion workflow — Sprint 77 → … → 92
+# Web electrical-ingestion workflow — Sprint 77 → … → 93
 
 > **Status: end-to-end pipeline live in `@plccopilot/web`
-> (Sprint 77 → 78A → 78B → 79 → 80 → 81 → 82 → 87B → 89 → 90A → 90B → 91 → 92).**
+> (Sprint 77 → 78A → 78B → 79 → 80 → 81 → 82 → 87B → 89 → 90A → 90B → 91 → 92 → 93).**
 > CSV / EPLAN XML / TcECAD XML / **PDF (real text-layer + IO-list
 > table extraction + Sprint 82 address strictness)** → review →
 > PIR preview → **local persistence + downloadable artefacts**,
@@ -43,9 +43,18 @@
 > reach localStorage, and cannot fold into the canonical session
 > export. Wrong kind / wrong version / malformed JSON surface as
 > a stable invalid state with no crash. Refreshing the browser
-> drops the imported diff. Preview, download bundle, diff, diff
-> bundle, and imported diff are never automatic, never persisted
-> to localStorage, and never included in export bundles.
+> drops the imported diff. **Sprint 93** is a web-only visual
+> polish pass: every renderer-shared piece of copy and status →
+> CSS-class mapping moves into a single pure helper, the live
+> + archived diff sections gain *Expand all* / *Collapse all*
+> controls (React-local, never persisted), and the unified
+> `status-badge--<token>` palette gives the same colour to the
+> same status across readiness / preview / live diff / archived
+> diff. No bundle / contract / Generate / worker / localStorage
+> / canonical export-bundle change. Preview, download bundle,
+> diff, diff bundle, imported diff, and the new expand state
+> are never automatic, never persisted to localStorage, and
+> never included in export bundles.
 > **Sprint 82** is a
 > safety/hardening sprint: isolated Beckhoff-style channel
 > markers (`I1`, `O2`, `%I1`) are no longer promoted to

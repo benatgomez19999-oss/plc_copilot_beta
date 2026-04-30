@@ -1776,3 +1776,72 @@ table.kv td {
   padding: 6px 8px;
   margin: 4px 0;
 }
+.codegen-preview-imported-diff-readonly {
+  font-size: 0.85em;
+  background: var(--bg-elevated);
+  border-left: 3px solid var(--border);
+  border-radius: 3px;
+  padding: 4px 8px;
+  margin: 4px 0 8px 0;
+}
+
+/* Sprint 93 — Unified status badge palette + polish.
+ *
+ * Every panel (readiness / preview / live diff / archived diff)
+ * routes its status through `statusBadgeClass(token)` so the same
+ * status name renders with the same colour everywhere. Existing
+ * per-panel classes (`.preview-badge--ready`, `.readiness-badge--ready`,
+ * `.preview-diff-badge--changed`, `.sev-warning`, ...) keep working
+ * because the renderer attaches both the unified class AND the legacy
+ * per-panel class; the unified rules win on cascade order, which lets
+ * us tweak the palette in one place without touching component code.
+ *
+ * Color tokens reuse the hex values the existing classes already use
+ * so this sprint is a copy + naming consolidation, not a redesign.
+ */
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  font-size: 0.8em;
+  border-radius: 4px;
+  white-space: nowrap;
+  text-transform: capitalize;
+  letter-spacing: 0.02em;
+  background: var(--bg-elevated);
+  color: var(--muted);
+}
+.status-badge--ready { background: #dcfce7; color: #166534; }
+.status-badge--warning { background: #fef3c7; color: #92400e; }
+.status-badge--blocked { background: #fee2e2; color: #991b1b; }
+.status-badge--failed { background: #fee2e2; color: #991b1b; }
+.status-badge--unavailable { background: var(--bg-elevated); color: var(--muted); }
+.status-badge--running { background: #dbeafe; color: #1e3a8a; }
+.status-badge--added { background: #dcfce7; color: #166534; }
+.status-badge--removed { background: #fee2e2; color: #991b1b; }
+.status-badge--changed { background: #dbeafe; color: #1e3a8a; }
+.status-badge--unchanged { background: var(--bg-elevated); color: var(--muted); }
+.status-badge--info { background: #ede9fe; color: #5b21b6; }
+
+/* Sprint 93 — small notice + spacing polish */
+.codegen-preview-stale {
+  background: #fef3c7;
+  color: #92400e;
+  border-left: 3px solid #d97706;
+  border-radius: 3px;
+  padding: 6px 8px;
+  margin: 4px 0 8px 0;
+}
+.codegen-preview-archived-controls {
+  margin: 4px 0 6px 0;
+}
+.btn-subtle {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 0.85em;
+}
+.btn-subtle:hover {
+  background: var(--bg-elevated);
+  color: var(--text);
+}

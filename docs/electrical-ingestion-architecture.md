@@ -1,12 +1,13 @@
 # Electrical-plan ingestion architecture
 
-> **Status: imported preview diff view in `@plccopilot/web`
-> (Sprint 92); controlled codegen preview diff download bundle in
-> `@plccopilot/web` (Sprint 91); controlled codegen preview diff
-> UX in `@plccopilot/web` (Sprint 90B); controlled codegen preview
-> download bundle in `@plccopilot/web` (Sprint 90A); controlled
-> codegen preview UX in `@plccopilot/web` (Sprint 89); structured
-> EPLAN + TcECAD XML parameter extraction
+> **Status: visual polish for preview / diff panels in
+> `@plccopilot/web` (Sprint 93); imported preview diff view in
+> `@plccopilot/web` (Sprint 92); controlled codegen preview diff
+> download bundle in `@plccopilot/web` (Sprint 91); controlled
+> codegen preview diff UX in `@plccopilot/web` (Sprint 90B);
+> controlled codegen preview download bundle in `@plccopilot/web`
+> (Sprint 90A); controlled codegen preview UX in `@plccopilot/web`
+> (Sprint 89); structured EPLAN + TcECAD XML parameter extraction
 > (Sprint 88M); CSV parameter extraction (Sprint 88L); cross-
 > renderer `motor_vfd_simple` parity bar (Sprint 88K); universal
 > vendor support after 88H/88I/88J (CODESYS/Siemens/Rockwell);
@@ -588,6 +589,73 @@ This keeps both branches of the strategic requirement — structured
 ECAD exports today and PDF documents tomorrow — funnelling through
 the same review/persist/export model. A weak prompt cannot
 override that model: it has no surface area in any of these layers.
+
+## Sprint 93 — Visual polish for preview / diff panels
+
+Web-only consolidation of every renderer-shared piece of copy and
+status-class mapping behind a single pure helper
+[`packages/web/src/utils/codegen-preview-panel-view.ts`](../packages/web/src/utils/codegen-preview-panel-view.ts).
+Exposes status labels (`PREVIEW_STATUS_LABEL`,
+`READINESS_STATUS_LABEL`, `TARGET_DIFF_STATUS_LABEL`,
+`ARTIFACT_DIFF_STATUS_LABEL`), polish tokens
+(`previewStatusPolishToken`, `readinessStatusPolishToken`,
+`targetDiffStatusPolishToken`, `artifactDiffStatusPolishToken`,
+`diagnosticChangeStatusPolishToken`, `severityPolishToken`),
+the unified class builder `statusBadgeClass(token)`, and
+summary formatters
+(`formatArtifactCountSummary`,
+`formatPreviewSnippetSummary`,
+`formatManifestDiagnosticSummary`,
+`formatReadinessGroupSummary`,
+`formatArtifactChangesSummary`,
+`formatDiagnosticChangesSummary`,
+`formatDiagnosticChangesSummaryFromArtifactDiff`,
+`formatDiffSampleSummary`, `formatTargetDiffOneLiner`,
+`formatArchivedTargetOneLiner`). Renderer-shared notices
+(`IMPORTED_DIFF_READ_ONLY_NOTICE`, `STALE_PREVIEW_NOTICE`,
+`STALE_DIFF_NOTICE`) live in the same module so the wording
+cannot drift between components. Every helper is pure / DOM-free
+/ total / deterministic; never mutates inputs; unknown statuses
+fall back to safe defaults (`'unavailable'` / `'unchanged'` /
+`'info'`) rather than throwing.
+
+The renderers
+([`packages/web/src/components/CodegenReadinessPanel.tsx`](../packages/web/src/components/CodegenReadinessPanel.tsx)
+and
+[`packages/web/src/components/CodegenPreviewPanel.tsx`](../packages/web/src/components/CodegenPreviewPanel.tsx))
+attach the unified `status-badge--<token>` class **alongside** the
+existing per-panel classes (`.preview-badge--ready`,
+`.readiness-badge--ready`, `.preview-diff-badge--changed`,
+`.sev-warning`, …) so legacy CSS keeps working and the new palette
+wins by cascade. Live diff section heading is now *Live diff* (the
+archived section was already *Archived diff*) so the two read like
+a pair. *Live diff* and *Archived diff* gain *Expand all* /
+*Collapse all* buttons that bump a generation counter; per-target
+`<details>` rows are keyed by `target + generation` so they
+re-mount with the new initial state, after which the user can
+toggle each one freely. State is React-local — never persisted,
+never folded into the canonical session export. Stale + read-only
+notices get small dedicated `<p>` rules so they look discreet but
+visually distinct.
+
+Sprint 90A preview bundle, Sprint 91 diff bundle, Sprint 92
+imported-bundle parser, Sprint 90B diff helper, Sprint 89 preview
+helper, Sprint 87B readiness helper — all unchanged. No PIR /
+codegen-core / vendor / electrical-ingest / CLI / worker /
+canonical Generate / canonical export-bundle change. No new
+dependencies.
+
+24 helper-level tests in
+[`packages/web/tests/codegen-preview-panel-view.spec.ts`](../packages/web/tests/codegen-preview-panel-view.spec.ts)
+cover constants, status labels, token mappings (including unknown
+status fallback), unified class builder, summary formatters
+(0 / 1 / N variants, truncated marker, severity grouping with
+singular / plural, zero-bucket skipping), live + archived target
+one-liners, and the `setAllExpanded` helper (input not mutated,
+empty-key edge case). See
+[`docs/codegen-preview-polish-sprint-93.md`](codegen-preview-polish-sprint-93.md)
+for the full surface inventory and the manual verification
+checklist.
 
 ## Sprint 92 — Imported preview diff view
 

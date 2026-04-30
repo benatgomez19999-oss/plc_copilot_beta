@@ -29,7 +29,6 @@ import {
   buildCodegenPreviewView,
   type CodegenPreviewArtifactView,
   type CodegenPreviewDiagnostic,
-  type CodegenPreviewStatus,
   type CodegenPreviewTarget,
   type CodegenPreviewTargetView,
   type CodegenPreviewView,
@@ -61,6 +60,29 @@ import {
   parseCodegenPreviewDiffBundleText,
   type ImportedCodegenPreviewDiffView,
 } from '../utils/codegen-preview-diff-import.js';
+import {
+  ARTIFACT_DIFF_STATUS_LABEL,
+  IMPORTED_DIFF_READ_ONLY_NOTICE,
+  PREVIEW_STATUS_LABEL,
+  STALE_DIFF_NOTICE,
+  STALE_PREVIEW_NOTICE,
+  TARGET_DIFF_STATUS_LABEL,
+  artifactDiffStatusPolishToken,
+  diagnosticChangeStatusPolishToken,
+  formatArchivedTargetOneLiner,
+  formatArtifactChangesSummary,
+  formatDiagnosticChangesSummary,
+  formatDiagnosticChangesSummaryFromArtifactDiff,
+  formatDiffSampleSummary,
+  formatManifestDiagnosticSummary,
+  formatPreviewSnippetSummary,
+  formatReadinessGroupSummary,
+  formatTargetDiffOneLiner,
+  previewStatusPolishToken,
+  severityPolishToken,
+  statusBadgeClass,
+  targetDiffStatusPolishToken,
+} from '../utils/codegen-preview-panel-view.js';
 import { downloadText } from '../utils/download.js';
 import type { Project } from '@plccopilot/pir';
 
@@ -76,15 +98,6 @@ export interface CodegenPreviewPanelProps {
    */
   generatedAt?: string;
 }
-
-const STATUS_LABEL: Record<CodegenPreviewStatus, string> = {
-  unavailable: 'Unavailable',
-  running: 'Running',
-  ready: 'Ready',
-  ready_with_warnings: 'Warnings',
-  blocked: 'Blocked',
-  failed: 'Failed',
-};
 
 type PanelPhase =
   | { kind: 'idle' }
@@ -360,10 +373,7 @@ function PreviewBody({
   return (
     <>
       {stale ? (
-        <p className="codegen-preview-stale muted">
-          Preview is stale — project or backend changed. Refresh to
-          re-run.
-        </p>
+        <p className="codegen-preview-stale">{STALE_PREVIEW_NOTICE}</p>
       ) : null}
       <p className="codegen-preview-summary">{view.summary}</p>
       {view.targets.length === 0 ? null : (
@@ -402,13 +412,9 @@ function PreviewDiffSection({
   // pointer rather than silently disappearing.
   if (stale) {
     return (
-      <section className="codegen-preview-diff" aria-label="Preview diff">
-        <h4>Preview diff</h4>
-        <p className="muted">
-          Diff is paused while the preview is stale. Refresh the
-          preview to re-compare against the previous successful run
-          and download an up-to-date diff bundle.
-        </p>
+      <section className="codegen-preview-diff" aria-label="Live preview diff">
+        <h4>Live diff</h4>
+        <p className="muted">{STALE_DIFF_NOTICE}</p>
       </section>
     );
   }
@@ -430,22 +436,59 @@ function PreviewDiffSection({
     stale: false,
   });
 
+  // Sprint 93 — Expand all / Collapse all. `expandGen` keys the
+  // target rows so a click re-mounts every <details> with the
+  // requested initial state; afterwards the user can toggle each
+  // one freely.
+  const [liveExpandGen, setLiveExpandGen] = useState(0);
+  const [liveDefaultOpen, setLiveDefaultOpen] = useState(false);
+  const visibleTargets = diff.targets.filter((t) => t.status !== 'unchanged');
+  const hasExpandableTargets = visibleTargets.length > 0;
+
   return (
-    <section className="codegen-preview-diff" aria-label="Preview diff">
+    <section className="codegen-preview-diff" aria-label="Live preview diff">
       <header className="codegen-preview-diff-header">
-        <h4>Preview diff</h4>
-        {canDownloadDiff && diffSlots.previous && currentForDiff ? (
-          <button
-            type="button"
-            className="btn"
-            onClick={() =>
-              onDownloadDiffBundle(diffSlots.previous!, currentForDiff)
-            }
-            aria-label="Download diff bundle"
-          >
-            Download diff bundle
-          </button>
-        ) : null}
+        <h4>Live diff</h4>
+        <div className="codegen-preview-actions">
+          {hasExpandableTargets ? (
+            <>
+              <button
+                type="button"
+                className="btn btn-subtle"
+                onClick={() => {
+                  setLiveDefaultOpen(true);
+                  setLiveExpandGen((g) => g + 1);
+                }}
+                aria-label="Expand all live diff target rows"
+              >
+                Expand all
+              </button>
+              <button
+                type="button"
+                className="btn btn-subtle"
+                onClick={() => {
+                  setLiveDefaultOpen(false);
+                  setLiveExpandGen((g) => g + 1);
+                }}
+                aria-label="Collapse all live diff target rows"
+              >
+                Collapse all
+              </button>
+            </>
+          ) : null}
+          {canDownloadDiff && diffSlots.previous && currentForDiff ? (
+            <button
+              type="button"
+              className="btn"
+              onClick={() =>
+                onDownloadDiffBundle(diffSlots.previous!, currentForDiff)
+              }
+              aria-label="Download diff bundle"
+            >
+              Download diff bundle
+            </button>
+          ) : null}
+        </div>
       </header>
       <p
         className={`codegen-preview-diff-summary codegen-preview-diff-state--${diff.state}`}
@@ -460,11 +503,13 @@ function PreviewDiffSection({
       ) : null}
       {diff.state === 'changed' ? (
         <div className="codegen-preview-diff-targets">
-          {diff.targets
-            .filter((t) => t.status !== 'unchanged')
-            .map((t) => (
-              <PreviewDiffTargetRow key={`diff-${t.target}`} target={t} />
-            ))}
+          {visibleTargets.map((t) => (
+            <PreviewDiffTargetRow
+              key={`diff-${t.target}-${liveExpandGen}`}
+              target={t}
+              defaultOpen={liveDefaultOpen}
+            />
+          ))}
         </div>
       ) : null}
     </section>
@@ -473,20 +518,23 @@ function PreviewDiffSection({
 
 function PreviewDiffTargetRow({
   target,
+  defaultOpen,
 }: {
   target: CodegenPreviewTargetDiff;
+  defaultOpen: boolean;
 }): JSX.Element {
-  const c = target.counts;
-  const artifactPart =
-    c.artifactsAdded + c.artifactsRemoved + c.artifactsChanged > 0
-      ? `${c.artifactsAdded} added, ${c.artifactsRemoved} removed, ${c.artifactsChanged} changed`
-      : 'no artifact changes';
-  const diagPart =
-    c.diagnosticsAdded + c.diagnosticsRemoved > 0
-      ? `${c.diagnosticsAdded + c.diagnosticsRemoved} diagnostic change${
-          c.diagnosticsAdded + c.diagnosticsRemoved === 1 ? '' : 's'
-        }`
-      : 'no diagnostic changes';
+  const oneLiner = formatTargetDiffOneLiner({
+    artifactsAdded: target.counts.artifactsAdded,
+    artifactsRemoved: target.counts.artifactsRemoved,
+    artifactsChanged: target.counts.artifactsChanged,
+    diagnosticsAdded: target.counts.diagnosticsAdded,
+    diagnosticsRemoved: target.counts.diagnosticsRemoved,
+  });
+  const visibleArtifacts = target.artifacts.filter(
+    (a) => a.status !== 'unchanged',
+  );
+  const [artifactsOpen, setArtifactsOpen] = useState(defaultOpen);
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(defaultOpen);
   return (
     <article
       className={`codegen-preview-diff-row codegen-preview-diff-row--${target.status}`}
@@ -494,39 +542,55 @@ function PreviewDiffTargetRow({
     >
       <header className="codegen-preview-diff-row-header">
         <code className="codegen-preview-target">{target.target}</code>
-        <span className={`badge preview-diff-badge--${target.status}`}>
-          {target.status.replace('_', ' ')}
+        <span
+          className={`${statusBadgeClass(targetDiffStatusPolishToken(target.status))} preview-diff-badge--${target.status}`}
+        >
+          {TARGET_DIFF_STATUS_LABEL[target.status]}
         </span>
         {target.previousStatus && target.currentStatus &&
         target.previousStatus !== target.currentStatus ? (
           <span className="muted">
-            {STATUS_LABEL[target.previousStatus]} →{' '}
-            {STATUS_LABEL[target.currentStatus]}
+            {PREVIEW_STATUS_LABEL[target.previousStatus]} →{' '}
+            {PREVIEW_STATUS_LABEL[target.currentStatus]}
           </span>
         ) : null}
       </header>
-      <p className="muted">
-        {artifactPart}; {diagPart}.
-      </p>
-      {target.artifacts.some((a) => a.status !== 'unchanged') ? (
-        <details className="codegen-preview-diff-artifacts">
-          <summary>Artifact changes</summary>
+      <p className="muted">{oneLiner}</p>
+      {visibleArtifacts.length > 0 ? (
+        <details
+          className="codegen-preview-diff-artifacts"
+          open={artifactsOpen}
+          onToggle={(e) =>
+            setArtifactsOpen((e.target as HTMLDetailsElement).open)
+          }
+        >
+          <summary>
+            {formatArtifactChangesSummary({
+              artifactsAdded: target.counts.artifactsAdded,
+              artifactsRemoved: target.counts.artifactsRemoved,
+              artifactsChanged: target.counts.artifactsChanged,
+            })}
+          </summary>
           <ul>
-            {target.artifacts
-              .filter((a) => a.status !== 'unchanged')
-              .map((a) => (
-                <PreviewDiffArtifactRow
-                  key={`${target.target}-diff-${a.path}`}
-                  artifact={a}
-                />
-              ))}
+            {visibleArtifacts.map((a) => (
+              <PreviewDiffArtifactRow
+                key={`${target.target}-diff-${a.path}`}
+                artifact={a}
+              />
+            ))}
           </ul>
         </details>
       ) : null}
       {target.diagnostics.length > 0 ? (
-        <details className="codegen-preview-diff-diagnostics">
+        <details
+          className="codegen-preview-diff-diagnostics"
+          open={diagnosticsOpen}
+          onToggle={(e) =>
+            setDiagnosticsOpen((e.target as HTMLDetailsElement).open)
+          }
+        >
           <summary>
-            Diagnostic changes ({target.diagnostics.length})
+            {formatDiagnosticChangesSummary(target.diagnostics.length)}
           </summary>
           <ul>
             {target.diagnostics.map((d, i) => (
@@ -552,16 +616,20 @@ function PreviewDiffArtifactRow({
       className={`codegen-preview-diff-artifact codegen-preview-diff-artifact--${artifact.status}`}
     >
       <header>
-        <span className={`badge preview-diff-badge--${artifact.status}`}>
-          {artifact.status}
+        <span
+          className={`${statusBadgeClass(artifactDiffStatusPolishToken(artifact.status))} preview-diff-badge--${artifact.status}`}
+        >
+          {ARTIFACT_DIFF_STATUS_LABEL[artifact.status]}
         </span>{' '}
         <code className="codegen-preview-artifact-path">{artifact.path}</code>
       </header>
       {artifact.status === 'changed' && artifact.diff ? (
         <details>
           <summary>
-            Show diff sample
-            {artifact.diff.truncated ? ' (truncated)' : ''}
+            {formatDiffSampleSummary({
+              path: artifact.path,
+              truncated: artifact.diff.truncated,
+            })}
           </summary>
           <pre className="codegen-preview-diff-snippet">
             {artifact.diff.lines
@@ -589,10 +657,14 @@ function PreviewDiffDiagnosticRow({
 }): JSX.Element {
   return (
     <li className={`codegen-preview-diff-diagnostic preview-diff-${d.status}`}>
-      <span className={`badge preview-diff-badge--${d.status}`}>
-        {d.status}
+      <span
+        className={`${statusBadgeClass(diagnosticChangeStatusPolishToken(d.status))} preview-diff-badge--${d.status}`}
+      >
+        {d.status === 'added' ? 'Added' : 'Removed'}
       </span>{' '}
-      <span className={`badge sev-${d.diagnostic.severity}`}>
+      <span
+        className={`${statusBadgeClass(severityPolishToken(d.diagnostic.severity))} sev-${d.diagnostic.severity}`}
+      >
         {d.diagnostic.severity}
       </span>{' '}
       <code>{d.diagnostic.code}</code>{' '}
@@ -613,8 +685,10 @@ function PreviewCard({
     >
       <header className="codegen-preview-card-header">
         <code className="codegen-preview-target">{view.target}</code>
-        <span className={`badge preview-badge--${view.status}`}>
-          {STATUS_LABEL[view.status]}
+        <span
+          className={`${statusBadgeClass(previewStatusPolishToken(view.status))} preview-badge--${view.status}`}
+        >
+          {PREVIEW_STATUS_LABEL[view.status]}
         </span>
       </header>
       <p className="codegen-preview-card-summary">{view.summary}</p>
@@ -628,17 +702,18 @@ function PreviewCard({
 
       {view.readinessGroups.length > 0 ? (
         <details className="codegen-preview-readiness">
-          <summary>
-            Readiness diagnostics ({view.readinessGroups.length} group
-            {view.readinessGroups.length === 1 ? '' : 's'})
-          </summary>
+          <summary>{formatReadinessGroupSummary(view.readinessGroups)}</summary>
           <ul>
             {view.readinessGroups.map((g) => (
               <li
                 key={`${view.target}-r-${g.code}`}
                 className={`readiness-group--${g.severity}`}
               >
-                <span className={`badge sev-${g.severity}`}>{g.severity}</span>{' '}
+                <span
+                  className={`${statusBadgeClass(severityPolishToken(g.severity))} sev-${g.severity}`}
+                >
+                  {g.severity}
+                </span>{' '}
                 <code>{g.code}</code>{' '}
                 <span className="muted">
                   ({g.items.length} item{g.items.length === 1 ? '' : 's'})
@@ -652,7 +727,7 @@ function PreviewCard({
       {view.manifestDiagnostics.length > 0 ? (
         <details className="codegen-preview-manifest">
           <summary>
-            Manifest diagnostics ({view.manifestDiagnostics.length})
+            {formatManifestDiagnosticSummary(view.manifestDiagnostics)}
           </summary>
           <ul>
             {view.manifestDiagnostics.map((d, i) => (
@@ -667,9 +742,7 @@ function PreviewCard({
 
       {view.artifacts.length > 0 ? (
         <details className="codegen-preview-artifacts" open>
-          <summary>
-            {view.artifactCount} artifact{view.artifactCount === 1 ? '' : 's'}
-          </summary>
+          <summary>{formatPreviewSnippetSummary(view.artifacts)}</summary>
           <ul className="codegen-preview-artifact-list">
             {view.artifacts.map((a) => (
               <ArtifactRow key={`${view.target}-a-${a.path}`} a={a} />
@@ -688,7 +761,11 @@ function ManifestDiagnosticRow({
 }): JSX.Element {
   return (
     <li className={`manifest-diag-${d.severity}`}>
-      <span className={`badge sev-${d.severity}`}>{d.severity}</span>{' '}
+      <span
+        className={`${statusBadgeClass(severityPolishToken(d.severity))} sev-${d.severity}`}
+      >
+        {d.severity}
+      </span>{' '}
       <code>{d.code}</code>{' '}
       <span className="diag-message">{d.message}</span>
       {d.path ? (
@@ -791,6 +868,10 @@ function ImportedDiffBody({
   bundle: CodegenPreviewDiffBundle;
   filename: string | null;
 }): JSX.Element {
+  // Sprint 93 — Expand all / Collapse all for archived target rows.
+  const [archivedExpandGen, setArchivedExpandGen] = useState(0);
+  const [archivedDefaultOpen, setArchivedDefaultOpen] = useState(false);
+  const hasTargets = bundle.targets.length > 0;
   return (
     <>
       <p className="codegen-preview-imported-diff-meta muted">
@@ -812,9 +893,8 @@ function ImportedDiffBody({
         {' • '}
         {bundle.targets.length} target{bundle.targets.length === 1 ? '' : 's'}
       </p>
-      <p className="muted">
-        Imported diff is read-only. It does not affect the current
-        preview, Generate, or saved session.
+      <p className="codegen-preview-imported-diff-readonly muted">
+        {IMPORTED_DIFF_READ_ONLY_NOTICE}
       </p>
       <p
         className={`codegen-preview-diff-summary codegen-preview-diff-state--${
@@ -823,12 +903,42 @@ function ImportedDiffBody({
       >
         {bundle.summary}
       </p>
-      {bundle.targets.length > 0 ? (
-        <div className="codegen-preview-diff-targets">
-          {bundle.targets.map((t) => (
-            <ImportedDiffTargetRow key={`imp-${t.target}`} target={t} />
-          ))}
-        </div>
+      {hasTargets ? (
+        <>
+          <div className="codegen-preview-actions codegen-preview-archived-controls">
+            <button
+              type="button"
+              className="btn btn-subtle"
+              onClick={() => {
+                setArchivedDefaultOpen(true);
+                setArchivedExpandGen((g) => g + 1);
+              }}
+              aria-label="Expand all archived diff target rows"
+            >
+              Expand all
+            </button>
+            <button
+              type="button"
+              className="btn btn-subtle"
+              onClick={() => {
+                setArchivedDefaultOpen(false);
+                setArchivedExpandGen((g) => g + 1);
+              }}
+              aria-label="Collapse all archived diff target rows"
+            >
+              Collapse all
+            </button>
+          </div>
+          <div className="codegen-preview-diff-targets">
+            {bundle.targets.map((t) => (
+              <ImportedDiffTargetRow
+                key={`imp-${t.target}-${archivedExpandGen}`}
+                target={t}
+                defaultOpen={archivedDefaultOpen}
+              />
+            ))}
+          </div>
+        </>
       ) : null}
     </>
   );
@@ -836,20 +946,14 @@ function ImportedDiffBody({
 
 function ImportedDiffTargetRow({
   target,
+  defaultOpen,
 }: {
   target: CodegenPreviewDiffBundleTarget;
+  defaultOpen: boolean;
 }): JSX.Element {
-  const c = target.counts;
-  const artifactPart =
-    c.artifactsAdded + c.artifactsRemoved + c.artifactsChanged > 0
-      ? `${c.artifactsAdded} added, ${c.artifactsRemoved} removed, ${c.artifactsChanged} changed`
-      : 'no artifact changes';
-  const diagPart =
-    c.diagnosticsAdded + c.diagnosticsRemoved > 0
-      ? `${c.diagnosticsAdded + c.diagnosticsRemoved} diagnostic change${
-          c.diagnosticsAdded + c.diagnosticsRemoved === 1 ? '' : 's'
-        }`
-      : 'no diagnostic changes';
+  const oneLiner = formatArchivedTargetOneLiner(target);
+  const [artifactsOpen, setArtifactsOpen] = useState(defaultOpen);
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(defaultOpen);
   return (
     <article
       className={`codegen-preview-diff-row codegen-preview-diff-row--${target.targetStatus}`}
@@ -857,8 +961,10 @@ function ImportedDiffTargetRow({
     >
       <header className="codegen-preview-diff-row-header">
         <code className="codegen-preview-target">{target.target}</code>
-        <span className={`badge preview-diff-badge--${target.targetStatus}`}>
-          {target.targetStatus.replace('_', ' ')}
+        <span
+          className={`${statusBadgeClass(targetDiffStatusPolishToken(target.targetStatus))} preview-diff-badge--${target.targetStatus}`}
+        >
+          {TARGET_DIFF_STATUS_LABEL[target.targetStatus]}
         </span>
         {target.previousStatus && target.currentStatus &&
         target.previousStatus !== target.currentStatus ? (
@@ -867,12 +973,22 @@ function ImportedDiffTargetRow({
           </span>
         ) : null}
       </header>
-      <p className="muted">
-        {artifactPart}; {diagPart}.
-      </p>
+      <p className="muted">{oneLiner}</p>
       {target.artifactChanges.length > 0 ? (
-        <details className="codegen-preview-diff-artifacts">
-          <summary>Artifact changes</summary>
+        <details
+          className="codegen-preview-diff-artifacts"
+          open={artifactsOpen}
+          onToggle={(e) =>
+            setArtifactsOpen((e.target as HTMLDetailsElement).open)
+          }
+        >
+          <summary>
+            {formatArtifactChangesSummary({
+              artifactsAdded: target.counts.artifactsAdded,
+              artifactsRemoved: target.counts.artifactsRemoved,
+              artifactsChanged: target.counts.artifactsChanged,
+            })}
+          </summary>
           <ul>
             {target.artifactChanges.map((a) => (
               <ImportedDiffArtifactRow
@@ -884,9 +1000,20 @@ function ImportedDiffTargetRow({
         </details>
       ) : null}
       {target.diagnosticChanges.length > 0 ? (
-        <details className="codegen-preview-diff-diagnostics">
+        <details
+          className="codegen-preview-diff-diagnostics"
+          open={diagnosticsOpen}
+          onToggle={(e) =>
+            setDiagnosticsOpen((e.target as HTMLDetailsElement).open)
+          }
+        >
           <summary>
-            Diagnostic changes ({target.diagnosticChanges.length})
+            {formatDiagnosticChangesSummaryFromArtifactDiff(
+              // @ts-expect-error — bundle's diagnostic-change shape is a
+              // structural subset of CodegenPreviewDiagnosticDiff (only
+              // .status is read), so this passthrough is safe.
+              target.diagnosticChanges,
+            )}
           </summary>
           <ul>
             {target.diagnosticChanges.map((d, i) => (
@@ -912,16 +1039,20 @@ function ImportedDiffArtifactRow({
       className={`codegen-preview-diff-artifact codegen-preview-diff-artifact--${artifact.status}`}
     >
       <header>
-        <span className={`badge preview-diff-badge--${artifact.status}`}>
-          {artifact.status}
+        <span
+          className={`${statusBadgeClass(artifactDiffStatusPolishToken(artifact.status))} preview-diff-badge--${artifact.status}`}
+        >
+          {ARTIFACT_DIFF_STATUS_LABEL[artifact.status]}
         </span>{' '}
         <code className="codegen-preview-artifact-path">{artifact.path}</code>
       </header>
       {artifact.status === 'changed' && artifact.diff ? (
         <details>
           <summary>
-            Show diff sample
-            {artifact.diff.truncated ? ' (truncated)' : ''}
+            {formatDiffSampleSummary({
+              path: artifact.path,
+              truncated: artifact.diff.truncated,
+            })}
           </summary>
           <pre className="codegen-preview-diff-snippet">
             {artifact.diff.lines
@@ -949,10 +1080,16 @@ function ImportedDiffDiagnosticRow({
 }): JSX.Element {
   return (
     <li className={`codegen-preview-diff-diagnostic preview-diff-${d.status}`}>
-      <span className={`badge preview-diff-badge--${d.status}`}>
-        {d.status}
+      <span
+        className={`${statusBadgeClass(diagnosticChangeStatusPolishToken(d.status))} preview-diff-badge--${d.status}`}
+      >
+        {d.status === 'added' ? 'Added' : 'Removed'}
       </span>{' '}
-      <span className={`badge sev-${d.severity}`}>{d.severity}</span>{' '}
+      <span
+        className={`${statusBadgeClass(severityPolishToken(d.severity))} sev-${d.severity}`}
+      >
+        {d.severity}
+      </span>{' '}
       <code>{d.code}</code>{' '}
       <span className="diag-message">{d.message}</span>
     </li>
