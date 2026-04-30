@@ -217,10 +217,14 @@ describe('compileProject — Sprint 88G motor_vfd_simple lowering', () => {
     expect(JSON.stringify(a)).toBe(JSON.stringify(b));
   });
 
-  it('8. runTargetPreflight throws READINESS_FAILED for codesys (vendor stays closed)', () => {
+  it('8. runTargetPreflight does NOT throw for codesys (Sprint 88H — post-audit widening)', () => {
+    expect(() => runTargetPreflight(vfdProject(), 'codesys')).not.toThrow();
+  });
+
+  it('9. runTargetPreflight throws READINESS_FAILED for siemens (vendor stays closed; audit lands in 88I)', () => {
     let caught: CodegenError | undefined;
     try {
-      runTargetPreflight(vfdProject(), 'codesys');
+      runTargetPreflight(vfdProject(), 'siemens');
     } catch (e) {
       caught = e as CodegenError;
     }
@@ -235,17 +239,7 @@ describe('compileProject — Sprint 88G motor_vfd_simple lowering', () => {
     ).toBe(true);
   });
 
-  it('9. runTargetPreflight throws READINESS_FAILED for siemens (vendor stays closed)', () => {
-    let caught: CodegenError | undefined;
-    try {
-      runTargetPreflight(vfdProject(), 'siemens');
-    } catch (e) {
-      caught = e as CodegenError;
-    }
-    expect(caught?.code).toBe('READINESS_FAILED');
-  });
-
-  it('10. runTargetPreflight throws READINESS_FAILED for rockwell (vendor stays closed)', () => {
+  it('10. runTargetPreflight throws READINESS_FAILED for rockwell (vendor stays closed; audit lands in 88J)', () => {
     let caught: CodegenError | undefined;
     try {
       runTargetPreflight(vfdProject(), 'rockwell');

@@ -380,16 +380,15 @@ describe('preflightProject — Sprint 87A valve_onoff per-target split', () => {
 // audit findings and the conditions under which camino B unblocks.
 // =============================================================================
 
-describe('preflightProject — Sprint 88E motor_vfd_simple audit decision (vendor support deferred)', () => {
-  // Sprint 88G — pin scope tightened to vendor targets only. The
-  // `core` target now mirrors `compileProject`'s widened
-  // SUPPORTED_TYPES (which includes `motor_vfd_simple`) so
-  // codegen-core's own lowering tests can exercise
-  // `wireMotorVfdSimple`. Vendor targets stay closed; per-target
-  // audits (88H/88I/88J) reopen them one at a time.
-  it('1. motor_vfd_simple is not in any vendor capability table', () => {
-    const vendorTargets: CodegenTarget[] = ['siemens', 'codesys', 'rockwell'];
-    for (const t of vendorTargets) {
+describe('preflightProject — Sprint 88H motor_vfd_simple per-vendor split (CODESYS opened)', () => {
+  // Sprint 88E pinned that no target accepted motor_vfd_simple.
+  // Sprint 88G widened only the `core` target while keeping the
+  // three vendor targets closed. Sprint 88H opens CODESYS after
+  // its renderer audit; Siemens and Rockwell stay closed until
+  // their per-target audits in 88I and 88J.
+  it('1. motor_vfd_simple is rejected by Siemens and Rockwell (vendor audits 88I/88J pending)', () => {
+    const stillClosed: CodegenTarget[] = ['siemens', 'rockwell'];
+    for (const t of stillClosed) {
       const caps = getTargetCapabilities(t);
       expect(caps.supportedEquipmentTypes.has('motor_vfd_simple' as never)).toBe(
         false,
@@ -397,8 +396,15 @@ describe('preflightProject — Sprint 88E motor_vfd_simple audit decision (vendo
     }
   });
 
-  it('2. motor_vfd_simple IS in the core capability table (Sprint 88G — mirrors compileProject)', () => {
+  it('2. motor_vfd_simple IS in the core capability table (Sprint 88G)', () => {
     const caps = getTargetCapabilities('core');
+    expect(caps.supportedEquipmentTypes.has('motor_vfd_simple' as never)).toBe(
+      true,
+    );
+  });
+
+  it('3. motor_vfd_simple IS in the CODESYS capability table (Sprint 88H — post-audit)', () => {
+    const caps = getTargetCapabilities('codesys');
     expect(caps.supportedEquipmentTypes.has('motor_vfd_simple' as never)).toBe(
       true,
     );

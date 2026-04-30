@@ -182,15 +182,17 @@ describe('buildCodegenReadinessView — Sprint 87A/87C/88C valve_onoff', () => {
     ).toBe(false);
   });
 
-  it('4. an unsupported-by-every-target kind (motor_vfd_simple) blocks each vendor target', () => {
-    // `motor_vfd_simple` is a valid PIR EquipmentType but is
-    // outside CORE_SUPPORTED_EQUIPMENT, so it exercises the
-    // unsupported-equipment readiness path now that
-    // valve_onoff is universally supported.
+  it('4. motor_vfd_simple still blocks Siemens + Rockwell (CODESYS opened in Sprint 88H)', () => {
+    // Sprint 88H — CODESYS audit confirmed structural agnosticism
+    // for `motor_vfd_simple`; the readiness view now reports
+    // CODESYS as ready. Siemens and Rockwell continue to block
+    // until their per-target audits in Sprint 88I/88J. The
+    // unsupported-UX is exercised on the two still-closed
+    // vendors.
     const p = valveProject();
     (p.machines[0].stations[0].equipment[0].type as string) =
       'motor_vfd_simple';
-    for (const target of ['siemens', 'codesys', 'rockwell'] as const) {
+    for (const target of ['siemens', 'rockwell'] as const) {
       const v = buildCodegenReadinessView({ project: p, target });
       expect(v.status).toBe('blocked');
       const group = v.groups.find(
@@ -202,6 +204,15 @@ describe('buildCodegenReadinessView — Sprint 87A/87C/88C valve_onoff', () => {
       expect(group?.items[0].message).toContain(target);
       expect(group?.items[0].hint).toBeDefined();
     }
+    // CODESYS no longer blocks the kind; readiness is no longer
+    // `'blocked'` for motor_vfd_simple on the codesys target.
+    const cv = buildCodegenReadinessView({ project: p, target: 'codesys' });
+    expect(cv.status).not.toBe('blocked');
+    expect(
+      cv.groups.some(
+        (g) => g.code === 'READINESS_UNSUPPORTED_EQUIPMENT_FOR_TARGET',
+      ),
+    ).toBe(false);
   });
 });
 

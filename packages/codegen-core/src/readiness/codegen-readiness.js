@@ -6,18 +6,18 @@
 import { dedupDiagnostics, diag, sortDiagnostics, } from '../compiler/diagnostics.js';
 import { equipmentPath, equipmentTypePath, stationPath, } from '../compiler/diagnostic-paths.js';
 
-// Sprint 88G — split core from vendor again. Core mirrors
-// compileProject's widened SUPPORTED_TYPES (now includes
-// motor_vfd_simple); vendor capability tables stay closed for
-// motor_vfd_simple until per-target audits 88H/88I/88J.
-const VENDOR_SUPPORTED_EQUIPMENT = new Set([
+// Sprint 88H — CODESYS audit confirmed structural agnosticism for
+// motor_vfd_simple; CODESYS joins core on the wider set. Siemens
+// and Rockwell stay on the narrower set until their own audits in
+// Sprint 88I/88J.
+const SIEMENS_ROCKWELL_SUPPORTED_EQUIPMENT = new Set([
     'pneumatic_cylinder_2pos',
     'motor_simple',
     'sensor_discrete',
     'valve_onoff',
 ]);
 const CORE_SUPPORTED_EQUIPMENT = new Set([
-    ...VENDOR_SUPPORTED_EQUIPMENT,
+    ...SIEMENS_ROCKWELL_SUPPORTED_EQUIPMENT,
     'motor_vfd_simple',
 ]);
 const CORE_SUPPORTED_DATA_TYPES = new Set([
@@ -42,25 +42,25 @@ const TARGET_CAPABILITIES = {
     },
     siemens: {
         target: 'siemens',
-        // Sprint 87C — widened after SCL audit. Sprint 88G keeps
-        // Siemens at the vendor set; reopen audit in 88I.
-        supportedEquipmentTypes: VENDOR_SUPPORTED_EQUIPMENT,
+        // Sprint 88H — keeps Siemens on the narrower set;
+        // motor_vfd_simple audit lands in 88I.
+        supportedEquipmentTypes: SIEMENS_ROCKWELL_SUPPORTED_EQUIPMENT,
         supportedIoDataTypes: CORE_SUPPORTED_DATA_TYPES,
         supportedIoMemoryAreas: CORE_SUPPORTED_MEMORY_AREAS,
     },
     codesys: {
         target: 'codesys',
-        // Sprint 87A — ships valve_onoff. Sprint 88G keeps CODESYS
-        // at the vendor set; the motor_vfd_simple audit lands in 88H.
-        supportedEquipmentTypes: VENDOR_SUPPORTED_EQUIPMENT,
+        // Sprint 88H — CODESYS audit confirmed structural agnosticism
+        // for motor_vfd_simple; widens to CORE_SUPPORTED_EQUIPMENT.
+        supportedEquipmentTypes: CORE_SUPPORTED_EQUIPMENT,
         supportedIoDataTypes: CORE_SUPPORTED_DATA_TYPES,
         supportedIoMemoryAreas: CORE_SUPPORTED_MEMORY_AREAS,
     },
     rockwell: {
         target: 'rockwell',
-        // Sprint 88C — widened after Logix audit. Sprint 88G keeps
-        // Rockwell at the vendor set; reopen audit in 88J.
-        supportedEquipmentTypes: VENDOR_SUPPORTED_EQUIPMENT,
+        // Sprint 88H — keeps Rockwell on the narrower set;
+        // motor_vfd_simple audit lands in 88J.
+        supportedEquipmentTypes: SIEMENS_ROCKWELL_SUPPORTED_EQUIPMENT,
         supportedIoDataTypes: CORE_SUPPORTED_DATA_TYPES,
         supportedIoMemoryAreas: CORE_SUPPORTED_MEMORY_AREAS,
     },
