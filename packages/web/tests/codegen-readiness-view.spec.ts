@@ -182,37 +182,38 @@ describe('buildCodegenReadinessView — Sprint 87A/87C/88C valve_onoff', () => {
     ).toBe(false);
   });
 
-  it('4. motor_vfd_simple still blocks Siemens + Rockwell (CODESYS opened in Sprint 88H)', () => {
-    // Sprint 88H — CODESYS audit confirmed structural agnosticism
-    // for `motor_vfd_simple`; the readiness view now reports
-    // CODESYS as ready. Siemens and Rockwell continue to block
-    // until their per-target audits in Sprint 88I/88J. The
-    // unsupported-UX is exercised on the two still-closed
-    // vendors.
+  it('4. motor_vfd_simple still blocks Rockwell (CODESYS opened in 88H, Siemens in 88I)', () => {
+    // Sprint 88H — CODESYS audit. Sprint 88I — Siemens SCL audit.
+    // Both confirmed structural agnosticism for `motor_vfd_simple`.
+    // Only Rockwell continues to block; its audit lands in 88J.
+    // The unsupported-UX is exercised on the one still-closed
+    // vendor, with explicit positive checks for CODESYS + Siemens.
     const p = valveProject();
     (p.machines[0].stations[0].equipment[0].type as string) =
       'motor_vfd_simple';
-    for (const target of ['siemens', 'rockwell'] as const) {
+
+    // Rockwell still blocked — UX exercised here.
+    const rv = buildCodegenReadinessView({ project: p, target: 'rockwell' });
+    expect(rv.status).toBe('blocked');
+    const rGroup = rv.groups.find(
+      (g) => g.code === 'READINESS_UNSUPPORTED_EQUIPMENT_FOR_TARGET',
+    );
+    expect(rGroup).toBeDefined();
+    expect(rGroup?.severity).toBe('error');
+    expect(rGroup?.items[0].message).toContain('motor_vfd_simple');
+    expect(rGroup?.items[0].message).toContain('rockwell');
+    expect(rGroup?.items[0].hint).toBeDefined();
+
+    // CODESYS + Siemens no longer block the kind.
+    for (const target of ['codesys', 'siemens'] as const) {
       const v = buildCodegenReadinessView({ project: p, target });
-      expect(v.status).toBe('blocked');
-      const group = v.groups.find(
-        (g) => g.code === 'READINESS_UNSUPPORTED_EQUIPMENT_FOR_TARGET',
-      );
-      expect(group).toBeDefined();
-      expect(group?.severity).toBe('error');
-      expect(group?.items[0].message).toContain('motor_vfd_simple');
-      expect(group?.items[0].message).toContain(target);
-      expect(group?.items[0].hint).toBeDefined();
+      expect(v.status).not.toBe('blocked');
+      expect(
+        v.groups.some(
+          (g) => g.code === 'READINESS_UNSUPPORTED_EQUIPMENT_FOR_TARGET',
+        ),
+      ).toBe(false);
     }
-    // CODESYS no longer blocks the kind; readiness is no longer
-    // `'blocked'` for motor_vfd_simple on the codesys target.
-    const cv = buildCodegenReadinessView({ project: p, target: 'codesys' });
-    expect(cv.status).not.toBe('blocked');
-    expect(
-      cv.groups.some(
-        (g) => g.code === 'READINESS_UNSUPPORTED_EQUIPMENT_FOR_TARGET',
-      ),
-    ).toBe(false);
   });
 });
 

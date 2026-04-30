@@ -35,6 +35,8 @@ const UDT_NAMES = {
     motor_simple: 'UDT_MotorSimple',
     // Sprint 87C — Siemens accepts valve_onoff via shared lowering.
     valve_onoff: 'UDT_ValveOnoff',
+    // Sprint 88I — Siemens accepts motor_vfd_simple after SCL audit.
+    motor_vfd_simple: 'UDT_MotorVfdSimple',
 };
 export function udtName(type) {
     return UDT_NAMES[type] ?? null;

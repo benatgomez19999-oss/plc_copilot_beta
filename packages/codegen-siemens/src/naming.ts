@@ -46,6 +46,9 @@ const UDT_NAMES: Partial<Record<EquipmentType, string>> = {
   // codegen-core lowering. Public helper stays consistent with
   // `canonicalTypeName('valve_onoff') === 'UDT_ValveOnoff'`.
   valve_onoff: 'UDT_ValveOnoff',
+  // Sprint 88I — Siemens accepts `motor_vfd_simple` after the
+  // SCL renderer audit. Mirrors `canonicalTypeName('motor_vfd_simple')`.
+  motor_vfd_simple: 'UDT_MotorVfdSimple',
 };
 
 export function udtName(type: EquipmentType): string | null {

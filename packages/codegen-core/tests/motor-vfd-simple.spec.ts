@@ -221,10 +221,14 @@ describe('compileProject — Sprint 88G motor_vfd_simple lowering', () => {
     expect(() => runTargetPreflight(vfdProject(), 'codesys')).not.toThrow();
   });
 
-  it('9. runTargetPreflight throws READINESS_FAILED for siemens (vendor stays closed; audit lands in 88I)', () => {
+  it('9. runTargetPreflight does NOT throw for siemens (Sprint 88I — post-audit widening)', () => {
+    expect(() => runTargetPreflight(vfdProject(), 'siemens')).not.toThrow();
+  });
+
+  it('10. runTargetPreflight throws READINESS_FAILED for rockwell (vendor stays closed; audit lands in 88J)', () => {
     let caught: CodegenError | undefined;
     try {
-      runTargetPreflight(vfdProject(), 'siemens');
+      runTargetPreflight(vfdProject(), 'rockwell');
     } catch (e) {
       caught = e as CodegenError;
     }
@@ -237,16 +241,6 @@ describe('compileProject — Sprint 88G motor_vfd_simple lowering', () => {
         (d) => d.code === 'READINESS_UNSUPPORTED_EQUIPMENT_FOR_TARGET',
       ),
     ).toBe(true);
-  });
-
-  it('10. runTargetPreflight throws READINESS_FAILED for rockwell (vendor stays closed; audit lands in 88J)', () => {
-    let caught: CodegenError | undefined;
-    try {
-      runTargetPreflight(vfdProject(), 'rockwell');
-    } catch (e) {
-      caught = e as CodegenError;
-    }
-    expect(caught?.code).toBe('READINESS_FAILED');
   });
 
   it('11. runTargetPreflight does NOT throw for the core target (mirrors compileProject scope)', () => {

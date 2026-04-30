@@ -267,52 +267,51 @@ describe('Sprint 88D — valve_onoff universal support (integration)', () => {
   });
 
   // =============================================================================
-  // 5. motor_vfd_simple — Sprint 88H per-vendor split.
+  // 5. motor_vfd_simple — Sprint 88I per-vendor split.
   //
-  // After Sprint 88E/88G/88H, the rejection guardrail no longer
-  // applies uniformly. CODESYS opened in Sprint 88H after its
-  // renderer audit; Siemens (88I) and Rockwell (88J) still reject.
-  // Siemens/Rockwell rejection stays pinned here as a regression bar
-  // — accidentally widening either before its audit must surface.
-  // CODESYS acceptance lands in the per-package
-  // `packages/codegen-codesys/tests/motor-vfd-simple.spec.ts` spec,
-  // not in this cross-target loop.
+  // CODESYS opened in Sprint 88H, Siemens opened in Sprint 88I after
+  // their respective renderer audits. Only Rockwell still rejects;
+  // its audit lands in Sprint 88J. The per-vendor specs in
+  // `packages/codegen-codesys/tests/motor-vfd-simple.spec.ts` and
+  // `packages/codegen-siemens/tests/motor-vfd-simple.spec.ts` cover
+  // the acceptance side; this loop pins the residual rejection bar.
   // =============================================================================
 
-  describe('5. motor_vfd_simple still blocks Siemens + Rockwell (CODESYS opened in 88H)', () => {
-    const STILL_CLOSED: Target[] = ['siemens', 'rockwell'];
-    for (const target of STILL_CLOSED) {
-      it(`${target} → runTargetPreflight throws READINESS_FAILED with UNSUPPORTED_EQUIPMENT_FOR_TARGET`, () => {
-        const p = valveProject();
-        (p.machines[0].stations[0].equipment[0].type as string) =
-          'motor_vfd_simple';
-        let caught: CodegenError | undefined;
-        try {
-          runTargetPreflight(p, target);
-        } catch (e) {
-          caught = e as CodegenError;
-        }
-        expect(caught).toBeDefined();
-        expect(caught?.code).toBe('READINESS_FAILED');
-        const cause = caught?.cause as
-          | { diagnostics: Array<{ code: string }> }
-          | undefined;
-        expect(
-          cause?.diagnostics?.some(
-            (d) => d.code === 'READINESS_UNSUPPORTED_EQUIPMENT_FOR_TARGET',
-          ),
-        ).toBe(true);
-      });
-    }
+  describe('5. motor_vfd_simple still blocks Rockwell (CODESYS opened in 88H, Siemens in 88I)', () => {
+    it('rockwell → runTargetPreflight throws READINESS_FAILED with UNSUPPORTED_EQUIPMENT_FOR_TARGET', () => {
+      const p = valveProject();
+      (p.machines[0].stations[0].equipment[0].type as string) =
+        'motor_vfd_simple';
+      let caught: CodegenError | undefined;
+      try {
+        runTargetPreflight(p, 'rockwell');
+      } catch (e) {
+        caught = e as CodegenError;
+      }
+      expect(caught).toBeDefined();
+      expect(caught?.code).toBe('READINESS_FAILED');
+      const cause = caught?.cause as
+        | { diagnostics: Array<{ code: string }> }
+        | undefined;
+      expect(
+        cause?.diagnostics?.some(
+          (d) => d.code === 'READINESS_UNSUPPORTED_EQUIPMENT_FOR_TARGET',
+        ),
+      ).toBe(true);
+    });
 
     it('codesys → motor_vfd_simple no longer throws at preflight (Sprint 88H — post-audit)', () => {
       const p = valveProject();
       (p.machines[0].stations[0].equipment[0].type as string) =
         'motor_vfd_simple';
-      // Preflight passes; full generation requires the PIR-side
-      // `io_setpoint_bindings` (R-EQ-05) which is exercised in the
-      // per-package CODESYS spec, not here.
       expect(() => runTargetPreflight(p, 'codesys')).not.toThrow();
+    });
+
+    it('siemens → motor_vfd_simple no longer throws at preflight (Sprint 88I — post-audit)', () => {
+      const p = valveProject();
+      (p.machines[0].stations[0].equipment[0].type as string) =
+        'motor_vfd_simple';
+      expect(() => runTargetPreflight(p, 'siemens')).not.toThrow();
     });
   });
 
