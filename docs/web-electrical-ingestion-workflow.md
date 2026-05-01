@@ -1,7 +1,7 @@
-# Web electrical-ingestion workflow — Sprint 77 → … → 94
+# Web electrical-ingestion workflow — Sprint 77 → … → 95
 
 > **Status: end-to-end pipeline live in `@plccopilot/web`
-> (Sprint 77 → 78A → 78B → 79 → 80 → 81 → 82 → 87B → 89 → 90A → 90B → 91 → 92 → 93 → 94).**
+> (Sprint 77 → 78A → 78B → 79 → 80 → 81 → 82 → 87B → 89 → 90A → 90B → 91 → 92 → 93 → 94 → 95).**
 > CSV / EPLAN XML / TcECAD XML / **PDF (real text-layer + IO-list
 > table extraction + Sprint 82 address strictness)** → review →
 > PIR preview → **local persistence + downloadable artefacts**,
@@ -67,10 +67,21 @@
 > itself stale when either moves. *Clear comparison* drops the
 > snapshot. No vendor-pipeline re-run on Compare; no archived-
 > bundle mutation; no Generate / worker / canonical export-
-> bundle / localStorage change. Preview, download bundle, diff,
-> diff bundle, imported diff, expand state, and the new
-> comparison snapshot are never automatic, never persisted to
-> localStorage, and never included in export bundles.
+> bundle / localStorage change. **Sprint 95** then adds a
+> single explicit *Download comparison bundle* button to the
+> *Archived vs current preview* section: it serialises the
+> already-computed comparison snapshot into a small auditable
+> JSON (`plc-copilot.codegen-preview-archive-compare` v1 — no
+> `"content"` key, no `previewText`, no raw source bytes, no
+> PIR fields, just hashes / statuses / counts / paths /
+> diagnostic identities) the operator saves locally, gated on
+> a non-stale comparison whose state has audit value. Stale /
+> null / no-archived-diff / no-current-preview comparisons
+> hide the button. Preview, download bundle, diff, diff
+> bundle, imported diff, expand state, comparison snapshot,
+> and the new comparison-bundle download are never automatic,
+> never persisted to localStorage, and never included in
+> export bundles.
 > **Sprint 82** is a
 > safety/hardening sprint: isolated Beckhoff-style channel
 > markers (`I1`, `O2`, `%I1`) are no longer promoted to

@@ -68,6 +68,12 @@ import {
   type ArchivedPreviewComparisonView,
 } from '../utils/codegen-preview-archive-compare.js';
 import {
+  buildCodegenPreviewArchiveCompareBundle,
+  codegenPreviewArchiveCompareFilename,
+  isArchiveCompareDownloadable,
+  serializeCodegenPreviewArchiveCompareBundle,
+} from '../utils/codegen-preview-archive-compare-download.js';
+import {
   ARTIFACT_DIFF_STATUS_LABEL,
   IMPORTED_DIFF_READ_ONLY_NOTICE,
   PREVIEW_STATUS_LABEL,
@@ -280,6 +286,23 @@ export function CodegenPreviewPanel({
     setComparison(null);
   };
 
+  const onDownloadComparisonBundle = (
+    view: ArchivedPreviewComparisonView,
+  ): void => {
+    // Sprint 95 — build the bundle from the snapshot the panel
+    // already has in state. The vendor pipeline is never re-run,
+    // and the comparison is never recomputed here. The wall-clock
+    // `createdAt` is captured at click time and lives only inside
+    // the JSON the operator saves locally.
+    const bundle = buildCodegenPreviewArchiveCompareBundle({
+      comparison: view,
+      createdAt: new Date().toISOString(),
+    });
+    const text = serializeCodegenPreviewArchiveCompareBundle(bundle);
+    const filename = codegenPreviewArchiveCompareFilename({});
+    downloadText(filename, text, 'application/json');
+  };
+
   const onPreview = (): void => {
     if (!project) return;
     setPhase({ kind: 'running' });
@@ -409,6 +432,7 @@ export function CodegenPreviewPanel({
             phase.view !== comparison.currentRef
           }
           onClear={onClearComparison}
+          onDownload={onDownloadComparisonBundle}
         />
       ) : null}
     </section>
@@ -1221,13 +1245,19 @@ function ArchivedComparisonSection({
   view,
   stale,
   onClear,
+  onDownload,
 }: {
   view: ArchivedPreviewComparisonView;
   stale: boolean;
   onClear: () => void;
+  onDownload: (view: ArchivedPreviewComparisonView) => void;
 }): JSX.Element {
   const [expandGen, setExpandGen] = useState(0);
   const [defaultOpen, setDefaultOpen] = useState(false);
+  const canDownload = isArchiveCompareDownloadable({
+    comparison: view,
+    stale,
+  });
   return (
     <section
       className="codegen-preview-archive-compare"
@@ -1262,6 +1292,16 @@ function ArchivedComparisonSection({
               </button>
             </>
           ) : null}
+          {canDownload ? (
+            <button
+              type="button"
+              className="btn"
+              onClick={() => onDownload(view)}
+              aria-label="Download comparison bundle"
+            >
+              Download comparison bundle
+            </button>
+          ) : null}
           <button
             type="button"
             className="btn"
@@ -1288,7 +1328,10 @@ function ArchivedComparisonSection({
       </p>
       <p className="codegen-preview-archive-compare-readonly muted">
         Comparison is read-only. It does not modify the archived diff,
-        current preview, Generate, or saved session.
+        current preview, Generate, or saved session. Downloaded
+        comparison bundles contain hashes, statuses, and capped
+        diagnostic / artifact metadata only — not generated artifact
+        content.
       </p>
       {view.targets.length > 0 ? (
         <div className="codegen-preview-archive-compare-targets">

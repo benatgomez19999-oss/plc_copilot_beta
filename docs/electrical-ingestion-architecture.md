@@ -1,14 +1,16 @@
 # Electrical-plan ingestion architecture
 
-> **Status: archived diff vs current preview comparison in
-> `@plccopilot/web` (Sprint 94); visual polish for preview / diff
-> panels in `@plccopilot/web` (Sprint 93); imported preview diff
-> view in `@plccopilot/web` (Sprint 92); controlled codegen
-> preview diff download bundle in `@plccopilot/web` (Sprint 91);
-> controlled codegen preview diff UX in `@plccopilot/web` (Sprint
-> 90B); controlled codegen preview download bundle in
-> `@plccopilot/web` (Sprint 90A); controlled codegen preview UX
-> in `@plccopilot/web` (Sprint 89); structured EPLAN + TcECAD XML parameter extraction
+> **Status: download archive-comparison bundle in
+> `@plccopilot/web` (Sprint 95); archived diff vs current preview
+> comparison in `@plccopilot/web` (Sprint 94); visual polish for
+> preview / diff panels in `@plccopilot/web` (Sprint 93); imported
+> preview diff view in `@plccopilot/web` (Sprint 92); controlled
+> codegen preview diff download bundle in `@plccopilot/web`
+> (Sprint 91); controlled codegen preview diff UX in
+> `@plccopilot/web` (Sprint 90B); controlled codegen preview
+> download bundle in `@plccopilot/web` (Sprint 90A); controlled
+> codegen preview UX in `@plccopilot/web` (Sprint 89); structured
+> EPLAN + TcECAD XML parameter extraction
 > (Sprint 88M); CSV parameter extraction (Sprint 88L); cross-
 > renderer `motor_vfd_simple` parity bar (Sprint 88K); universal
 > vendor support after 88H/88I/88J (CODESYS/Siemens/Rockwell);
@@ -590,6 +592,78 @@ This keeps both branches of the strategic requirement — structured
 ECAD exports today and PDF documents tomorrow — funnelling through
 the same review/persist/export model. A weak prompt cannot
 override that model: it has no surface area in any of these layers.
+
+## Sprint 95 — Download archive-comparison bundle
+
+Adds a single explicit *Download comparison bundle* action to
+the Sprint 94 *Archived vs current preview* section. The bundle
+is a small auditable JSON serialised straight from the
+`ArchivedPreviewComparisonView` already in React state — no
+codegen re-run, no comparison recompute, no `localStorage`, no
+canonical session export change, no raw source bytes, no full
+artifact content. New format: `kind:
+'plc-copilot.codegen-preview-archive-compare'`, `version: 1`.
+
+The new pure helper
+[`packages/web/src/utils/codegen-preview-archive-compare-download.ts`](../packages/web/src/utils/codegen-preview-archive-compare-download.ts)
+exports `isArchiveCompareDownloadable`,
+`buildCodegenPreviewArchiveCompareBundle`,
+`serializeCodegenPreviewArchiveCompareBundle`,
+`codegenPreviewArchiveCompareFilename`,
+`sanitizeArchiveCompareSnapshotName`, plus the
+`CODEGEN_PREVIEW_ARCHIVE_COMPARE_BUNDLE_KIND` /
+`CODEGEN_PREVIEW_ARCHIVE_COMPARE_BUNDLE_VERSION` constants and
+the bundle type tree. Pure / DOM-free / total / deterministic
+when `createdAt` is supplied; never mutates inputs. Whitelist
+rebuild — copies only known fields from the comparison view, so
+any extra payload (a stray `content`, `previewText`, raw source
+markers, `pir_version`) the renderer never reads is dropped on
+the floor. Targets stay in the comparison view's display order
+(siemens → codesys → rockwell, inherited from Sprint 90B);
+artifact rows sort by path inside each target.
+
+The downloadability gate returns `false` for null / stale /
+`no-archived-diff` / `no-current-preview` comparisons. It
+returns `true` for `unchanged-against-archive`,
+`changed-against-archive`, `partially-comparable`, and
+`selection-mismatch` — the last archives an honest "you
+compared apples to oranges" answer.
+
+The panel
+([`packages/web/src/components/CodegenPreviewPanel.tsx`](../packages/web/src/components/CodegenPreviewPanel.tsx))
+adds a *Download comparison bundle* button next to *Clear
+comparison* in `<ArchivedComparisonSection>`. The button is
+gated by `isArchiveCompareDownloadable` so stale / null /
+non-useful comparisons never surface a download path. On click
+the panel records `createdAt: new Date().toISOString()`, builds
+the bundle, serialises with the helper, and routes through the
+existing `downloadText` adapter. Filename is deterministic:
+`plc-copilot-codegen-preview-archive-compare.json` (default) or
+`-${slug}.json` with a sanitised snapshot name. The wall-clock
+timestamp lives only inside the bundle's `createdAt` field, not
+the filename. The Sprint 94 read-only notice gains a privacy
+reminder: *"Downloaded comparison bundles contain hashes,
+statuses, and capped diagnostic / artifact metadata only — not
+generated artifact content."*
+
+30 helper-level tests in
+[`packages/web/tests/codegen-preview-archive-compare-download.spec.ts`](../packages/web/tests/codegen-preview-archive-compare-download.spec.ts)
+cover the gate (null / stale / no-archived-diff /
+no-current-preview vs. unchanged / changed / partially-comparable
+/ selection-mismatch), bundle shape (kind + version + state +
+summary + selection + counts; explicit / default / invalid
+`createdAt`; target order; artifact-path sort within target;
+hash whitelisting; flattened diagnostic rows; not-comparable
+target survival), whitelist privacy (no `"content"` key, no
+`previewText`, no raw source markers, no `pir_version` even
+when the input is polluted), filename + sanitiser
+(`[a-z0-9-]+` slug, 64-char clamp), determinism + immutability
+(byte-stable repeated calls, `JSON.parse(serialize(bundle))`
+deep-equals the bundle, no input mutation, empty target list
+clean). See
+[`docs/codegen-preview-archive-compare-download-sprint-95.md`](codegen-preview-archive-compare-download-sprint-95.md)
+for the bundle contract, downloadable-state matrix, and the
+manual verification checklist.
 
 ## Sprint 94 — Compare archived diff with current preview
 
