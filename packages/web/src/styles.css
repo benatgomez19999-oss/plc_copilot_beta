@@ -1931,3 +1931,42 @@ table.kv td {
   font-size: 0.85em;
   margin: 6px 0 0 0;
 }
+
+/* Sprint 96 — imported (read-only) archive-comparison section */
+.codegen-preview-imported-comparison {
+  margin-top: 16px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.codegen-preview-imported-comparison h4 {
+  margin: 0 0 4px 0;
+  font-size: 0.95em;
+}
+.codegen-preview-imported-comparison-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.codegen-preview-imported-comparison-import {
+  cursor: pointer;
+}
+.codegen-preview-imported-comparison-meta {
+  margin: 0 0 4px 0;
+}
+.codegen-preview-imported-comparison-readonly {
+  font-size: 0.85em;
+  background: var(--bg-elevated);
+  border-left: 3px solid var(--border);
+  border-radius: 3px;
+  padding: 4px 8px;
+  margin: 4px 0 8px 0;
+}
+.codegen-preview-imported-comparison-error {
+  color: #991b1b;
+  background: #fee2e2;
+  border-radius: 4px;
+  padding: 6px 8px;
+  margin: 4px 0;
+}

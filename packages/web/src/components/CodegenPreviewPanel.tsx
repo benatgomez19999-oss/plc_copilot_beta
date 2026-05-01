@@ -72,7 +72,15 @@ import {
   codegenPreviewArchiveCompareFilename,
   isArchiveCompareDownloadable,
   serializeCodegenPreviewArchiveCompareBundle,
+  type CodegenPreviewArchiveCompareBundle,
+  type CodegenPreviewArchiveCompareBundleArtifactRow,
+  type CodegenPreviewArchiveCompareBundleDiagnosticRow,
+  type CodegenPreviewArchiveCompareBundleTarget,
 } from '../utils/codegen-preview-archive-compare-download.js';
+import {
+  parseCodegenPreviewArchiveCompareBundleText,
+  type ImportedCodegenPreviewArchiveCompareView,
+} from '../utils/codegen-preview-archive-compare-import.js';
 import {
   ARTIFACT_DIFF_STATUS_LABEL,
   IMPORTED_DIFF_READ_ONLY_NOTICE,
@@ -172,6 +180,16 @@ export function CodegenPreviewPanel({
     archivedRef: unknown;
     currentRef: CodegenPreviewView;
   } | null>(null);
+  // Sprint 96 — imported (read-only) archive-comparison bundle.
+  // Lives entirely in React state. Refreshing the browser drops
+  // it. Independent of the live comparison snapshot above; the
+  // operator can hold both at once.
+  const [importedComparison, setImportedComparison] =
+    useState<ImportedCodegenPreviewArchiveCompareView>(() =>
+      parseCodegenPreviewArchiveCompareBundleText(''),
+    );
+  const [importedComparisonFilename, setImportedComparisonFilename] =
+    useState<string | null>(null);
   const currentSignature = useMemo(
     () => selectionSignature(project, target),
     [project, target],
@@ -284,6 +302,43 @@ export function CodegenPreviewPanel({
 
   const onClearComparison = (): void => {
     setComparison(null);
+  };
+
+  const onImportComparisonBundle = (
+    e: ChangeEvent<HTMLInputElement>,
+  ): void => {
+    // Sprint 96 — read-only import. The File API lives here in
+    // the component; the parser is pure / DOM-free. Never
+    // re-runs codegen, never touches the live comparison snapshot
+    // or any other panel state.
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    const filename = file.name;
+    file
+      .text()
+      .then((text) => {
+        const view = parseCodegenPreviewArchiveCompareBundleText(text);
+        setImportedComparison(view);
+        setImportedComparisonFilename(
+          view.status === 'loaded' ? filename : null,
+        );
+      })
+      .catch((err) => {
+        const message = err instanceof Error ? err.message : String(err);
+        setImportedComparison({
+          status: 'invalid',
+          summary: `Could not read file: ${message}`,
+          error: `Could not read file: ${message}`,
+        });
+        setImportedComparisonFilename(null);
+      });
+    // Reset so re-importing the same filename re-fires onChange.
+    e.target.value = '';
+  };
+
+  const onClearImportedComparison = (): void => {
+    setImportedComparison(parseCodegenPreviewArchiveCompareBundleText(''));
+    setImportedComparisonFilename(null);
   };
 
   const onDownloadComparisonBundle = (
@@ -435,6 +490,13 @@ export function CodegenPreviewPanel({
           onDownload={onDownloadComparisonBundle}
         />
       ) : null}
+
+      <ImportedArchiveComparisonSection
+        imported={importedComparison}
+        filename={importedComparisonFilename}
+        onImport={onImportComparisonBundle}
+        onClear={onClearImportedComparison}
+      />
     </section>
   );
 }
@@ -1505,6 +1567,325 @@ function ArchivedComparisonDiagnosticRow({
       </span>{' '}
       <code>{d.diagnostic.code}</code>{' '}
       <span className="diag-message">{d.diagnostic.message}</span>
+    </li>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Sprint 96 — Imported (read-only) archive-comparison section
+// ---------------------------------------------------------------------------
+
+function ImportedArchiveComparisonSection({
+  imported,
+  filename,
+  onImport,
+  onClear,
+}: {
+  imported: ImportedCodegenPreviewArchiveCompareView;
+  filename: string | null;
+  onImport: (e: ChangeEvent<HTMLInputElement>) => void;
+  onClear: () => void;
+}): JSX.Element {
+  return (
+    <section
+      className="codegen-preview-imported-comparison"
+      aria-label="Archived preview comparison"
+    >
+      <header className="codegen-preview-imported-comparison-header">
+        <h4>Archived comparison</h4>
+        <div className="codegen-preview-actions">
+          <label className="btn codegen-preview-imported-comparison-import">
+            Import comparison bundle
+            <input
+              type="file"
+              accept="application/json,.json"
+              onChange={onImport}
+              hidden
+            />
+          </label>
+          {imported.status === 'loaded' || imported.status === 'invalid' ? (
+            <button
+              type="button"
+              className="btn"
+              onClick={onClear}
+              aria-label="Clear imported comparison"
+            >
+              Clear imported comparison
+            </button>
+          ) : null}
+        </div>
+      </header>
+
+      {imported.status === 'empty' ? (
+        <p className="muted">{imported.summary}</p>
+      ) : null}
+
+      {imported.status === 'invalid' ? (
+        <p className="codegen-preview-imported-comparison-error">
+          {imported.error}
+        </p>
+      ) : null}
+
+      {imported.status === 'loaded' && imported.bundle ? (
+        <ImportedArchiveComparisonBody
+          bundle={imported.bundle}
+          filename={filename}
+        />
+      ) : null}
+    </section>
+  );
+}
+
+function ImportedArchiveComparisonBody({
+  bundle,
+  filename,
+}: {
+  bundle: CodegenPreviewArchiveCompareBundle;
+  filename: string | null;
+}): JSX.Element {
+  const [expandGen, setExpandGen] = useState(0);
+  const [defaultOpen, setDefaultOpen] = useState(false);
+  return (
+    <>
+      <p className="codegen-preview-imported-comparison-meta muted">
+        {filename ? (
+          <>
+            <strong>{filename}</strong>
+            {' — '}
+          </>
+        ) : null}
+        {bundle.selection.archivedBackend ? (
+          <>
+            archived backend{' '}
+            <code>{bundle.selection.archivedBackend}</code>
+          </>
+        ) : null}
+        {bundle.selection.archivedBackend &&
+        bundle.selection.currentBackend &&
+        bundle.selection.archivedBackend !== bundle.selection.currentBackend ? (
+          <>
+            {' '}vs current{' '}
+            <code>{bundle.selection.currentBackend}</code>
+          </>
+        ) : null}
+        {' • snapshot '}
+        <code>{bundle.snapshotName}</code>
+        {' • '}
+        <span>{bundle.createdAt}</span>
+        {' • '}
+        {bundle.targets.length} target{bundle.targets.length === 1 ? '' : 's'}
+      </p>
+      <p className="codegen-preview-imported-comparison-readonly muted">
+        Imported comparison is read-only. It does not affect the
+        archived diff, current preview, Generate, or saved session.
+      </p>
+      <p
+        className={`codegen-preview-archive-compare-summary ${statusBadgeClass(
+          bundle.state === 'unchanged-against-archive'
+            ? 'unchanged'
+            : bundle.state === 'changed-against-archive'
+              ? 'changed'
+              : bundle.state === 'partially-comparable'
+                ? 'info'
+                : bundle.state === 'selection-mismatch'
+                  ? 'warning'
+                  : 'unavailable',
+        )}`}
+      >
+        {bundle.summary}
+      </p>
+      {bundle.targets.length > 0 ? (
+        <>
+          <div className="codegen-preview-actions codegen-preview-archived-controls">
+            <button
+              type="button"
+              className="btn btn-subtle"
+              onClick={() => {
+                setDefaultOpen(true);
+                setExpandGen((g) => g + 1);
+              }}
+              aria-label="Expand all imported comparison target rows"
+            >
+              Expand all
+            </button>
+            <button
+              type="button"
+              className="btn btn-subtle"
+              onClick={() => {
+                setDefaultOpen(false);
+                setExpandGen((g) => g + 1);
+              }}
+              aria-label="Collapse all imported comparison target rows"
+            >
+              Collapse all
+            </button>
+          </div>
+          <div className="codegen-preview-archive-compare-targets">
+            {bundle.targets.map((t) => (
+              <ImportedArchiveComparisonTargetRow
+                key={`imp-cmp-${t.target}-${expandGen}`}
+                target={t}
+                defaultOpen={defaultOpen}
+              />
+            ))}
+          </div>
+        </>
+      ) : null}
+    </>
+  );
+}
+
+function ImportedArchiveComparisonTargetRow({
+  target,
+  defaultOpen,
+}: {
+  target: CodegenPreviewArchiveCompareBundleTarget;
+  defaultOpen: boolean;
+}): JSX.Element {
+  const [artifactsOpen, setArtifactsOpen] = useState(defaultOpen);
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(defaultOpen);
+  const c = target.counts;
+  const aDelta =
+    c.artifactsChanged + c.artifactsMissingCurrent + c.artifactsNewCurrent;
+  const artifactPart =
+    aDelta > 0
+      ? `${c.artifactsChanged} changed, ${c.artifactsMissingCurrent} missing, ${c.artifactsNewCurrent} new`
+      : `${c.artifactsSame} same`;
+  const dDelta = c.diagnosticsResolved + c.diagnosticsNewCurrent;
+  const diagPart =
+    dDelta > 0
+      ? `${c.diagnosticsStillPresent} still present, ${c.diagnosticsResolved} resolved, ${c.diagnosticsNewCurrent} new`
+      : `${c.diagnosticsStillPresent} still present`;
+  const targetToken =
+    target.status === 'same'
+      ? 'unchanged'
+      : target.status === 'changed'
+        ? 'changed'
+        : target.status === 'not-comparable'
+          ? 'warning'
+          : 'info';
+  return (
+    <article
+      className={`codegen-preview-archive-compare-target codegen-preview-archive-compare-target--${target.status}`}
+      aria-label={`Imported comparison for ${target.target}`}
+    >
+      <header className="codegen-preview-diff-row-header">
+        <code className="codegen-preview-target">{target.target}</code>
+        <span className={statusBadgeClass(targetToken)}>
+          {target.status.replace('-', ' ')}
+        </span>
+        {target.archivedRecordedCurrentStatus &&
+        target.currentStatus &&
+        target.archivedRecordedCurrentStatus !== target.currentStatus ? (
+          <span className="muted">
+            archived: {target.archivedRecordedCurrentStatus} → today:{' '}
+            {target.currentStatus}
+          </span>
+        ) : null}
+      </header>
+      <p className="muted">{target.summary}</p>
+      {target.artifactComparisons.length > 0 ? (
+        <details
+          className="codegen-preview-archive-compare-list"
+          open={artifactsOpen}
+          onToggle={(e) =>
+            setArtifactsOpen((e.target as HTMLDetailsElement).open)
+          }
+        >
+          <summary>Artifacts · {artifactPart}</summary>
+          <ul>
+            {target.artifactComparisons.map((a) => (
+              <ImportedArchiveComparisonArtifactRow
+                key={`imp-cmp-${target.target}-a-${a.path}`}
+                artifact={a}
+              />
+            ))}
+          </ul>
+        </details>
+      ) : null}
+      {target.diagnosticComparisons.length > 0 ? (
+        <details
+          className="codegen-preview-archive-compare-list"
+          open={diagnosticsOpen}
+          onToggle={(e) =>
+            setDiagnosticsOpen((e.target as HTMLDetailsElement).open)
+          }
+        >
+          <summary>Diagnostics · {diagPart}</summary>
+          <ul>
+            {target.diagnosticComparisons.map((d, i) => (
+              <ImportedArchiveComparisonDiagnosticRow
+                key={`imp-cmp-${target.target}-d-${i}-${d.code}`}
+                d={d}
+              />
+            ))}
+          </ul>
+        </details>
+      ) : null}
+    </article>
+  );
+}
+
+function ImportedArchiveComparisonArtifactRow({
+  artifact,
+}: {
+  artifact: CodegenPreviewArchiveCompareBundleArtifactRow;
+}): JSX.Element {
+  const token =
+    artifact.status === 'same-hash'
+      ? 'unchanged'
+      : artifact.status === 'changed-hash'
+        ? 'changed'
+        : artifact.status === 'missing-current'
+          ? 'removed'
+          : artifact.status === 'new-current'
+            ? 'added'
+            : 'warning';
+  return (
+    <li
+      className={`codegen-preview-archive-compare-artifact codegen-preview-archive-compare-artifact--${artifact.status}`}
+    >
+      <span className={statusBadgeClass(token)}>
+        {artifact.status.replace('-', ' ')}
+      </span>{' '}
+      <code className="codegen-preview-artifact-path">{artifact.path}</code>
+      {artifact.archivedHash || artifact.currentHash ? (
+        <span className="muted codegen-preview-archive-compare-hashes">
+          {' '}
+          {artifact.archivedHash ? `archived ${artifact.archivedHash}` : ''}
+          {artifact.archivedHash && artifact.currentHash ? ' → ' : ''}
+          {artifact.currentHash ? `current ${artifact.currentHash}` : ''}
+        </span>
+      ) : null}
+    </li>
+  );
+}
+
+function ImportedArchiveComparisonDiagnosticRow({
+  d,
+}: {
+  d: CodegenPreviewArchiveCompareBundleDiagnosticRow;
+}): JSX.Element {
+  const token =
+    d.status === 'still-present'
+      ? 'unchanged'
+      : d.status === 'resolved'
+        ? 'removed'
+        : d.status === 'new-current'
+          ? 'added'
+          : 'warning';
+  return (
+    <li className="codegen-preview-archive-compare-diagnostic">
+      <span className={statusBadgeClass(token)}>
+        {d.status.replace('-', ' ')}
+      </span>{' '}
+      <span
+        className={`${statusBadgeClass(severityPolishToken(d.severity))} sev-${d.severity}`}
+      >
+        {d.severity}
+      </span>{' '}
+      <code>{d.code}</code>{' '}
+      <span className="diag-message">{d.message}</span>
     </li>
   );
 }

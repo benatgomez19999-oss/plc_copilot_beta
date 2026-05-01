@@ -1,16 +1,17 @@
 # Electrical-plan ingestion architecture
 
-> **Status: download archive-comparison bundle in
-> `@plccopilot/web` (Sprint 95); archived diff vs current preview
-> comparison in `@plccopilot/web` (Sprint 94); visual polish for
-> preview / diff panels in `@plccopilot/web` (Sprint 93); imported
-> preview diff view in `@plccopilot/web` (Sprint 92); controlled
-> codegen preview diff download bundle in `@plccopilot/web`
-> (Sprint 91); controlled codegen preview diff UX in
-> `@plccopilot/web` (Sprint 90B); controlled codegen preview
-> download bundle in `@plccopilot/web` (Sprint 90A); controlled
-> codegen preview UX in `@plccopilot/web` (Sprint 89); structured
-> EPLAN + TcECAD XML parameter extraction
+> **Status: imported archive-comparison view in
+> `@plccopilot/web` (Sprint 96); download archive-comparison
+> bundle in `@plccopilot/web` (Sprint 95); archived diff vs
+> current preview comparison in `@plccopilot/web` (Sprint 94);
+> visual polish for preview / diff panels in `@plccopilot/web`
+> (Sprint 93); imported preview diff view in `@plccopilot/web`
+> (Sprint 92); controlled codegen preview diff download bundle
+> in `@plccopilot/web` (Sprint 91); controlled codegen preview
+> diff UX in `@plccopilot/web` (Sprint 90B); controlled codegen
+> preview download bundle in `@plccopilot/web` (Sprint 90A);
+> controlled codegen preview UX in `@plccopilot/web` (Sprint 89);
+> structured EPLAN + TcECAD XML parameter extraction
 > (Sprint 88M); CSV parameter extraction (Sprint 88L); cross-
 > renderer `motor_vfd_simple` parity bar (Sprint 88K); universal
 > vendor support after 88H/88I/88J (CODESYS/Siemens/Rockwell);
@@ -592,6 +593,73 @@ This keeps both branches of the strategic requirement — structured
 ECAD exports today and PDF documents tomorrow — funnelling through
 the same review/persist/export model. A weak prompt cannot
 override that model: it has no surface area in any of these layers.
+
+## Sprint 96 — Imported archive-comparison view
+
+Closes the comparison archive cycle that Sprints 94 / 95 opened.
+The operator can pick a previously-saved
+`plc-copilot.codegen-preview-archive-compare` v1 JSON in the
+browser and inspect it inside the panel with the same visual
+vocabulary as the Sprint 94 live comparison. The imported
+comparison cannot feed Generate, cannot mutate the archived diff
+/ live comparison snapshot / current preview / applied project,
+cannot re-run the vendor pipeline, cannot reach `localStorage`,
+and cannot fold into the canonical session export.
+
+The new pure helper
+[`packages/web/src/utils/codegen-preview-archive-compare-import.ts`](../packages/web/src/utils/codegen-preview-archive-compare-import.ts)
+exports `parseCodegenPreviewArchiveCompareBundleText`,
+`parseCodegenPreviewArchiveCompareBundle`,
+`isSupportedCodegenPreviewArchiveCompareBundle`, and the
+`ImportedCodegenPreviewArchiveCompareView` type
+(`status: 'empty' | 'loaded' | 'invalid'`). DOM-free, total —
+never throws on operator-supplied input. Strict v1 contract:
+`kind === 'plc-copilot.codegen-preview-archive-compare'`,
+`version === 1`. Whitelist rebuild: any extra payload
+(`content`, `previewText`, raw source bytes, `pir_version`)
+that may have crept onto the input JSON is dropped on the
+floor. No new bundle format — the validated value is exactly
+the Sprint 95 `CodegenPreviewArchiveCompareBundle` type.
+
+The panel
+([`packages/web/src/components/CodegenPreviewPanel.tsx`](../packages/web/src/components/CodegenPreviewPanel.tsx))
+adds an *Archived comparison* section as a sibling beneath the
+Sprint 94 live comparison. It renders
+`<input type="file" accept="application/json,.json">` for
+picking, an empty-state copy
+*"Archived comparison: none. Import a previously downloaded
+plc-copilot.codegen-preview-archive-compare JSON to inspect it
+read-only."*, an invalid-state error block, and a loaded-state
+body that mirrors the Sprint 94 live comparison (per-target
+cards with `<details>` *Artifacts ·* / *Diagnostics ·* lists,
+`+/-` semantics, status badges, Expand all / Collapse all
+controls inheriting Sprint 93's polish primitives) with an
+explicit *"Imported comparison is read-only. It does not affect
+the archived diff, current preview, Generate, or saved
+session."* notice. A *Clear imported comparison* button drops
+the imported state back to empty; refreshing the browser also
+drops it. The section is independent of the live comparison —
+the operator can hold both at once.
+
+34 helper-level tests in
+[`packages/web/tests/codegen-preview-archive-compare-import.spec.ts`](../packages/web/tests/codegen-preview-archive-compare-import.spec.ts)
+cover empty / whitespace / malformed JSON, wrong kind (Sprint
+90A preview, Sprint 91 diff), wrong version, non-object input,
+real Sprint 95 round-trips for every comparison state
+(unchanged, changed, selection-mismatch, partially-comparable,
+not-comparable target), no-mutation + deterministic output,
+preserved fields (`createdAt`, `snapshotName`, counts, artifact
++ diagnostic order), whitelist privacy (top-level / per-artifact
+/ per-target extras dropped, including `content` /
+`previewText` / `row_kind,` / `<EplanProject>` / `%PDF-` /
+`pir_version`), defensive validation (missing `targets`,
+unsupported target name, unsupported global / target / artifact
+status, malformed counts, malformed selection, missing /
+unparseable `createdAt`), and the
+`isSupportedCodegenPreviewArchiveCompareBundle` predicate. See
+[`docs/codegen-preview-archive-compare-import-sprint-96.md`](codegen-preview-archive-compare-import-sprint-96.md)
+for the full state machine, examples, and manual verification
+checklist.
 
 ## Sprint 95 — Download archive-comparison bundle
 

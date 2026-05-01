@@ -1,7 +1,7 @@
-# Web electrical-ingestion workflow — Sprint 77 → … → 95
+# Web electrical-ingestion workflow — Sprint 77 → … → 96
 
 > **Status: end-to-end pipeline live in `@plccopilot/web`
-> (Sprint 77 → 78A → 78B → 79 → 80 → 81 → 82 → 87B → 89 → 90A → 90B → 91 → 92 → 93 → 94 → 95).**
+> (Sprint 77 → 78A → 78B → 79 → 80 → 81 → 82 → 87B → 89 → 90A → 90B → 91 → 92 → 93 → 94 → 95 → 96).**
 > CSV / EPLAN XML / TcECAD XML / **PDF (real text-layer + IO-list
 > table extraction + Sprint 82 address strictness)** → review →
 > PIR preview → **local persistence + downloadable artefacts**,
@@ -77,11 +77,24 @@
 > diagnostic identities) the operator saves locally, gated on
 > a non-stale comparison whose state has audit value. Stale /
 > null / no-archived-diff / no-current-preview comparisons
-> hide the button. Preview, download bundle, diff, diff
-> bundle, imported diff, expand state, comparison snapshot,
-> and the new comparison-bundle download are never automatic,
-> never persisted to localStorage, and never included in
-> export bundles.
+> hide the button. **Sprint 96** then closes the comparison
+> archive cycle by adding a read-only *Archived comparison*
+> section: the operator imports a previously downloaded
+> `plc-copilot.codegen-preview-archive-compare` v1 JSON and
+> sees it rendered with the same per-target cards / status
+> badges / `<details>` lists / Expand all / Collapse all
+> controls as the live comparison. Wrong kind / wrong version
+> / malformed JSON surfaces as a stable invalid state with no
+> crash. Refreshing the browser drops the imported
+> comparison. The imported comparison is independent of the
+> live comparison snapshot — the operator can hold both at
+> once. No vendor-pipeline re-run on import; no archived-
+> bundle mutation; no Generate / worker / canonical export-
+> bundle / localStorage change. Preview, download bundle,
+> diff, diff bundle, imported diff, expand state, comparison
+> snapshot, comparison-bundle download, and the new imported
+> comparison are never automatic, never persisted to
+> localStorage, and never included in export bundles.
 > **Sprint 82** is a
 > safety/hardening sprint: isolated Beckhoff-style channel
 > markers (`I1`, `O2`, `%I1`) are no longer promoted to
