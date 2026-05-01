@@ -365,7 +365,16 @@ export type ElectricalDiagnosticCode =
   | 'STRUCTURED_PARAMETER_DEFAULT_INVALID'
   | 'STRUCTURED_SETPOINT_BINDING_TARGET_MISSING'
   | 'STRUCTURED_SETPOINT_BINDING_PARAMETER_MISSING'
-  | 'STRUCTURED_SETPOINT_BINDING_ROLE_UNSUPPORTED';
+  | 'STRUCTURED_SETPOINT_BINDING_ROLE_UNSUPPORTED'
+  // ---- Sprint 97: parameter range / unit validation ----
+  // Per-row / per-element diagnostics surfacing explicit numeric
+  // bound coherence issues. Sprint 97 is non-converting: the
+  // ingestors flag unparseable / inverted bounds and out-of-range
+  // defaults, but never synthesise values.
+  | 'CSV_PARAMETER_RANGE_INVALID'
+  | 'CSV_PARAMETER_DEFAULT_OUT_OF_RANGE'
+  | 'STRUCTURED_PARAMETER_RANGE_INVALID'
+  | 'STRUCTURED_PARAMETER_DEFAULT_OUT_OF_RANGE';
 
 export interface ElectricalDiagnostic {
   code: ElectricalDiagnosticCode;
@@ -487,6 +496,17 @@ export interface PirParameterCandidate {
   defaultValue: number;
   /** Optional engineering unit string (documentation only — no scaling). */
   unit?: string;
+  /**
+   * Sprint 97 — optional explicit numeric bounds. Only ever populated
+   * from explicit source metadata (CSV `min` / `max` columns,
+   * structured XML `min` / `max` attributes / child elements). Never
+   * inferred from comments, descriptions, or free text. The PIR
+   * builder forwards these into `Parameter.min` / `Parameter.max`;
+   * the PIR validator's R-PR-03 then enforces coherence + the
+   * `motor_vfd_simple.speed_setpoint_out` unit policy.
+   */
+  min?: number;
+  max?: number;
   /** Optional free-form description; flowed into PIR `Parameter.description`. */
   description?: string;
   sourceRefs: SourceRef[];

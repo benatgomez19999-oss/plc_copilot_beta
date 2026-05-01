@@ -1,7 +1,7 @@
-# Web electrical-ingestion workflow — Sprint 77 → … → 96
+# Web electrical-ingestion workflow — Sprint 77 → … → 97
 
 > **Status: end-to-end pipeline live in `@plccopilot/web`
-> (Sprint 77 → 78A → 78B → 79 → 80 → 81 → 82 → 87B → 89 → 90A → 90B → 91 → 92 → 93 → 94 → 95 → 96).**
+> (Sprint 77 → 78A → 78B → 79 → 80 → 81 → 82 → 87B → 89 → 90A → 90B → 91 → 92 → 93 → 94 → 95 → 96 → 97).**
 > CSV / EPLAN XML / TcECAD XML / **PDF (real text-layer + IO-list
 > table extraction + Sprint 82 address strictness)** → review →
 > PIR preview → **local persistence + downloadable artefacts**,
@@ -95,6 +95,22 @@
 > snapshot, comparison-bundle download, and the new imported
 > comparison are never automatic, never persisted to
 > localStorage, and never included in export bundles.
+> **Sprint 97** is a non-UI sprint that returns to the
+> industrial pipeline: the PIR `Parameter` schema tightens
+> `min` / `max` to `z.number().finite()`, the validator gains
+> `R-PR-03` (range coherence + a unit-role policy that hard-
+> fails non-Hz units on `motor_vfd_simple.speed_setpoint_out`
+> with missing-unit surfaced as info), and the electrical-
+> ingest CSV + structured-XML parameter extractors learn
+> explicit `min` / `max` aliases (`minimum`, `min_value`,
+> `range_min`, …). Out-of-range defaults emit per-row warnings
+> (`CSV_PARAMETER_DEFAULT_OUT_OF_RANGE` /
+> `STRUCTURED_PARAMETER_DEFAULT_OUT_OF_RANGE`) at ingestion and
+> surface as `R-PR-02` errors at PIR build. No automatic
+> scaling, no unit conversion, no runtime clamps; vendor
+> renderers (CODESYS / Siemens / Rockwell) untouched. Web
+> review surface unchanged in v0 — operators see existing
+> parameter cards.
 > **Sprint 82** is a
 > safety/hardening sprint: isolated Beckhoff-style channel
 > markers (`I1`, `O2`, `%I1`) are no longer promoted to

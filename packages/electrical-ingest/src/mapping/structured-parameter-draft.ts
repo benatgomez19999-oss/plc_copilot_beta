@@ -205,6 +205,77 @@ function processParameter(
     readField(el, 'description') ??
     null;
 
+  // Sprint 97 — optional numeric bounds. Same semantics as the CSV
+  // path: an unparseable value drops the bound with a per-element
+  // diagnostic; the rest of the parameter is preserved.
+  const minRaw = readField(el, 'min', 'minimum', 'minValue', 'min_value');
+  const maxRaw = readField(el, 'max', 'maximum', 'maxValue', 'max_value');
+  let minValue: number | undefined;
+  if (minRaw !== null) {
+    const n = parseFiniteNumber(minRaw);
+    if (n !== null) {
+      minValue = n;
+    } else {
+      draft.diagnostics.push(
+        createElectricalDiagnostic({
+          code: 'STRUCTURED_PARAMETER_RANGE_INVALID',
+          message: `${prefix(ctx)} parameter ${JSON.stringify(id)} at line ${el.line} has unparseable min ${JSON.stringify(minRaw)}; bound dropped.`,
+          sourceRef: ref,
+          hint: 'set min to a finite number or omit it.',
+        }),
+      );
+    }
+  }
+  let maxValue: number | undefined;
+  if (maxRaw !== null) {
+    const n = parseFiniteNumber(maxRaw);
+    if (n !== null) {
+      maxValue = n;
+    } else {
+      draft.diagnostics.push(
+        createElectricalDiagnostic({
+          code: 'STRUCTURED_PARAMETER_RANGE_INVALID',
+          message: `${prefix(ctx)} parameter ${JSON.stringify(id)} at line ${el.line} has unparseable max ${JSON.stringify(maxRaw)}; bound dropped.`,
+          sourceRef: ref,
+          hint: 'set max to a finite number or omit it.',
+        }),
+      );
+    }
+  }
+  if (
+    minValue !== undefined &&
+    maxValue !== undefined &&
+    minValue > maxValue
+  ) {
+    draft.diagnostics.push(
+      createElectricalDiagnostic({
+        code: 'STRUCTURED_PARAMETER_RANGE_INVALID',
+        message: `${prefix(ctx)} parameter ${JSON.stringify(id)} at line ${el.line} has min ${minValue} greater than max ${maxValue}; bounds dropped.`,
+        sourceRef: ref,
+      }),
+    );
+    minValue = undefined;
+    maxValue = undefined;
+  }
+  if (minValue !== undefined && defaultValue < minValue) {
+    draft.diagnostics.push(
+      createElectricalDiagnostic({
+        code: 'STRUCTURED_PARAMETER_DEFAULT_OUT_OF_RANGE',
+        message: `${prefix(ctx)} parameter ${JSON.stringify(id)} at line ${el.line} default ${defaultValue} is below min ${minValue}; PIR R-PR-02 will reject this on build.`,
+        sourceRef: ref,
+      }),
+    );
+  }
+  if (maxValue !== undefined && defaultValue > maxValue) {
+    draft.diagnostics.push(
+      createElectricalDiagnostic({
+        code: 'STRUCTURED_PARAMETER_DEFAULT_OUT_OF_RANGE',
+        message: `${prefix(ctx)} parameter ${JSON.stringify(id)} at line ${el.line} default ${defaultValue} is above max ${maxValue}; PIR R-PR-02 will reject this on build.`,
+        sourceRef: ref,
+      }),
+    );
+  }
+
   const param: PirParameterCandidate = {
     id,
     dataType,
@@ -214,13 +285,15 @@ function processParameter(
   };
   if (label) param.label = label;
   if (unit) param.unit = unit;
+  if (minValue !== undefined) param.min = minValue;
+  if (maxValue !== undefined) param.max = maxValue;
   draft.parameters.push(param);
   seenIds.add(id);
 
   draft.diagnostics.push(
     createElectricalDiagnostic({
       code: 'STRUCTURED_PARAMETER_EXTRACTED',
-      message: `parameter ${JSON.stringify(id)} (${dataType}, default=${defaultValue}${unit ? `, unit=${unit}` : ''}) extracted from ${ctx.kind} at line ${el.line}.`,
+      message: `parameter ${JSON.stringify(id)} (${dataType}, default=${defaultValue}${unit ? `, unit=${unit}` : ''}${param.min !== undefined ? `, min=${param.min}` : ''}${param.max !== undefined ? `, max=${param.max}` : ''}) extracted from ${ctx.kind} at line ${el.line}.`,
       sourceRef: ref,
     }),
   );

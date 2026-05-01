@@ -1,6 +1,8 @@
 # Electrical-plan ingestion architecture
 
-> **Status: imported archive-comparison view in
+> **Status: parameter range / unit validation v0
+> (Sprint 97 — `min` / `max` extraction + R-PR-03 unit role
+> policy); imported archive-comparison view in
 > `@plccopilot/web` (Sprint 96); download archive-comparison
 > bundle in `@plccopilot/web` (Sprint 95); archived diff vs
 > current preview comparison in `@plccopilot/web` (Sprint 94);
@@ -593,6 +595,81 @@ This keeps both branches of the strategic requirement — structured
 ECAD exports today and PDF documents tomorrow — funnelling through
 the same review/persist/export model. A weak prompt cannot
 override that model: it has no surface area in any of these layers.
+
+## Sprint 97 — Parameter range / unit validation v0
+
+First explicit, non-inferential layer over PIR `Parameter.min` /
+`Parameter.max` / `Parameter.unit`. Sprint 97 wires the PIR
+schema, the PIR validator, and the electrical-ingest CSV +
+structured-XML extractors to extract / validate explicit numeric
+bounds and the unit policy for `motor_vfd_simple.speed_setpoint_out`.
+No automatic scaling, no unit conversion, no runtime clamps,
+no codegen change.
+
+PIR side
+([`packages/pir/src/schemas/common.ts`](../packages/pir/src/schemas/common.ts),
+[`packages/pir/src/validators/rules/parameters.ts`](../packages/pir/src/validators/rules/parameters.ts)):
+
+- `ParameterSchema.min` / `.max` tightened to `z.number().finite()`
+  so `Infinity` / `-Infinity` / `NaN` are rejected at parse time.
+- New validator rule `R-PR-03` with two strands:
+  - **(A)** belt-and-braces — non-finite `min` / `max` and
+    `min > max` flagged as errors even when constructed via
+    `as Project` casts that bypass Zod (test fixtures, hand-rolled
+    JSON).
+  - **(B)** role-specific unit policy — every parameter wired as
+    `motor_vfd_simple.speed_setpoint_out` must carry a recognised
+    Hz alias (`Hz` / `hz` / `Hertz` / `HERTZ`); foreign units
+    (`rpm`, `%`, `m/s`, …) hard-fail. Missing unit surfaces as
+    info, not error.
+- New helper `normalizeSpeedSetpointUnit(unit)` returns canonical
+  `'Hz'` for the supported aliases or `null` otherwise.
+
+electrical-ingest side
+([`packages/electrical-ingest/src/sources/csv.ts`](../packages/electrical-ingest/src/sources/csv.ts),
+[`packages/electrical-ingest/src/mapping/structured-parameter-draft.ts`](../packages/electrical-ingest/src/mapping/structured-parameter-draft.ts),
+[`packages/electrical-ingest/src/mapping/pir-builder.ts`](../packages/electrical-ingest/src/mapping/pir-builder.ts)):
+
+- `PirParameterCandidate` gains optional `min` / `max` numeric
+  fields; the `buildParameter` step forwards them (with a
+  defensive finite check) into PIR's `Parameter`.
+- CSV `row_kind=parameter` rows learn `min` / `max` (canonical)
+  with aliases `minimum` / `min_value` / `range_min` (and the max
+  parallels). Unparseable / inverted bounds and out-of-range
+  defaults emit per-row warnings (`CSV_PARAMETER_RANGE_INVALID` /
+  `CSV_PARAMETER_DEFAULT_OUT_OF_RANGE`); the offending bound is
+  dropped while the rest of the parameter is preserved.
+- Structured-XML `<Parameter>` elements (EPLAN attribute style or
+  TcECAD child-element style) learn the same alias set
+  (`min` / `minimum` / `minValue` / `min_value`) and emit
+  parallel warnings (`STRUCTURED_PARAMETER_RANGE_INVALID` /
+  `STRUCTURED_PARAMETER_DEFAULT_OUT_OF_RANGE`).
+- **No inference** from `<Comment>` / `<Description>` / free
+  text. CSV `comment` columns and XML description elements are
+  read for documentation only; embedded `min=10` hints are
+  ignored.
+
+Tests:
+
+- `packages/pir/tests/rules/parameters.spec.ts` — 13 new
+  R-PR-03 cases (range coherence, non-finite bounds via
+  `as Project`, unit role policy across `Hz` aliases / `rpm` /
+  `%` / missing unit, `normalizeSpeedSetpointUnit` helper).
+  Existing R-PR-01 / R-PR-02 fixtures stay green.
+- `packages/electrical-ingest/tests/parameter-range-unit-extraction.spec.ts`
+  — 20 new cases covering CSV `min` / `max` / `min_value` /
+  `max_value` extraction, range / default diagnostics, structured
+  XML attribute + child-element forms, no-inference guarantees,
+  and end-to-end CSV → review → PIR-build flows that surface
+  `R-PR-02` / `R-PR-03` errors via `validatePirProject`.
+
+Backwards compatibility: zero migration. Existing PIR fixtures
+without bounds validate cleanly; legacy CSV / EPLAN / TcECAD
+bundles without the new columns extract identically to Sprint
+88L / 88M; vendor renderers untouched (no codegen change). See
+[`docs/parameter-range-unit-validation-sprint-97.md`](parameter-range-unit-validation-sprint-97.md)
+for the full rule table, format examples, and manual
+verification checklist.
 
 ## Sprint 96 — Imported archive-comparison view
 

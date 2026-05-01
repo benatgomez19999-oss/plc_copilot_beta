@@ -207,6 +207,15 @@ function defaultSeverityForCode(
     case 'STRUCTURED_SETPOINT_BINDING_PARAMETER_MISSING':
     case 'STRUCTURED_SETPOINT_BINDING_ROLE_UNSUPPORTED':
       return 'error';
+    // Sprint 97 — explicit-bound coherence issues. Surfaced as
+    // warnings: the ingestor preserves the rest of the parameter
+    // metadata, so the operator can still review + accept the
+    // candidate; the offending bound is dropped.
+    case 'CSV_PARAMETER_RANGE_INVALID':
+    case 'CSV_PARAMETER_DEFAULT_OUT_OF_RANGE':
+    case 'STRUCTURED_PARAMETER_RANGE_INVALID':
+    case 'STRUCTURED_PARAMETER_DEFAULT_OUT_OF_RANGE':
+      return 'warning';
     default: {
       // Exhaustiveness — TS will flag a missing case if a code is
       // added to the union and not handled here.

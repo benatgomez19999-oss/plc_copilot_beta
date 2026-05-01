@@ -1183,6 +1183,14 @@ function buildParameter(
     default: p.defaultValue,
   };
   if (typeof p.unit === 'string' && p.unit.length > 0) param.unit = p.unit;
+  // Sprint 97 — forward explicit numeric bounds. The candidate-side
+  // CSV / structured-XML extractors validate finiteness and bound
+  // coherence already; defensive-finite check here so a non-finite
+  // value never reaches PIR (PIR's Zod schema would reject it
+  // anyway, but a clear PIR_BUILD diagnostic is friendlier than a
+  // schema crash).
+  if (typeof p.min === 'number' && Number.isFinite(p.min)) param.min = p.min;
+  if (typeof p.max === 'number' && Number.isFinite(p.max)) param.max = p.max;
   if (typeof p.description === 'string' && p.description.length > 0) {
     param.description = p.description;
   }

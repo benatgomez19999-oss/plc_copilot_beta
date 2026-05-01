@@ -51,8 +51,13 @@ export const ParameterSchema = z
     name: z.string().min(1),
     data_type: z.enum(['int', 'dint', 'real', 'bool']),
     default: z.union([z.number(), z.boolean()]),
-    min: z.number().optional(),
-    max: z.number().optional(),
+    // Sprint 97 — `.finite()` rejects `Infinity` / `-Infinity` /
+    // `NaN` so a parameter that names a range can't smuggle a
+    // non-finite bound through. The Zod check fires before the
+    // validator's `R-PR-03` rule and short-circuits with a clear
+    // schema error.
+    min: z.number().finite().optional(),
+    max: z.number().finite().optional(),
     unit: z.string().optional(),
     description: z.string().optional(),
 })
@@ -82,3 +87,4 @@ export const NamingProfileSchema = z
     io_symbol_pattern: z.string().optional(),
 })
     .strict();
+//# sourceMappingURL=common.js.map

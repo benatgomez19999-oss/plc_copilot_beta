@@ -78,6 +78,12 @@ export const CSV_CANONICAL_HEADERS = Object.freeze([
   'default',
   'unit',
   'data_type',
+  // Sprint 97 — explicit numeric bounds for setpoint parameters.
+  // Only ever consumed when the row is a `row_kind=parameter` row;
+  // device rows ignore them. Aliases map to these two canonical
+  // columns in `CSV_HEADER_ALIASES`.
+  'min',
+  'max',
 ] as const);
 
 export type CsvCanonicalHeader = (typeof CSV_CANONICAL_HEADERS)[number];
@@ -166,6 +172,15 @@ export const CSV_HEADER_ALIASES: ReadonlyMap<string, CsvCanonicalHeader> =
     ['data_type', 'data_type'],
     ['dtype', 'data_type'],
     ['datatype', 'data_type'],
+    // Sprint 97 — min / max aliases for `row_kind=parameter` rows.
+    ['min', 'min'],
+    ['minimum', 'min'],
+    ['min_value', 'min'],
+    ['range_min', 'min'],
+    ['max', 'max'],
+    ['maximum', 'max'],
+    ['max_value', 'max'],
+    ['range_max', 'max'],
   ] as const);
 
 // ---------------------------------------------------------------------------
@@ -850,6 +865,83 @@ function extractParameterRow(
     return;
   }
 
+  // Sprint 97 — optional numeric bounds. Every step is explicit:
+  // an unparseable value is rejected with a per-row diagnostic and
+  // the bound is dropped (the row keeps the rest of its metadata).
+  const minRaw = cells['min'];
+  const maxRaw = cells['max'];
+  let minValue: number | undefined;
+  if (minRaw !== undefined && minRaw.trim().length > 0) {
+    const n = Number(minRaw.trim());
+    if (Number.isFinite(n)) {
+      minValue = n;
+    } else {
+      draft.diagnostics.push(
+        createElectricalDiagnostic({
+          code: 'CSV_PARAMETER_RANGE_INVALID',
+          message: `CSV parameter row at line ${row.lineNumber} (id ${JSON.stringify(id)}) has unparseable min ${JSON.stringify(minRaw)}; bound dropped.`,
+          sourceRef: ref,
+          hint: 'set `min` to a finite number, or leave the column empty to omit the bound.',
+        }),
+      );
+    }
+  }
+  let maxValue: number | undefined;
+  if (maxRaw !== undefined && maxRaw.trim().length > 0) {
+    const n = Number(maxRaw.trim());
+    if (Number.isFinite(n)) {
+      maxValue = n;
+    } else {
+      draft.diagnostics.push(
+        createElectricalDiagnostic({
+          code: 'CSV_PARAMETER_RANGE_INVALID',
+          message: `CSV parameter row at line ${row.lineNumber} (id ${JSON.stringify(id)}) has unparseable max ${JSON.stringify(maxRaw)}; bound dropped.`,
+          sourceRef: ref,
+          hint: 'set `max` to a finite number, or leave the column empty to omit the bound.',
+        }),
+      );
+    }
+  }
+  if (
+    minValue !== undefined &&
+    maxValue !== undefined &&
+    minValue > maxValue
+  ) {
+    draft.diagnostics.push(
+      createElectricalDiagnostic({
+        code: 'CSV_PARAMETER_RANGE_INVALID',
+        message: `CSV parameter row at line ${row.lineNumber} (id ${JSON.stringify(id)}) has min ${minValue} greater than max ${maxValue}; bounds dropped.`,
+        sourceRef: ref,
+      }),
+    );
+    minValue = undefined;
+    maxValue = undefined;
+  }
+  if (
+    minValue !== undefined &&
+    defaultValue < minValue
+  ) {
+    draft.diagnostics.push(
+      createElectricalDiagnostic({
+        code: 'CSV_PARAMETER_DEFAULT_OUT_OF_RANGE',
+        message: `CSV parameter row at line ${row.lineNumber} (id ${JSON.stringify(id)}) default ${defaultValue} is below min ${minValue}; PIR R-PR-02 will reject this on build.`,
+        sourceRef: ref,
+      }),
+    );
+  }
+  if (
+    maxValue !== undefined &&
+    defaultValue > maxValue
+  ) {
+    draft.diagnostics.push(
+      createElectricalDiagnostic({
+        code: 'CSV_PARAMETER_DEFAULT_OUT_OF_RANGE',
+        message: `CSV parameter row at line ${row.lineNumber} (id ${JSON.stringify(id)}) default ${defaultValue} is above max ${maxValue}; PIR R-PR-02 will reject this on build.`,
+        sourceRef: ref,
+      }),
+    );
+  }
+
   seenIds.add(id);
   const param: PirParameterCandidate = {
     id,
@@ -861,6 +953,8 @@ function extractParameterRow(
     sourceRefs: [ref],
     confidence: confidenceOf(0.9, 'csv parameter row with explicit metadata'),
   };
+  if (minValue !== undefined) param.min = minValue;
+  if (maxValue !== undefined) param.max = maxValue;
   // Drop undefined optional keys so the candidate stays JSON-clean.
   if (param.label === undefined) delete (param as { label?: string }).label;
   if (param.unit === undefined) delete (param as { unit?: string }).unit;
@@ -871,7 +965,7 @@ function extractParameterRow(
   draft.diagnostics.push(
     createElectricalDiagnostic({
       code: 'CSV_PARAMETER_EXTRACTED',
-      message: `parameter ${JSON.stringify(id)} (${dataType}, default=${defaultValue}${param.unit ? `, unit=${param.unit}` : ''}) extracted from CSV row ${row.lineNumber}.`,
+      message: `parameter ${JSON.stringify(id)} (${dataType}, default=${defaultValue}${param.unit ? `, unit=${param.unit}` : ''}${param.min !== undefined ? `, min=${param.min}` : ''}${param.max !== undefined ? `, max=${param.max}` : ''}) extracted from CSV row ${row.lineNumber}.`,
       sourceRef: ref,
     }),
   );
