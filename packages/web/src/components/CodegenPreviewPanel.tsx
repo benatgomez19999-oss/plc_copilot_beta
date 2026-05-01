@@ -61,6 +61,13 @@ import {
   type ImportedCodegenPreviewDiffView,
 } from '../utils/codegen-preview-diff-import.js';
 import {
+  compareImportedDiffWithCurrentPreview,
+  type ArchivedArtifactComparison,
+  type ArchivedDiagnosticComparison,
+  type ArchivedPreviewComparisonTarget,
+  type ArchivedPreviewComparisonView,
+} from '../utils/codegen-preview-archive-compare.js';
+import {
   ARTIFACT_DIFF_STATUS_LABEL,
   IMPORTED_DIFF_READ_ONLY_NOTICE,
   PREVIEW_STATUS_LABEL,
@@ -149,6 +156,16 @@ export function CodegenPreviewPanel({
   const [importedFilename, setImportedFilename] = useState<string | null>(
     null,
   );
+  // Sprint 94 — archived-vs-current comparison snapshot. The view
+  // is built read-only on operator click; the refs alongside let
+  // the renderer detect when the underlying inputs have moved
+  // since the snapshot was captured (so the section can mark
+  // itself stale rather than silently lying).
+  const [comparison, setComparison] = useState<{
+    view: ArchivedPreviewComparisonView;
+    archivedRef: unknown;
+    currentRef: CodegenPreviewView;
+  } | null>(null);
   const currentSignature = useMemo(
     () => selectionSignature(project, target),
     [project, target],
@@ -238,6 +255,29 @@ export function CodegenPreviewPanel({
   const onClearImportedDiff = (): void => {
     setImported(parseCodegenPreviewDiffBundleText(''));
     setImportedFilename(null);
+    setComparison(null);
+  };
+
+  const onCompareArchiveWithCurrent = (): void => {
+    // Sprint 94 — read-only meta-compare. Build only when the
+    // panel actually has both an imported bundle and a successful
+    // current preview; the renderer guards the button identically.
+    if (imported.status !== 'loaded' || !imported.bundle) return;
+    if (phase.kind !== 'has-result') return;
+    if (!isPreviewDownloadable({ view: phase.view, stale: false })) return;
+    const view = compareImportedDiffWithCurrentPreview({
+      importedBundle: imported.bundle,
+      currentView: phase.view,
+    });
+    setComparison({
+      view,
+      archivedRef: imported.bundle,
+      currentRef: phase.view,
+    });
+  };
+
+  const onClearComparison = (): void => {
+    setComparison(null);
   };
 
   const onPreview = (): void => {
@@ -351,7 +391,26 @@ export function CodegenPreviewPanel({
         filename={importedFilename}
         onImport={onImportDiffBundle}
         onClear={onClearImportedDiff}
+        canCompare={
+          imported.status === 'loaded' &&
+          phase.kind === 'has-result' &&
+          isPreviewDownloadable({ view: phase.view, stale: false })
+        }
+        onCompare={onCompareArchiveWithCurrent}
       />
+
+      {comparison ? (
+        <ArchivedComparisonSection
+          view={comparison.view}
+          stale={
+            imported.status !== 'loaded' ||
+            imported.bundle !== comparison.archivedRef ||
+            phase.kind !== 'has-result' ||
+            phase.view !== comparison.currentRef
+          }
+          onClear={onClearComparison}
+        />
+      ) : null}
     </section>
   );
 }
@@ -808,11 +867,15 @@ function ImportedCodegenPreviewDiffSection({
   filename,
   onImport,
   onClear,
+  canCompare,
+  onCompare,
 }: {
   imported: ImportedCodegenPreviewDiffView;
   filename: string | null;
   onImport: (e: ChangeEvent<HTMLInputElement>) => void;
   onClear: () => void;
+  canCompare: boolean;
+  onCompare: () => void;
 }): JSX.Element {
   return (
     <section
@@ -831,6 +894,22 @@ function ImportedCodegenPreviewDiffSection({
               hidden
             />
           </label>
+          {imported.status === 'loaded' ? (
+            <button
+              type="button"
+              className="btn"
+              onClick={onCompare}
+              disabled={!canCompare}
+              aria-label="Compare archived diff with current preview"
+              title={
+                canCompare
+                  ? undefined
+                  : 'Run preview before comparing the archived diff with current output.'
+              }
+            >
+              Compare with current preview
+            </button>
+          ) : null}
           {imported.status === 'loaded' || imported.status === 'invalid' ? (
             <button
               type="button"
@@ -855,7 +934,15 @@ function ImportedCodegenPreviewDiffSection({
       ) : null}
 
       {imported.status === 'loaded' && imported.bundle ? (
-        <ImportedDiffBody bundle={imported.bundle} filename={filename} />
+        <>
+          <ImportedDiffBody bundle={imported.bundle} filename={filename} />
+          {!canCompare ? (
+            <p className="codegen-preview-imported-diff-compare-hint muted">
+              Run preview before comparing the archived diff with current
+              output.
+            </p>
+          ) : null}
+        </>
       ) : null}
     </section>
   );
@@ -1092,6 +1179,289 @@ function ImportedDiffDiagnosticRow({
       </span>{' '}
       <code>{d.code}</code>{' '}
       <span className="diag-message">{d.message}</span>
+    </li>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Sprint 94 — Archived diff vs. current preview comparison section
+// ---------------------------------------------------------------------------
+
+const COMPARISON_STATE_LABEL: Record<
+  ArchivedPreviewComparisonView['state'],
+  string
+> = {
+  'no-archived-diff': 'No archived diff',
+  'no-current-preview': 'No current preview',
+  'selection-mismatch': 'Selection mismatch',
+  'unchanged-against-archive': 'Same as archive',
+  'changed-against-archive': 'Changed vs archive',
+  'partially-comparable': 'Partial overlap',
+};
+
+function comparisonStatePolishToken(
+  state: ArchivedPreviewComparisonView['state'],
+): 'unchanged' | 'changed' | 'warning' | 'unavailable' | 'info' {
+  switch (state) {
+    case 'unchanged-against-archive':
+      return 'unchanged';
+    case 'changed-against-archive':
+      return 'changed';
+    case 'partially-comparable':
+      return 'info';
+    case 'selection-mismatch':
+      return 'warning';
+    case 'no-archived-diff':
+    case 'no-current-preview':
+      return 'unavailable';
+  }
+}
+
+function ArchivedComparisonSection({
+  view,
+  stale,
+  onClear,
+}: {
+  view: ArchivedPreviewComparisonView;
+  stale: boolean;
+  onClear: () => void;
+}): JSX.Element {
+  const [expandGen, setExpandGen] = useState(0);
+  const [defaultOpen, setDefaultOpen] = useState(false);
+  return (
+    <section
+      className="codegen-preview-archive-compare"
+      aria-label="Archived diff vs current preview comparison"
+    >
+      <header className="codegen-preview-archive-compare-header">
+        <h4>Archived vs current preview</h4>
+        <div className="codegen-preview-actions">
+          {view.targets.length > 0 ? (
+            <>
+              <button
+                type="button"
+                className="btn btn-subtle"
+                onClick={() => {
+                  setDefaultOpen(true);
+                  setExpandGen((g) => g + 1);
+                }}
+                aria-label="Expand all comparison target rows"
+              >
+                Expand all
+              </button>
+              <button
+                type="button"
+                className="btn btn-subtle"
+                onClick={() => {
+                  setDefaultOpen(false);
+                  setExpandGen((g) => g + 1);
+                }}
+                aria-label="Collapse all comparison target rows"
+              >
+                Collapse all
+              </button>
+            </>
+          ) : null}
+          <button
+            type="button"
+            className="btn"
+            onClick={onClear}
+            aria-label="Clear comparison"
+          >
+            Clear comparison
+          </button>
+        </div>
+      </header>
+      {stale ? (
+        <p className="codegen-preview-archive-compare-stale muted">
+          Comparison is stale — the archived diff or current preview moved
+          since this snapshot. Click <em>Compare with current preview</em>{' '}
+          again to refresh.
+        </p>
+      ) : null}
+      <p
+        className={`codegen-preview-archive-compare-summary ${statusBadgeClass(
+          comparisonStatePolishToken(view.state),
+        )}`}
+      >
+        {COMPARISON_STATE_LABEL[view.state]} — {view.summary}
+      </p>
+      <p className="codegen-preview-archive-compare-readonly muted">
+        Comparison is read-only. It does not modify the archived diff,
+        current preview, Generate, or saved session.
+      </p>
+      {view.targets.length > 0 ? (
+        <div className="codegen-preview-archive-compare-targets">
+          {view.targets.map((t) => (
+            <ArchivedComparisonTargetRow
+              key={`compare-${t.target}-${expandGen}`}
+              target={t}
+              defaultOpen={defaultOpen}
+            />
+          ))}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function ArchivedComparisonTargetRow({
+  target,
+  defaultOpen,
+}: {
+  target: ArchivedPreviewComparisonTarget;
+  defaultOpen: boolean;
+}): JSX.Element {
+  const [artifactsOpen, setArtifactsOpen] = useState(defaultOpen);
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(defaultOpen);
+  const c = target.counts;
+  const aDelta =
+    c.artifactsChanged + c.artifactsMissingCurrent + c.artifactsNewCurrent;
+  const artifactPart =
+    aDelta > 0
+      ? `${c.artifactsChanged} changed, ${c.artifactsMissingCurrent} missing, ${c.artifactsNewCurrent} new`
+      : `${c.artifactsSame} same`;
+  const dDelta = c.diagnosticsResolved + c.diagnosticsNewCurrent;
+  const diagPart =
+    dDelta > 0
+      ? `${c.diagnosticsStillPresent} still present, ${c.diagnosticsResolved} resolved, ${c.diagnosticsNewCurrent} new`
+      : `${c.diagnosticsStillPresent} still present`;
+  return (
+    <article
+      className={`codegen-preview-archive-compare-target codegen-preview-archive-compare-target--${target.status}`}
+      aria-label={`Comparison for ${target.target}`}
+    >
+      <header className="codegen-preview-diff-row-header">
+        <code className="codegen-preview-target">{target.target}</code>
+        <span
+          className={`${statusBadgeClass(
+            target.status === 'same'
+              ? 'unchanged'
+              : target.status === 'changed'
+                ? 'changed'
+                : target.status === 'not-comparable'
+                  ? 'warning'
+                  : 'info',
+          )}`}
+        >
+          {target.status.replace('-', ' ')}
+        </span>
+        {target.archivedRecordedCurrentStatus &&
+        target.currentStatus &&
+        target.archivedRecordedCurrentStatus !== target.currentStatus ? (
+          <span className="muted">
+            archived: {target.archivedRecordedCurrentStatus} → today:{' '}
+            {target.currentStatus}
+          </span>
+        ) : null}
+      </header>
+      <p className="muted">{target.summary}</p>
+      {target.artifactComparisons.length > 0 ? (
+        <details
+          className="codegen-preview-archive-compare-list"
+          open={artifactsOpen}
+          onToggle={(e) =>
+            setArtifactsOpen((e.target as HTMLDetailsElement).open)
+          }
+        >
+          <summary>
+            Artifacts · {artifactPart}
+          </summary>
+          <ul>
+            {target.artifactComparisons.map((a) => (
+              <ArchivedComparisonArtifactRow
+                key={`compare-${target.target}-a-${a.path}`}
+                artifact={a}
+              />
+            ))}
+          </ul>
+        </details>
+      ) : null}
+      {target.diagnosticComparisons.length > 0 ? (
+        <details
+          className="codegen-preview-archive-compare-list"
+          open={diagnosticsOpen}
+          onToggle={(e) =>
+            setDiagnosticsOpen((e.target as HTMLDetailsElement).open)
+          }
+        >
+          <summary>
+            Diagnostics · {diagPart}
+          </summary>
+          <ul>
+            {target.diagnosticComparisons.map((d, i) => (
+              <ArchivedComparisonDiagnosticRow
+                key={`compare-${target.target}-d-${i}-${d.diagnostic.code}`}
+                d={d}
+              />
+            ))}
+          </ul>
+        </details>
+      ) : null}
+    </article>
+  );
+}
+
+function ArchivedComparisonArtifactRow({
+  artifact,
+}: {
+  artifact: ArchivedArtifactComparison;
+}): JSX.Element {
+  const token =
+    artifact.status === 'same-hash'
+      ? 'unchanged'
+      : artifact.status === 'changed-hash'
+        ? 'changed'
+        : artifact.status === 'missing-current'
+          ? 'removed'
+          : artifact.status === 'new-current'
+            ? 'added'
+            : 'warning';
+  return (
+    <li
+      className={`codegen-preview-archive-compare-artifact codegen-preview-archive-compare-artifact--${artifact.status}`}
+    >
+      <span className={statusBadgeClass(token)}>
+        {artifact.status.replace('-', ' ')}
+      </span>{' '}
+      <code className="codegen-preview-artifact-path">{artifact.path}</code>
+      {artifact.archivedHash || artifact.currentHash ? (
+        <span className="muted codegen-preview-archive-compare-hashes">
+          {' '}
+          {artifact.archivedHash ? `archived ${artifact.archivedHash}` : ''}
+          {artifact.archivedHash && artifact.currentHash ? ' → ' : ''}
+          {artifact.currentHash ? `current ${artifact.currentHash}` : ''}
+        </span>
+      ) : null}
+    </li>
+  );
+}
+
+function ArchivedComparisonDiagnosticRow({
+  d,
+}: {
+  d: ArchivedDiagnosticComparison;
+}): JSX.Element {
+  const token =
+    d.status === 'still-present'
+      ? 'unchanged'
+      : d.status === 'resolved'
+        ? 'removed'
+        : d.status === 'new-current'
+          ? 'added'
+          : 'warning';
+  return (
+    <li className="codegen-preview-archive-compare-diagnostic">
+      <span className={statusBadgeClass(token)}>
+        {d.status.replace('-', ' ')}
+      </span>{' '}
+      <span
+        className={`${statusBadgeClass(severityPolishToken(d.diagnostic.severity))} sev-${d.diagnostic.severity}`}
+      >
+        {d.diagnostic.severity}
+      </span>{' '}
+      <code>{d.diagnostic.code}</code>{' '}
+      <span className="diag-message">{d.diagnostic.message}</span>
     </li>
   );
 }

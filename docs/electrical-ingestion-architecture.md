@@ -1,13 +1,14 @@
 # Electrical-plan ingestion architecture
 
-> **Status: visual polish for preview / diff panels in
-> `@plccopilot/web` (Sprint 93); imported preview diff view in
-> `@plccopilot/web` (Sprint 92); controlled codegen preview diff
-> download bundle in `@plccopilot/web` (Sprint 91); controlled
-> codegen preview diff UX in `@plccopilot/web` (Sprint 90B);
-> controlled codegen preview download bundle in `@plccopilot/web`
-> (Sprint 90A); controlled codegen preview UX in `@plccopilot/web`
-> (Sprint 89); structured EPLAN + TcECAD XML parameter extraction
+> **Status: archived diff vs current preview comparison in
+> `@plccopilot/web` (Sprint 94); visual polish for preview / diff
+> panels in `@plccopilot/web` (Sprint 93); imported preview diff
+> view in `@plccopilot/web` (Sprint 92); controlled codegen
+> preview diff download bundle in `@plccopilot/web` (Sprint 91);
+> controlled codegen preview diff UX in `@plccopilot/web` (Sprint
+> 90B); controlled codegen preview download bundle in
+> `@plccopilot/web` (Sprint 90A); controlled codegen preview UX
+> in `@plccopilot/web` (Sprint 89); structured EPLAN + TcECAD XML parameter extraction
 > (Sprint 88M); CSV parameter extraction (Sprint 88L); cross-
 > renderer `motor_vfd_simple` parity bar (Sprint 88K); universal
 > vendor support after 88H/88I/88J (CODESYS/Siemens/Rockwell);
@@ -589,6 +590,75 @@ This keeps both branches of the strategic requirement — structured
 ECAD exports today and PDF documents tomorrow — funnelling through
 the same review/persist/export model. A weak prompt cannot
 override that model: it has no surface area in any of these layers.
+
+## Sprint 94 — Compare archived diff with current preview
+
+Closes the audit cycle that Sprints 91 → 92 opened: the operator
+can take a Sprint 91 archived diff JSON, import it (Sprint 92),
+run a fresh preview (Sprint 89), and click *Compare with current
+preview* to render a deterministic read-only meta-compare next to
+the archived section. The vendor pipeline is never re-run, the
+archived diff is never mutated, the live diff slots / applied
+project / Generate / canonical export bundle / `localStorage`
+schema are all unchanged.
+
+The new pure helper
+[`packages/web/src/utils/codegen-preview-archive-compare.ts`](../packages/web/src/utils/codegen-preview-archive-compare.ts)
+exports `compareImportedDiffWithCurrentPreview` plus the public
+type tree (`ArchivedPreviewComparisonView`,
+`ArchivedPreviewComparisonState`,
+`ArchivedPreviewComparisonTarget`,
+`ArchivedTargetComparisonStatus`,
+`ArchivedArtifactComparison`,
+`ArchivedArtifactComparisonStatus`,
+`ArchivedDiagnosticComparison`,
+`ArchivedDiagnosticComparisonStatus`,
+`ArchivedTargetCounts`,
+`ArchivedPreviewComparisonCounts`). DOM-free, total,
+deterministic; never mutates inputs. No new diff algorithm:
+artifact identity reuses Sprint 90B's `deterministicContentHash`
+FNV-1a; diagnostic identity reuses the
+`severity|code|message|path|hint` tuple Sprints 90B / 91 / 92
+already use. Targets sort siemens → codesys → rockwell to mirror
+Sprint 90B; artifacts sort by path inside each target;
+diagnostics sort by severity → status → code → message. Selection
+mismatch is surfaced honestly — `selection-mismatch` when no
+overlap, `partially-comparable` when at least one target overlaps,
+`unchanged-against-archive` / `changed-against-archive` when the
+backends match.
+
+The panel
+([`packages/web/src/components/CodegenPreviewPanel.tsx`](../packages/web/src/components/CodegenPreviewPanel.tsx))
+adds a *Compare with current preview* button to the *Archived
+diff* header (enabled only when an imported bundle is loaded AND
+the current preview is a Sprint 90A downloadable view), and a new
+sibling `<ArchivedComparisonSection>` rendered beneath the
+archived section. The comparison snapshot stores refs to the
+bundle and the preview view it was built against; when either
+moves (operator imports a different bundle, refreshes preview),
+the section marks itself stale and prompts the operator to click
+Compare again. *Clear comparison* drops the snapshot. The Sprint
+93 polish primitives (Expand all / Collapse all,
+`statusBadgeClass`, unified palette) are reused — no new badge
+colors, no layout redesign.
+
+29 helper-level tests in
+[`packages/web/tests/codegen-preview-archive-compare.spec.ts`](../packages/web/tests/codegen-preview-archive-compare.spec.ts)
+cover null inputs, identity / unchanged, every artifact transition
+(`same-hash` / `changed-hash` / `missing-current` / `new-current`
+/ `not-comparable`), every target transition (`same` / `changed`
+/ `missing-current` / `missing-archived` / `not-comparable` for
+blocked / failed current), every diagnostic transition
+(`still-present` / `resolved` / `new-current` plus duplicate
+dedupe), selection match / mismatch with and without overlap,
+target-order stability, artifact-path sort within target,
+immutability + byte-stable repeated calls, full-content hash
+fidelity past Sprint 89's snippet caps, and privacy negative
+assertions (no `"content"` key in the comparison JSON, no raw
+source markers, no `pir_version`). See
+[`docs/codegen-preview-archive-compare-sprint-94.md`](codegen-preview-archive-compare-sprint-94.md)
+for the full state machine, examples, and manual verification
+checklist.
 
 ## Sprint 93 — Visual polish for preview / diff panels
 

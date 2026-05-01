@@ -1845,3 +1845,89 @@ table.kv td {
   background: var(--bg-elevated);
   color: var(--text);
 }
+
+/* Sprint 94 — archived diff vs current preview comparison section */
+.codegen-preview-archive-compare {
+  margin-top: 16px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.codegen-preview-archive-compare h4 {
+  margin: 0 0 4px 0;
+  font-size: 0.95em;
+}
+.codegen-preview-archive-compare-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.codegen-preview-archive-compare-summary {
+  display: inline-block;
+  margin: 6px 0;
+  padding: 4px 8px;
+  font-size: 0.95em;
+}
+.codegen-preview-archive-compare-readonly {
+  font-size: 0.85em;
+  background: var(--bg-elevated);
+  border-left: 3px solid var(--border);
+  border-radius: 3px;
+  padding: 4px 8px;
+  margin: 4px 0 8px 0;
+}
+.codegen-preview-archive-compare-stale {
+  background: #fef3c7;
+  color: #92400e;
+  border-left: 3px solid #d97706;
+  border-radius: 3px;
+  padding: 4px 8px;
+  margin: 4px 0;
+}
+.codegen-preview-archive-compare-targets {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.codegen-preview-archive-compare-target {
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--border);
+  border-radius: 4px;
+  padding: 6px 8px;
+}
+.codegen-preview-archive-compare-target--same {
+  border-left-color: var(--border);
+}
+.codegen-preview-archive-compare-target--changed {
+  border-left-color: #2563eb;
+}
+.codegen-preview-archive-compare-target--missing-current {
+  border-left-color: #dc2626;
+}
+.codegen-preview-archive-compare-target--missing-archived {
+  border-left-color: #16a34a;
+}
+.codegen-preview-archive-compare-target--not-comparable {
+  border-left-color: #d97706;
+}
+.codegen-preview-archive-compare-list ul {
+  list-style: none;
+  padding: 4px 0 0 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.codegen-preview-archive-compare-artifact,
+.codegen-preview-archive-compare-diagnostic {
+  padding: 2px 0;
+}
+.codegen-preview-archive-compare-hashes {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.8em;
+}
+.codegen-preview-imported-diff-compare-hint {
+  font-size: 0.85em;
+  margin: 6px 0 0 0;
+}

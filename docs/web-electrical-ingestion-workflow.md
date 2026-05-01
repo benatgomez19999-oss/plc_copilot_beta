@@ -1,7 +1,7 @@
-# Web electrical-ingestion workflow — Sprint 77 → … → 93
+# Web electrical-ingestion workflow — Sprint 77 → … → 94
 
 > **Status: end-to-end pipeline live in `@plccopilot/web`
-> (Sprint 77 → 78A → 78B → 79 → 80 → 81 → 82 → 87B → 89 → 90A → 90B → 91 → 92 → 93).**
+> (Sprint 77 → 78A → 78B → 79 → 80 → 81 → 82 → 87B → 89 → 90A → 90B → 91 → 92 → 93 → 94).**
 > CSV / EPLAN XML / TcECAD XML / **PDF (real text-layer + IO-list
 > table extraction + Sprint 82 address strictness)** → review →
 > PIR preview → **local persistence + downloadable artefacts**,
@@ -51,10 +51,26 @@
 > `status-badge--<token>` palette gives the same colour to the
 > same status across readiness / preview / live diff / archived
 > diff. No bundle / contract / Generate / worker / localStorage
-> / canonical export-bundle change. Preview, download bundle,
-> diff, diff bundle, imported diff, and the new expand state
-> are never automatic, never persisted to localStorage, and
-> never included in export bundles.
+> / canonical export-bundle change. **Sprint 94** then closes
+> the audit cycle by adding a *Compare with current preview*
+> button to the archived diff section: the operator runs a
+> fresh preview, clicks Compare, and the panel renders a
+> deterministic read-only meta-compare (an
+> `ArchivedPreviewComparisonView` produced by a pure helper
+> `compareImportedDiffWithCurrentPreview`) showing per-target
+> drift — `same-hash` / `changed-hash` / `missing-current` /
+> `new-current` artifact transitions plus `still-present` /
+> `resolved` / `new-current` diagnostic transitions. Selection
+> mismatch surfaces as `selection-mismatch` (no overlap) or
+> `partially-comparable` (some overlap). The snapshot stores
+> refs to the bundle + preview it was built against and marks
+> itself stale when either moves. *Clear comparison* drops the
+> snapshot. No vendor-pipeline re-run on Compare; no archived-
+> bundle mutation; no Generate / worker / canonical export-
+> bundle / localStorage change. Preview, download bundle, diff,
+> diff bundle, imported diff, expand state, and the new
+> comparison snapshot are never automatic, never persisted to
+> localStorage, and never included in export bundles.
 > **Sprint 82** is a
 > safety/hardening sprint: isolated Beckhoff-style channel
 > markers (`I1`, `O2`, `%I1`) are no longer promoted to
