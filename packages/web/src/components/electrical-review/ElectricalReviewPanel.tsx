@@ -20,6 +20,7 @@ import { AssumptionsPanel } from './AssumptionsPanel.js';
 import { ElectricalDiagnosticsList } from './ElectricalDiagnosticsList.js';
 import { EquipmentCandidateReviewTable } from './EquipmentCandidateReviewTable.js';
 import { IoCandidateReviewTable } from './IoCandidateReviewTable.js';
+import { ParameterCandidateReviewTable } from './ParameterCandidateReviewTable.js';
 
 export interface ElectricalReviewPanelProps {
   candidate: PirDraftCandidate;
@@ -75,11 +76,13 @@ export function ElectricalReviewPanel({
     [candidate, state],
   );
 
+  const parameters = candidate.parameters ?? [];
   const isEmpty =
     candidate.io.length === 0 &&
     candidate.equipment.length === 0 &&
     candidate.assumptions.length === 0 &&
-    candidate.diagnostics.length === 0;
+    candidate.diagnostics.length === 0 &&
+    parameters.length === 0;
 
   return (
     <section
@@ -133,6 +136,25 @@ export function ElectricalReviewPanel({
           <h3>Equipment candidates ({candidate.equipment.length})</h3>
           <EquipmentCandidateReviewTable
             equipment={candidate.equipment}
+            state={state}
+            onDecide={handleDecide}
+          />
+        </section>
+      ) : null}
+
+      {parameters.length > 0 ? (
+        <section
+          className="electrical-review-section"
+          aria-label="Parameter candidates"
+        >
+          <h3>Parameter candidates ({parameters.length})</h3>
+          <p className="muted">
+            Parameter metadata (data type, default, unit, min, max) is
+            shown below as ingested. Sprint 97's PIR R-PR-03 enforces
+            range / unit coherence on build; this view is read-only.
+          </p>
+          <ParameterCandidateReviewTable
+            parameters={parameters}
             state={state}
             onDecide={handleDecide}
           />

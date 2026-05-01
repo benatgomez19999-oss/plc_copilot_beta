@@ -1,7 +1,7 @@
-# Web electrical-ingestion workflow — Sprint 77 → … → 97
+# Web electrical-ingestion workflow — Sprint 77 → … → 98
 
 > **Status: end-to-end pipeline live in `@plccopilot/web`
-> (Sprint 77 → 78A → 78B → 79 → 80 → 81 → 82 → 87B → 89 → 90A → 90B → 91 → 92 → 93 → 94 → 95 → 96 → 97).**
+> (Sprint 77 → 78A → 78B → 79 → 80 → 81 → 82 → 87B → 89 → 90A → 90B → 91 → 92 → 93 → 94 → 95 → 96 → 97 → 98).**
 > CSV / EPLAN XML / TcECAD XML / **PDF (real text-layer + IO-list
 > table extraction + Sprint 82 address strictness)** → review →
 > PIR preview → **local persistence + downloadable artefacts**,
@@ -108,9 +108,27 @@
 > `STRUCTURED_PARAMETER_DEFAULT_OUT_OF_RANGE`) at ingestion and
 > surface as `R-PR-02` errors at PIR build. No automatic
 > scaling, no unit conversion, no runtime clamps; vendor
-> renderers (CODESYS / Siemens / Rockwell) untouched. Web
-> review surface unchanged in v0 — operators see existing
-> parameter cards.
+> renderers (CODESYS / Siemens / Rockwell) untouched. **Sprint
+> 98** then closes the review-UX gap that Sprint 97 opened: a
+> new *Parameter candidates* section in the electrical review
+> panel renders one card per `PirParameterCandidate` with
+> dtype / default / unit / range columns, a Sprint 93 unified-
+> palette badge row (`Range` / `No range` / `Unit Hz` / `No
+> unit` / `Missing default` / `Default outside range` /
+> `Invalid range metadata`), and an expand-to-see-more
+> `<details>` block carrying id / data type / default / unit
+> / min / max in stable order. Decision controls + source-ref
+> drilldown mirror the IO table exactly. The badges are
+> advisory — they don't change `isReadyForPirBuilder`, don't
+> add diagnostic codes, and don't touch review-state
+> semantics; existing CSV / structured / PIR-build diagnostics
+> keep appearing in their existing locations. Helper-driven
+> formatters tolerate missing / non-finite metadata without
+> crashing. Backwards-compatible: candidates without
+> `parameters` skip the section entirely; old session
+> snapshots load identically. No PIR / codegen / electrical-
+> ingest / worker / canonical export-bundle / localStorage
+> change.
 > **Sprint 82** is a
 > safety/hardening sprint: isolated Beckhoff-style channel
 > markers (`I1`, `O2`, `%I1`) are no longer promoted to

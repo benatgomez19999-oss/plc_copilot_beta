@@ -1970,3 +1970,70 @@ table.kv td {
   padding: 6px 8px;
   margin: 4px 0;
 }
+
+/* Sprint 98 — parameter candidate review card */
+.review-table--parameter td {
+  vertical-align: top;
+  padding: 6px 8px;
+}
+.parameter-review-id {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.9em;
+  font-weight: 600;
+}
+.parameter-review-label {
+  margin: 2px 0 0 0;
+  font-size: 0.85em;
+}
+.parameter-review-summary {
+  margin: 0 0 2px 0;
+  font-weight: 500;
+}
+.parameter-review-range {
+  margin: 0;
+  font-size: 0.85em;
+}
+.parameter-review-range code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.95em;
+  background: var(--bg-elevated);
+  padding: 0 4px;
+  border-radius: 3px;
+}
+.parameter-review-badges {
+  white-space: normal;
+}
+.parameter-review-badge-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.parameter-review-details {
+  margin: 4px 0 8px 0;
+  padding: 4px 8px;
+  background: var(--bg-elevated);
+  border-left: 3px solid var(--border);
+  border-radius: 3px;
+}
+.parameter-review-details summary {
+  cursor: pointer;
+  font-size: 0.85em;
+  color: var(--muted);
+}
+.parameter-review-detail-rows {
+  list-style: none;
+  padding: 4px 0 0 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.parameter-review-detail-row {
+  font-size: 0.85em;
+}
+.parameter-review-detail-label {
+  color: var(--muted);
+}

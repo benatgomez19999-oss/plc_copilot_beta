@@ -1,6 +1,8 @@
 # Electrical-plan ingestion architecture
 
-> **Status: parameter range / unit validation v0
+> **Status: parameter review UX polish in `@plccopilot/web`
+> (Sprint 98 — dedicated parameter cards under the electrical
+> review panel); parameter range / unit validation v0
 > (Sprint 97 — `min` / `max` extraction + R-PR-03 unit role
 > policy); imported archive-comparison view in
 > `@plccopilot/web` (Sprint 96); download archive-comparison
@@ -595,6 +597,64 @@ This keeps both branches of the strategic requirement — structured
 ECAD exports today and PDF documents tomorrow — funnelling through
 the same review/persist/export model. A weak prompt cannot
 override that model: it has no surface area in any of these layers.
+
+## Sprint 98 — Parameter review UX polish
+
+Adds a dedicated *Parameter candidates* section to the
+Electrical review panel
+([`packages/web/src/components/electrical-review/ElectricalReviewPanel.tsx`](../packages/web/src/components/electrical-review/ElectricalReviewPanel.tsx)).
+A new pure helper
+[`packages/web/src/utils/parameter-review-view.ts`](../packages/web/src/utils/parameter-review-view.ts)
+projects a `PirParameterCandidate` into renderer-friendly
+strings (`dataTypeLabel`, `defaultLabel`, `unitLabel`,
+`rangeLabel`, `summary`, ordered `detailRows`) plus Sprint 93
+unified-palette badges (`Range` / `No range` / `Invalid range
+metadata` / `Unit X` / `No unit` / `Missing default` / `Invalid
+default` / `Default outside range`). The new thin component
+[`ParameterCandidateReviewTable`](../packages/web/src/components/electrical-review/ParameterCandidateReviewTable.tsx)
+renders one row per candidate with the same decision controls,
+confidence badge, and source-ref drilldown the IO table uses.
+
+The helper is pure / DOM-free / total / deterministic; never
+mutates inputs. Tolerates undefined / `NaN` / `Infinity` /
+non-numeric junk on every field without throwing — the resulting
+view always carries human-readable placeholder strings so the
+card stays scannable even on partial data. Range formatting
+emits `min–max` (en-dash) with degraded fallbacks `≥ min` /
+`≤ max` / `<value>` (when `min === max`) / `No range` /
+`Invalid range metadata`. Summary line follows the format
+`Real · default 50 · Hz · range 0–60`, degrading phrase by
+phrase when fields are missing.
+
+Status badges are advisory: they reflect what the candidate
+carries, but do not change `isReadyForPirBuilder`, do not modify
+review-state semantics, and do not produce new diagnostic codes.
+Existing ingestion diagnostics
+(`CSV_PARAMETER_DEFAULT_OUT_OF_RANGE`,
+`STRUCTURED_PARAMETER_RANGE_INVALID`, …) and PIR validation
+errors (R-PR-02 / R-PR-03) keep appearing in their existing
+locations unchanged.
+
+29 helper-level tests in
+[`packages/web/tests/parameter-review-view.spec.ts`](../packages/web/tests/parameter-review-view.spec.ts)
+cover dtype labels (real / int / dint / bool / unknown), default
+formatter (integer / float / `NaN` / `Infinity` / undefined), unit
+formatter (explicit / empty / whitespace-only), range formatter
+(every shape: full / min-only / max-only / min === max / none /
+invalid), badge token mapping (every condition table entry
+above), summary formatting across happy + degraded inputs,
+detail-row order, label fallback, no input mutation, two-call
+deep-equal, and unknown-field stripping.
+
+Web-only. No PIR / codegen-core / vendor / electrical-ingest /
+CLI / worker / canonical Generate / canonical export-bundle /
+`localStorage` change. No new validation semantics. No new
+bundle format. Backwards-compatible: candidates without
+`parameters` (or with an empty array) skip the parameter section
+entirely; old session snapshots load identically. See
+[`docs/parameter-review-ux-sprint-98.md`](parameter-review-ux-sprint-98.md)
+for the full format table, badge matrix, and manual verification
+checklist.
 
 ## Sprint 97 — Parameter range / unit validation v0
 
